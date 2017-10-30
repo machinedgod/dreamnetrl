@@ -10,7 +10,9 @@ module Dreamnet.Dreamnet
 import Control.Monad.IO.Class
 import Control.Lens
 import Control.Monad.State
-import Data.Char (ord)
+import Data.Char  (ord)
+import Data.List  (elemIndex)
+import Data.Maybe (fromMaybe)
 import Linear
 
 import UI.HSCurses.Curses
@@ -20,10 +22,26 @@ import qualified Config.Dyre        as Dyre
 
 --------------------------------------------------------------------------------
 
+data Map = Map {
+      _m_width ∷ Word
+    , _m_height ∷ Word
+    , _m_data ∷ [Char]
+    }
+
+makeLenses ''Map
+
+
+data Visibility = Visible
+                | Known
+                | Unknown
+                deriving (Eq, Show)
+
+
 data Game = Game {
       _g_playerPos ∷ V2 Int
     , _g_keepRunning ∷ Bool
-    , _g_map ∷ String
+    , _g_map ∷ Map
+    , _g_visible ∷ [Visibility]
     }
 
 makeLenses ''Game
@@ -58,6 +76,7 @@ data Object = OuterWall
             | OpenedDoor
             | ClosedDoor
             deriving (Eq, Show)
+
 
 asciiTable = [ ('═', OuterWall)
              , ('║', OuterWall)
@@ -96,12 +115,28 @@ newtype DreamnetGameF a = DreamnetGameF { runDreamnetGame ∷ StateT Game IO a }
                         deriving (Functor, Applicative, Monad, MonadState Game, MonadIO)
 
 
+loadMap ∷ FilePath → IO Map
+loadMap fp = do
+    str ← readFile fp
+    let w = fromMaybe 0 $ elemIndex '\n' str
+        h = length str - w
+    return $ Map (fromIntegral w) (fromIntegral h) (filter (/='\n') str)
+
+
+initVisibility ∷ Map → V2 Int → [Visibility]
+initVisibility m v = replicate (squareSize m) Unknown 
+    where
+        squareSize m = fromIntegral $ m^.m_width * m^.m_height
+
 
 dreamnet ∷ DesignData → IO ()
 dreamnet d = do
-    map ← readFile "res/map1"
     initCurses
-    flip evalStateT (Game (V2 1 1) True map) $ runDreamnetGame $ do
+
+    let pp = V2 1 1
+    map ← loadMap "res/map1"
+    let vis = initVisibility map pp
+    flip evalStateT (Game pp True map vis) $ runDreamnetGame $ do
         drawInitial map
         gameLoop
     endWin
@@ -118,21 +153,33 @@ dreamnet d = do
             liftIO $ refresh
 
 
-drawMap ∷ String → DreamnetGameF ()
-drawMap = liftIO . mvWAddStr stdScr 0 0
+drawMap ∷ Map → DreamnetGameF ()
+drawMap m = mapM_ drawTile $ zip [0..] (m^.m_data)
+    where
+        drawTile ∷ (Int, Char) → DreamnetGameF ()
+        drawTile (i, c) = do
+            vis ← use g_visible
+            let (V2 x y) = coordLin i (m^.m_width)
+            if (vis !! i /= Unknown)
+                then liftIO $ mvAddCh y x (fromIntegral $ ord c)
+                else liftIO $ mvAddCh y x (fromIntegral $ ord ' ')
 
 
 drawPlayer ∷ V2 Int → DreamnetGameF ()
 drawPlayer (V2 x y) = liftIO $ mvAddCh y x (fromIntegral $ ord '@')
 
 
-linearMapCoord ∷ V2 Int → Int
-linearMapCoord (V2 x y) = y * 81 + x
+linCoord ∷ V2 Int → Word → Int
+linCoord (V2 x y) w = y * (fromIntegral w) + x
+
+
+coordLin ∷ Int → Word → V2 Int
+coordLin i w = V2 (i `mod` (fromIntegral w)) (i `div` (fromIntegral w))
 
 
 -- TODO so fucking shaky :-D
 charAt ∷ V2 Int → DreamnetGameF Char
-charAt v = uses g_map (!! linearMapCoord v)
+charAt v = uses g_map (\m → (m^.m_data) !! linCoord v (m^.m_width))
 
 
 changeObject ∷ V2 Int → Object → DreamnetGameF ()
@@ -141,7 +188,9 @@ changeObject v o = let c =  maybe '.' id $ lookup o $ flipTuple <$> asciiTable
     where
         flipTuple (x, y) = (y, x)
         changeMap ∷ V2 Int → Char → DreamnetGameF ()
-        changeMap v c = g_map %= (element (linearMapCoord v) .~ c)
+        changeMap v c = do
+            w ← use (g_map.m_width)
+            g_map.m_data %= (element (linCoord v w) .~ c)
 
 
 movePlayer ∷ V2 Int → DreamnetGameF ()
@@ -204,6 +253,19 @@ closeDoor = do
         _ → return ()
 
 
+updateVisible ∷ DreamnetGameF ()
+updateVisible = do
+    pp ← use g_playerPos
+    m  ← use g_map
+    let ms = (m^.m_width) * (m^.m_height)
+        l  = replicate (fromIntegral ms) Visible
+    g_visible %= (\ov → fmap (\(n, o) → n `vsum` o) $ zip l ov)
+    where
+        vsum Unknown o = o
+        vsum Visible _ = Visible
+        vsum n       o = n
+
+
 gameLoop ∷ DreamnetGameF ()
 gameLoop = do
     k ← liftIO $ getCh
@@ -224,7 +286,7 @@ gameLoop = do
 
         _           → return ()
 
-
+    updateVisible
     use g_map >>= drawMap
     use g_playerPos >>= drawPlayer
     liftIO $ refresh
