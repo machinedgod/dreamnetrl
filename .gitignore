@@ -1,0 +1,6 @@
+.cabal-sandbox/
+Setup.hs
+TAGS
+cabal.sandbox.config
+dist/
+tags
