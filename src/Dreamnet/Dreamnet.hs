@@ -75,10 +75,20 @@ asciiTable = [ ('═', OuterWall)
              , ('╳', Spawn)
              , ('#', Table)
              , ('%', Chair)
-             , ('/', OpenedDoor)
-             , ('\\', OpenedDoor)
-             , ('d', ClosedDoor)
+             , ('\'', OpenedDoor)
+             , ('+', ClosedDoor)
              ]
+
+
+isPassable ∷ Object → Bool
+isPassable OuterWall  = False
+isPassable InnerWall  = False
+isPassable Floor      = True
+isPassable Spawn      = True
+isPassable Table      = False
+isPassable Chair      = True
+isPassable OpenedDoor = True
+isPassable ClosedDoor = False
 
 --------------------------------------------------------------------------------
 
@@ -90,54 +100,133 @@ newtype DreamnetGameF a = DreamnetGameF { runDreamnetGame ∷ StateT Game IO a }
 dreamnet ∷ DesignData → IO ()
 dreamnet d = do
     map ← readFile "res/map1"
-
-    initScr
-    raw    True
-    echo   False
-    keypad stdScr True
-    cursSet CursorInvisible
-
-    drawMap    map
-    drawPlayer (V2 1 1)
-
-    evalStateT (runDreamnetGame gameLoop) $ Game (V2 1 1) True map
-
+    initCurses
+    flip evalStateT (Game (V2 1 1) True map) $ runDreamnetGame $ do
+        drawInitial map
+        gameLoop
     endWin
+    where
+        initCurses = do
+            initScr
+            raw    True
+            echo   False
+            keypad stdScr True
+            cursSet CursorInvisible
+        drawInitial m = do
+            drawMap m
+            drawPlayer (V2 1 1)
+            liftIO $ refresh
 
 
-drawMap ∷ (MonadIO m) ⇒ String → m ()
+drawMap ∷ String → DreamnetGameF ()
 drawMap = liftIO . mvWAddStr stdScr 0 0
 
 
-drawPlayer ∷ (MonadIO m) ⇒ V2 Int → m ()
+drawPlayer ∷ V2 Int → DreamnetGameF ()
 drawPlayer (V2 x y) = liftIO $ mvAddCh y x (fromIntegral $ ord '@')
+
+
+linearMapCoord ∷ V2 Int → Int
+linearMapCoord (V2 x y) = y * 81 + x
+
+
+-- TODO so fucking shaky :-D
+charAt ∷ V2 Int → DreamnetGameF Char
+charAt v = uses g_map (!! linearMapCoord v)
+
+
+changeObject ∷ V2 Int → Object → DreamnetGameF ()
+changeObject v o = let c =  maybe '.' id $ lookup o $ flipTuple <$> asciiTable
+                   in  changeMap v c
+    where
+        flipTuple (x, y) = (y, x)
+        changeMap ∷ V2 Int → Char → DreamnetGameF ()
+        changeMap v c = g_map %= (element (linearMapCoord v) .~ c)
+
+
+movePlayer ∷ V2 Int → DreamnetGameF ()
+movePlayer v = do
+    npp ← uses g_playerPos (+v)
+    c   ← charAt npp
+    when (maybe True isPassable $ lookup c asciiTable) $
+        g_playerPos += v
+
+
+debugPrint ∷ String → DreamnetGameF ()
+debugPrint = liftIO . mvWAddStr stdScr 41 2
+
+
+messagePrint ∷ String → DreamnetGameF ()
+messagePrint = liftIO . mvWAddStr stdScr 40 2
+
+
+openDoor ∷ DreamnetGameF ()
+openDoor = do
+    messagePrint "Which direction?"
+    k ← liftIO $ getCh
+    let v = case k of
+                KeyChar 'h' → V2 -1  0
+                KeyChar 'j' → V2  0  1
+                KeyChar 'k' → V2  0 -1
+                KeyChar 'l' → V2  1  0
+                KeyChar 'y' → V2 -1 -1
+                KeyChar 'u' → V2  1 -1
+                KeyChar 'b' → V2 -1  1
+                KeyChar 'n' → V2  1  1
+
+    dp ← uses g_playerPos (+v)
+    o  ← (`lookup` asciiTable) <$> charAt dp
+
+    case o of
+        (Just ClosedDoor) → changeObject dp OpenedDoor
+        _ → return ()
+
+
+closeDoor ∷ DreamnetGameF ()
+closeDoor = do
+    messagePrint "Which direction?"
+    k ← liftIO $ getCh
+    let v = case k of
+                KeyChar 'h' → V2 -1  0
+                KeyChar 'j' → V2  0  1
+                KeyChar 'k' → V2  0 -1
+                KeyChar 'l' → V2  1  0
+                KeyChar 'y' → V2 -1 -1
+                KeyChar 'u' → V2  1 -1
+                KeyChar 'b' → V2 -1  1
+                KeyChar 'n' → V2  1  1
+
+    dp ← uses g_playerPos (+v)
+    o  ← (`lookup` asciiTable) <$> charAt dp
+
+    case o of
+        (Just OpenedDoor) → changeObject dp ClosedDoor
+        _ → return ()
 
 
 gameLoop ∷ DreamnetGameF ()
 gameLoop = do
     k ← liftIO $ getCh
     case k of
-        KeyChar 'h' → g_playerPos += V2 -1  0
-        KeyChar 'j' → g_playerPos += V2  0  1 
-        KeyChar 'k' → g_playerPos += V2  0 -1 
-        KeyChar 'l' → g_playerPos += V2  1  0 
-        KeyChar 'y' → g_playerPos += V2 -1 -1
-        KeyChar 'u' → g_playerPos += V2  1 -1 
-        KeyChar 'b' → g_playerPos += V2 -1  1 
-        KeyChar 'n' → g_playerPos += V2  1  1 
+        KeyChar 'h' → movePlayer (V2 -1  0)
+        KeyChar 'j' → movePlayer (V2  0  1) 
+        KeyChar 'k' → movePlayer (V2  0 -1) 
+        KeyChar 'l' → movePlayer (V2  1  0) 
+        KeyChar 'y' → movePlayer (V2 -1 -1)
+        KeyChar 'u' → movePlayer (V2  1 -1) 
+        KeyChar 'b' → movePlayer (V2 -1  1) 
+        KeyChar 'n' → movePlayer (V2  1  1) 
+
+        KeyChar 'o' → openDoor
+        KeyChar 'c' → closeDoor
 
         KeyChar 'q' → g_keepRunning .= False
 
         _           → return ()
 
-    map ← use g_map
-    drawMap map
 
-    pp  ← use g_playerPos
-    drawPlayer pp
-
+    use g_map >>= drawMap
+    use g_playerPos >>= drawPlayer
     liftIO $ refresh
-
-    r ← use g_keepRunning
-    when r gameLoop
+    use g_keepRunning >>= (`when` gameLoop)
 
