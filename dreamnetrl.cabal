@@ -60,12 +60,13 @@ executable dreamnetrl
   
   -- Other library packages from which modules are imported.
   build-depends:       base,
+                       transformers,
                        mtl,
                        containers,
                        lens,
                        dyre,
                        linear,
-                       hscurses
+                       ncurses
   
   -- Directories containing source files.
   hs-source-dirs:      src

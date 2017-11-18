@@ -8,15 +8,17 @@ where
 import Control.Monad.IO.Class
 import Control.Lens
 import Control.Monad.State
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Class
+
+import Data.Bool  (bool)
 import Data.Char  (ord)
-import Data.List  (elemIndex, nub)
+import Data.List  (elemIndex, nub, unfoldr)
 import Data.Maybe (fromMaybe)
+import qualified Data.Set    as Set
 import Linear
 
-import UI.HSCurses.Curses
-import UI.HSCurses.CursesHelper
-
-import qualified Data.Set    as Set
+import UI.NCurses
 import qualified Config.Dyre as Dyre
 
 --------------------------------------------------------------------------------
@@ -110,8 +112,7 @@ isPassable ClosedDoor = False
 
 --------------------------------------------------------------------------------
 
-newtype DreamnetGameF a = DreamnetGameF { runDreamnetGame ∷ StateT Game IO a }
-                        deriving (Functor, Applicative, Monad, MonadState Game, MonadIO)
+type DreamnetGameF = StateT Game Curses
 
 
 loadMap ∷ FilePath → IO Map
@@ -124,27 +125,25 @@ loadMap fp = do
 
 dreamnet ∷ DesignData → IO ()
 dreamnet d = do
-    initCurses
-
-    let pp = V2 1 1
-    map ← loadMap "res/map1"
-    let initGame = Game pp True map (initVisibility map pp)
-    flip evalStateT initGame $ runDreamnetGame $ do
-        drawInitial map
-        gameLoop
-    endWin
+    m ← loadMap "res/map1"
+    runCurses (dreamnetCurses m)
     where
+        dreamnetCurses map = do
+            initCurses
+            let pp = V2 1 1
+            let initGame = Game pp True map (initVisibility map pp)
+            flip evalStateT initGame $ do
+                drawInitial map
+                gameLoop
         initCurses = do
-            initScr
-            raw        True
-            echo       False
-            keypad     stdScr True
-            cursSet    CursorInvisible
-            --startColor
+            setRaw     True
+            setEcho    False
+            defaultWindow >>= (`setKeypad` True)
+            setCursorMode CursorInvisible
         drawInitial m = do
             drawMap
             drawPlayer
-            liftIO $ refresh
+            lift render
         initVisibility m v = replicate (squareSize m) Unknown 
         squareSize m = fromIntegral $ m^.m_width * m^.m_height
 
@@ -158,16 +157,28 @@ drawMap = do
         drawTile w (i, c) = do
             vis ← use g_visible
             let (V2 x y) = coordLin i w
-            liftIO $ case vis !! i of
-                        Unknown → mvAddCh y x (fromIntegral $ ord ' ')
-                        Known   → attrDimOn >> mvAddCh y x (fromIntegral $ ord c) >> attrDimOff
-                        Visible → mvAddCh y x (fromIntegral $ ord c)
+            uncurry (drawCharAt x y) $ case vis !! i of
+                 Unknown → (' ', [])
+                 Known   → (c,   [AttributeDim])
+                 Visible → (c,   [])
+
+
+drawCharAt ∷ (Integral a) ⇒ a → a → Char → [Attribute] → DreamnetGameF ()
+drawCharAt x y c s = lift $ defaultWindow >>= \w → updateWindow w $ do
+    moveCursor (fromIntegral y) (fromIntegral x)
+    drawGlyph (Glyph c s)
+
+
+drawStringAt ∷ (Integral a) ⇒ a → a → String → DreamnetGameF ()
+drawStringAt x y s = lift $ defaultWindow >>= \w → updateWindow w $ do
+    moveCursor (fromIntegral y) (fromIntegral x)
+    drawString s
 
 
 drawPlayer ∷ DreamnetGameF ()
 drawPlayer = do
     (V2 x y) ← use g_playerPos
-    liftIO $ mvAddCh y x (fromIntegral $ ord '@')
+    drawCharAt x y '@' []
 
 
 linCoord ∷ V2 Int → Word → Int
@@ -203,59 +214,39 @@ movePlayer v = do
 
 
 debugPrint ∷ String → DreamnetGameF ()
-debugPrint = liftIO . mvWAddStr stdScr 41 2
+debugPrint = drawStringAt 41 2
 
 
 messagePrint ∷ String → DreamnetGameF ()
-messagePrint = liftIO . mvWAddStr stdScr 40 2
+messagePrint = drawStringAt 40 2
 
 
-openDoor ∷ DreamnetGameF ()
-openDoor = do
-    messagePrint "Which direction?"
-    liftIO $ refresh
-
-    k ← liftIO $ getCh
-    let v = case k of
-                KeyChar 'h' → V2 -1  0
-                KeyChar 'j' → V2  0  1
-                KeyChar 'k' → V2  0 -1
-                KeyChar 'l' → V2  1  0
-                KeyChar 'y' → V2 -1 -1
-                KeyChar 'u' → V2  1 -1
-                KeyChar 'b' → V2 -1  1
-                KeyChar 'n' → V2  1  1
-
-    dp ← uses g_playerPos (+v)
-    o  ← (`lookup` asciiTable) <$> uses g_map (`charAt` dp)
-
-    case o of
-        (Just ClosedDoor) → changeObject dp OpenedDoor
-        _ → return ()
+eventToDir ∷ Event → Maybe (V2 Int)
+eventToDir (EventCharacter 'h') = Just (V2 -1  0)
+eventToDir (EventCharacter 'j') = Just (V2  0  1)
+eventToDir (EventCharacter 'k') = Just (V2  0 -1)
+eventToDir (EventCharacter 'l') = Just (V2  1  0)
+eventToDir (EventCharacter 'y') = Just (V2 -1 -1)
+eventToDir (EventCharacter 'u') = Just (V2  1 -1)
+eventToDir (EventCharacter 'b') = Just (V2 -1  1)
+eventToDir (EventCharacter 'n') = Just (V2  1  1)
+eventToDir _                    = Nothing
 
 
-closeDoor ∷ DreamnetGameF ()
-closeDoor = do
-    messagePrint "Which direction?"
-    liftIO $ refresh
+directionalInteract ∷ (V2 Int → Maybe Object → DreamnetGameF ()) → DreamnetGameF ()
+directionalInteract f = do
+    messagePrint "Direction?"
+    lift render
 
-    k ← liftIO $ getCh
-    let v = case k of
-                KeyChar 'h' → V2 -1  0
-                KeyChar 'j' → V2  0  1
-                KeyChar 'k' → V2  0 -1
-                KeyChar 'l' → V2  1  0
-                KeyChar 'y' → V2 -1 -1
-                KeyChar 'u' → V2  1 -1
-                KeyChar 'b' → V2 -1  1
-                KeyChar 'n' → V2  1  1
-
-    dp ← uses g_playerPos (+v)
-    o  ← (`lookup` asciiTable) <$> uses g_map (`charAt` dp)
-
-    case o of
-        (Just OpenedDoor) → changeObject dp ClosedDoor
-        _ → return ()
+    mk ← lift (defaultWindow >>= \w → getEvent w Nothing)
+    case mk of
+        Nothing → return ()
+        Just k  → case eventToDir k of
+                      Nothing → return ()
+                      Just v  → do
+                          dp ← uses g_playerPos (+v)
+                          o  ← (`lookup` asciiTable) <$> uses g_map (`charAt` dp)
+                          f dp o
 
 
 updateVisible ∷ DreamnetGameF ()
@@ -263,10 +254,9 @@ updateVisible = do
     pp ← use g_playerPos
     m  ← use g_map
 
-    let l         = replicate (fromIntegral $ (m^.m_width) * (m^.m_height)) Unknown
-        points    = floodFillRange 10 pp -- This is pretty slow
-        los       = filter (tileVisible m pp) points
-        --los       = points
+    let l         = replicate (fromIntegral $ (m^.m_width) * (m^.m_height)) Unknown -- Is *THIS* slow?
+        points    = circle 8 pp
+        los       = fmap fst $ concat $ (visibleAndOneExtra . tileVisible m pp) <$> points
         linPoints = (`linCoord` (m^.m_width)) <$> los
         nl        = elements (`elem` linPoints) .~ Visible $ l
 
@@ -283,11 +273,16 @@ updateVisible = do
         vsum Visible _ = Visible
         vsum n       o = n
 
+        visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l
+                                   rem   = dropWhile ((==True) . snd) l
+                                   extra = bool ([head rem]) [] (null rem)
+                               in  reverse $ front ++ extra
 
-tileVisible ∷ Map → V2 Int → V2 Int → Bool
-tileVisible m o d = let vis = fromMaybe False . fmap isPassable . (`lookup` asciiTable) . charAt m <$> bla o d
-                        invis = dropWhile (==True) vis
-                    in  null invis || length invis == 1
+
+tileVisible ∷ Map → V2 Int → V2 Int → [(V2 Int, Bool)]
+tileVisible m o d = let pass  = fromMaybe False . fmap isPassable . (`lookup` asciiTable) . charAt m
+                        rmOOB = filter (\(V2 x y) → x >= 0 && y >= 0)
+                    in  fmap ((,) <$> id <*> pass) $ rmOOB $ bla o d
 
 
 -- | See <http://roguebasin.roguelikedevelopment.org/index.php/Digital_lines>.
@@ -309,9 +304,33 @@ bla (V2 x0 y0) d@(V2 x1 y1) =
         balancedWord p q eps | eps + p < q = 0 : balancedWord p q (eps + p)
         balancedWord p q eps               = 1 : balancedWord p q (eps + p - q)
 
+--
+-- Takes the center of the circle and radius, and returns the circle points
+circle ∷ Int → V2 Int → [V2 Int]
+circle radius (V2 x0 y0) = uncurry V2 <$> iniPoints
+    where
+        -- Four initial points, plus the generated points
+        iniPoints = (x0, y0 + radius) : (x0, y0 - radius) : (x0 + radius, y0) : (x0 - radius, y0) : points
+        -- Creates the (x, y) octet offsets, then maps them to absolute points in all octets.
+        points = concatMap generatePoints $ unfoldr step initialValues
+        generatePoints (x, y)
+          = [(xop x0 x', yop y0 y') | (x', y') <- [(x, y), (y, x)], xop <- [(+), (-)], yop <- [(+), (-)]]
+ 
+        -- The initial values for the loop
+        initialValues = (1 - radius, 1, (-2) * radius, 0, radius)
+ 
+        -- One step of the loop. The loop itself stops at Nothing.
+        step (f, ddf_x, ddf_y, x, y) | x >= y = Nothing
+                                     | otherwise = Just ((x', y'), (f', ddf_x', ddf_y', x', y'))
+                                       where
+                                           (f', ddf_y', y') | f >= 0 = (f + ddf_y' + ddf_x', ddf_y + 2, y - 1)
+                                                            | otherwise = (f + ddf_x, ddf_y, y)
+                                           ddf_x' = ddf_x + 2
+                                           x' = x + 1
+
 
 floodFillRange ∷ Word → V2 Int → [V2 Int]
-floodFillRange d o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton o, Set.empty)
+floodFillRange r o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton o, Set.empty)
     where
         nearestNeighbor ∷ State (Set.Set (V2 Int), Set.Set (V2 Int)) ()
         nearestNeighbor = do
@@ -320,7 +339,7 @@ floodFillRange d o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton
 
             mapM_ (\x → do
                         _2 %= Set.insert x
-                        _1 %= Set.filter ((&&) . inRange d o <*> not . (`Set.member` closedSet)) . Set.union (neighbors x)
+                        _1 %= Set.filter ((&&) . inRange r o <*> not . (`Set.member` closedSet)) . Set.union (neighbors x)
                 ) openSet
             when (not $ Set.null openSet)
                 nearestNeighbor
@@ -345,27 +364,24 @@ floodFillRange d o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton
 
 gameLoop ∷ DreamnetGameF ()
 gameLoop = do
-    k ← liftIO $ getCh
+    k ← lift (defaultWindow >>= \w → getEvent w Nothing)
     case k of
-        KeyChar 'h' → movePlayer (V2 -1  0)
-        KeyChar 'j' → movePlayer (V2  0  1) 
-        KeyChar 'k' → movePlayer (V2  0 -1) 
-        KeyChar 'l' → movePlayer (V2  1  0) 
-        KeyChar 'y' → movePlayer (V2 -1 -1)
-        KeyChar 'u' → movePlayer (V2  1 -1) 
-        KeyChar 'b' → movePlayer (V2 -1  1) 
-        KeyChar 'n' → movePlayer (V2  1  1) 
+        (Just (EventCharacter 'o')) → directionalInteract $ \v o → case o of
+            Just ClosedDoor → changeObject v OpenedDoor
+            _               → return ()
+        (Just (EventCharacter 'c')) → directionalInteract $ \v o → case o of
+            Just OpenedDoor → changeObject v ClosedDoor
+            _               → return ()
+        (Just (EventCharacter 'q')) → g_keepRunning .= False
 
-        KeyChar 'o' → openDoor
-        KeyChar 'c' → closeDoor
-
-        KeyChar 'q' → g_keepRunning .= False
-
-        _           → return ()
+        (Just e) → case eventToDir e of
+                       Just v → movePlayer v
+                       Nothing → return ()
+        _        → return ()
 
     updateVisible
     drawMap
     drawPlayer
-    liftIO $ refresh
+    lift render
     use g_keepRunning >>= (`when` gameLoop)
 
