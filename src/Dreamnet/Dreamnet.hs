@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE BangPatterns #-}
 
 module Dreamnet.Dreamnet
@@ -20,7 +21,7 @@ import qualified Data.Set            as Set
 import qualified Data.Vector         as Vec
 import Linear
 
-import UI.NCurses
+import qualified UI.NCurses  as Curses
 import qualified Config.Dyre as Dyre
 
 --------------------------------------------------------------------------------
@@ -115,7 +116,31 @@ isPassable ClosedDoor = False
 
 --------------------------------------------------------------------------------
 
-type DreamnetGameF = StateT Game Curses
+class (Monad m) ⇒ MonadCurses m where
+    render        ∷ m ()
+    defaultWindow ∷ m Curses.Window
+    updateWindow  ∷ Curses.Window → Curses.Update a → m a
+    getEvent      ∷ (Integral a) ⇒ Curses.Window → Maybe a → m (Maybe Curses.Event)
+
+instance MonadCurses Curses.Curses where
+    render           = Curses.render
+    defaultWindow    = Curses.defaultWindow
+    updateWindow w u = Curses.updateWindow w u
+    getEvent w x     = Curses.getEvent w (fromIntegral <$> x)
+
+instance (MonadCurses m) ⇒ MonadCurses (StateT a m) where
+    render           = lift render
+    defaultWindow    = lift defaultWindow
+    updateWindow w u = lift $ updateWindow w u
+    getEvent w x     = lift $ getEvent w (fromIntegral <$> x)
+    
+--------------------------------------------------------------------------------
+
+-- TODO separate game updates from rendering, which should just take the Game
+--      instance. Maybe cover everything with some "Loop" monad which handles
+--      both
+newtype DreamnetGameF a = DreamnetGameF { runDreamnetGame ∷ StateT Game Curses.Curses a }
+                        deriving (Functor, Applicative, Monad, MonadState Game, MonadCurses, MonadIO)
 
 
 loadMap ∷ (MonadIO m) ⇒ FilePath → m Map
@@ -129,26 +154,26 @@ loadMap fp = do
 dreamnet ∷ DesignData → IO ()
 dreamnet d = do
     m ← loadMap "res/map1"
-    runCurses (dreamnetCurses m)
+    Curses.runCurses (dreamnetCurses m)
     where
         dreamnetCurses map = do
             initCurses
             let pp = V2 1 1
             let iniv = Vec.replicate (squareSize map) Unknown 
             let initGame = Game pp True map iniv
-            void $ flip execStateT initGame $ do
+            void $ flip execStateT initGame $ runDreamnetGame $ do
                 updateVisible
                 drawInitial map
                 gameLoop
         initCurses = do
-            setRaw     True
-            setEcho    False
-            defaultWindow >>= (`setKeypad` True)
-            setCursorMode CursorInvisible
+            Curses.setRaw     True
+            Curses.setEcho    False
+            Curses.defaultWindow >>= (`Curses.setKeypad` True)
+            Curses.setCursorMode Curses.CursorInvisible
         drawInitial m = do
             drawMap
             drawPlayer
-            lift render
+            render
         squareSize m = fromIntegral $ m^.m_width * m^.m_height
 
 
@@ -163,20 +188,20 @@ drawMap = do
             let (V2 x y) = coordLin i w
             uncurry (drawCharAt x y) $ case v of
                  Unknown → (' ', [])
-                 Known   → (c,   [AttributeDim])
+                 Known   → (c,   [Curses.AttributeDim])
                  Visible → (c,   [])
 
 
-drawCharAt ∷ (Integral a) ⇒ a → a → Char → [Attribute] → DreamnetGameF ()
-drawCharAt x y c s = lift $ defaultWindow >>= \w → updateWindow w $ do
-    moveCursor (fromIntegral y) (fromIntegral x)
-    drawGlyph (Glyph c s)
+drawCharAt ∷ (Integral a) ⇒ a → a → Char → [Curses.Attribute] → DreamnetGameF ()
+drawCharAt x y c s = defaultWindow >>= \w → updateWindow w $ do
+    Curses.moveCursor (fromIntegral y) (fromIntegral x)
+    Curses.drawGlyph (Curses.Glyph c s)
 
 
 drawStringAt ∷ (Integral a) ⇒ a → a → String → DreamnetGameF ()
-drawStringAt x y s = lift $ defaultWindow >>= \w → updateWindow w $ do
-    moveCursor (fromIntegral y) (fromIntegral x)
-    drawString s
+drawStringAt x y s = defaultWindow >>= \w → updateWindow w $ do
+    Curses.moveCursor (fromIntegral y) (fromIntegral x)
+    Curses.drawString s
 
 
 drawPlayer ∷ DreamnetGameF ()
@@ -227,24 +252,24 @@ messagePrint ∷ String → DreamnetGameF ()
 messagePrint = drawStringAt 40 2
 
 
-eventToDir ∷ Event → Maybe (V2 Int)
-eventToDir (EventCharacter 'h') = Just (V2 -1  0)
-eventToDir (EventCharacter 'j') = Just (V2  0  1)
-eventToDir (EventCharacter 'k') = Just (V2  0 -1)
-eventToDir (EventCharacter 'l') = Just (V2  1  0)
-eventToDir (EventCharacter 'y') = Just (V2 -1 -1)
-eventToDir (EventCharacter 'u') = Just (V2  1 -1)
-eventToDir (EventCharacter 'b') = Just (V2 -1  1)
-eventToDir (EventCharacter 'n') = Just (V2  1  1)
+eventToDir ∷ Curses.Event → Maybe (V2 Int)
+eventToDir (Curses.EventCharacter 'h') = Just (V2 -1  0)
+eventToDir (Curses.EventCharacter 'j') = Just (V2  0  1)
+eventToDir (Curses.EventCharacter 'k') = Just (V2  0 -1)
+eventToDir (Curses.EventCharacter 'l') = Just (V2  1  0)
+eventToDir (Curses.EventCharacter 'y') = Just (V2 -1 -1)
+eventToDir (Curses.EventCharacter 'u') = Just (V2  1 -1)
+eventToDir (Curses.EventCharacter 'b') = Just (V2 -1  1)
+eventToDir (Curses.EventCharacter 'n') = Just (V2  1  1)
 eventToDir _                    = Nothing
 
 
 directionalInteract ∷ (V2 Int → Maybe Object → DreamnetGameF ()) → DreamnetGameF ()
 directionalInteract f = do
     messagePrint "Direction?"
-    lift render
+    render
 
-    mk ← lift (defaultWindow >>= \w → getEvent w Nothing)
+    mk ← defaultWindow >>= \w → getEvent w Nothing
     case mk of
         Nothing → return ()
         Just k  → case eventToDir k of
@@ -267,12 +292,9 @@ updateVisible = do
     -- TODO resolving 'x' causes problems
     g_visible %= Vec.imap (\i x → if i `Set.member` linPoints
                                        then Visible
-                                       --else Known)
                                        else case x of
                                                 Visible → Known
                                                 _       → x)
-                                                --Known   → Known
-                                                --Unknown → Unknown)
     where
         visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
         visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l
@@ -365,15 +387,15 @@ floodFillRange r o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton
 
 gameLoop ∷ DreamnetGameF ()
 gameLoop = do
-    k ← lift (defaultWindow >>= \w → getEvent w Nothing)
+    k ← defaultWindow >>= \w → getEvent w Nothing
     case k of
-        (Just (EventCharacter 'o')) → directionalInteract $ \v o → case o of
+        (Just (Curses.EventCharacter 'o')) → directionalInteract $ \v o → case o of
             Just ClosedDoor → changeObject v OpenedDoor
             _               → return ()
-        (Just (EventCharacter 'c')) → directionalInteract $ \v o → case o of
+        (Just (Curses.EventCharacter 'c')) → directionalInteract $ \v o → case o of
             Just OpenedDoor → changeObject v ClosedDoor
             _               → return ()
-        (Just (EventCharacter 'q')) → g_keepRunning .= False
+        (Just (Curses.EventCharacter 'q')) → g_keepRunning .= False
 
         (Just e) → case eventToDir e of
                        Just v → movePlayer v
@@ -383,6 +405,10 @@ gameLoop = do
     updateVisible
     drawMap
     drawPlayer
-    lift render
-    use g_keepRunning >>= (`when` gameLoop)
+    render
+    --use g_keepRunning >>= (`when` gameLoop)
+    r ← use g_keepRunning
+    if r
+        then gameLoop
+        else return ()
 
