@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Dreamnet.Dreamnet
 where
@@ -15,7 +16,8 @@ import Data.Bool  (bool)
 import Data.Char  (ord)
 import Data.List  (elemIndex, nub, unfoldr)
 import Data.Maybe (fromMaybe)
-import qualified Data.Set    as Set
+import qualified Data.Set            as Set
+import qualified Data.Vector         as Vec
 import Linear
 
 import UI.NCurses
@@ -26,7 +28,7 @@ import qualified Config.Dyre as Dyre
 data Map = Map {
       _m_width ∷ Word
     , _m_height ∷ Word
-    , _m_data ∷ [Char]
+    , _m_data ∷ Vec.Vector Char
     }
 
 makeLenses ''Map
@@ -35,14 +37,14 @@ makeLenses ''Map
 data Visibility = Visible
                 | Known
                 | Unknown
-                deriving (Eq, Show)
+                deriving (Eq, Show, Ord, Enum)
 
 
 data Game = Game {
       _g_playerPos ∷ V2 Int
     , _g_keepRunning ∷ Bool
     , _g_map ∷ Map
-    , _g_visible ∷ [Visibility]
+    , _g_visible ∷ Vec.Vector Visibility
     }
 
 makeLenses ''Game
@@ -109,18 +111,19 @@ isPassable Table      = False
 isPassable Chair      = True
 isPassable OpenedDoor = True
 isPassable ClosedDoor = False
+{-# INLINE isPassable #-}
 
 --------------------------------------------------------------------------------
 
 type DreamnetGameF = StateT Game Curses
 
 
-loadMap ∷ FilePath → IO Map
+loadMap ∷ (MonadIO m) ⇒ FilePath → m Map
 loadMap fp = do
-    str ← readFile fp
+    str ← liftIO $ readFile fp
     let w = fromMaybe 0 $ elemIndex '\n' str
         h = length str - w
-    return $ Map (fromIntegral w) (fromIntegral h) (filter (/='\n') str)
+    return $ Map (fromIntegral w) (fromIntegral h) (Vec.fromList $ filter (/='\n') str)
 
 
 dreamnet ∷ DesignData → IO ()
@@ -131,8 +134,10 @@ dreamnet d = do
         dreamnetCurses map = do
             initCurses
             let pp = V2 1 1
-            let initGame = Game pp True map (initVisibility map pp)
-            flip evalStateT initGame $ do
+            let iniv = Vec.replicate (squareSize map) Unknown 
+            let initGame = Game pp True map iniv
+            void $ flip execStateT initGame $ do
+                updateVisible
                 drawInitial map
                 gameLoop
         initCurses = do
@@ -144,20 +149,19 @@ dreamnet d = do
             drawMap
             drawPlayer
             lift render
-        initVisibility m v = replicate (squareSize m) Unknown 
         squareSize m = fromIntegral $ m^.m_width * m^.m_height
 
 
 drawMap ∷ DreamnetGameF ()
 drawMap = do
-    m ← use g_map
-    mapM_ (drawTile (m^.m_width)) $ zip [0..] (m^.m_data)
+    m   ← use g_map
+    vis ← use g_visible
+    Vec.imapM_ (drawTile (m^.m_width)) $ Vec.zip (m^.m_data) vis
     where
-        drawTile ∷ Word → (Int, Char) → DreamnetGameF ()
-        drawTile w (i, c) = do
-            vis ← use g_visible
+        drawTile ∷ Word → Int → (Char, Visibility) → DreamnetGameF ()
+        drawTile w i (c, v) = do
             let (V2 x y) = coordLin i w
-            uncurry (drawCharAt x y) $ case vis !! i of
+            uncurry (drawCharAt x y) $ case v of
                  Unknown → (' ', [])
                  Known   → (c,   [AttributeDim])
                  Visible → (c,   [])
@@ -183,15 +187,17 @@ drawPlayer = do
 
 linCoord ∷ V2 Int → Word → Int
 linCoord (V2 x y) w = y * (fromIntegral w) + x
+{-# INLINE linCoord #-}
 
 
 coordLin ∷ Int → Word → V2 Int
 coordLin i w = V2 (i `mod` (fromIntegral w)) (i `div` (fromIntegral w))
+{-# INLINE coordLin #-}
 
 
 -- TODO so fucking shaky :-D
 charAt ∷ Map → V2 Int → Char
-charAt m v = (m^.m_data) !! linCoord v (m^.m_width)
+charAt m v = (m^.m_data) Vec.! linCoord v (m^.m_width)
 
 
 changeObject ∷ V2 Int → Object → DreamnetGameF ()
@@ -254,29 +260,24 @@ updateVisible = do
     pp ← use g_playerPos
     m  ← use g_map
 
-    let l         = replicate (fromIntegral $ (m^.m_width) * (m^.m_height)) Unknown -- Is *THIS* slow?
-        points    = circle 8 pp
-        los       = fmap fst $ concat $ (visibleAndOneExtra . tileVisible m pp) <$> points
-        linPoints = (`linCoord` (m^.m_width)) <$> los
-        nl        = elements (`elem` linPoints) .~ Visible $ l
+    let points    = circle 20 pp
+        los       = concat $ (fmap fst . visibleAndOneExtra . tileVisible m pp) <$> points
+        linPoints = Set.fromList $ (`linCoord` (m^.m_width)) <$> los
 
-    g_visible %= mergeWith nl . fmap (\case
-                                        Visible → Known
-                                        Known   → Known
-                                        Unknown → Unknown) 
+    -- TODO resolving 'x' causes problems
+    g_visible %= Vec.imap (\i x → if i `Set.member` linPoints
+                                       then Visible
+                                       --else Known)
+                                       else case x of
+                                                Visible → Known
+                                                _       → x)
+                                                --Known   → Known
+                                                --Unknown → Unknown)
     where
-        mergeWith ∷ [Visibility] → [Visibility] → [Visibility]
-        mergeWith l ov = fmap (vsum <$> fst <*> snd) $ zip l ov
-
-        vsum ∷ Visibility → Visibility → Visibility
-        vsum Unknown o = o
-        vsum Visible _ = Visible
-        vsum n       o = n
-
+        visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
         visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l
                                    rem   = dropWhile ((==True) . snd) l
-                                   extra = bool ([head rem]) [] (null rem)
-                               in  reverse $ front ++ extra
+                               in  bool (head rem : front) front (null rem)
 
 
 tileVisible ∷ Map → V2 Int → V2 Int → [(V2 Int, Bool)]
@@ -304,7 +305,7 @@ bla (V2 x0 y0) d@(V2 x1 y1) =
         balancedWord p q eps | eps + p < q = 0 : balancedWord p q (eps + p)
         balancedWord p q eps               = 1 : balancedWord p q (eps + p - q)
 
---
+
 -- Takes the center of the circle and radius, and returns the circle points
 circle ∷ Int → V2 Int → [V2 Int]
 circle radius (V2 x0 y0) = uncurry V2 <$> iniPoints

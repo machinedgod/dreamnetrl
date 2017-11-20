@@ -50,6 +50,8 @@ executable dreamnetrl
   -- .hs or .lhs file containing the Main module.
   main-is:             Main.hs
 
+  ghc-options:         -rtsopts -auto-all -caf-all
+
   extra-libraries:     tinfo
 
   -- Modules included in this executable, other than Main.
@@ -63,6 +65,7 @@ executable dreamnetrl
                        transformers,
                        mtl,
                        containers,
+                       vector,
                        lens,
                        dyre,
                        linear,

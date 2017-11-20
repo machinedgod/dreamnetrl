@@ -4,3 +4,8 @@ TAGS
 cabal.sandbox.config
 dist/
 tags
+*.aux
+*.hp
+*.prof
+*.ps
+*.swp
