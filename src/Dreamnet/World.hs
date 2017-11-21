@@ -21,6 +21,7 @@ module Dreamnet.World
 
 , changeObject
 , movePlayer
+, updateAim
 , moveAim
 , interact
 , updateVisible
@@ -63,7 +64,7 @@ data Visibility = Visible
 
 data World = World {
       _w_playerPos ∷ V2 Int
-    , _w_aim ∷ V2 Int
+    , _w_aim ∷ Maybe (V2 Int)
     , _w_map ∷ Map
     , _w_visible ∷ Vec.Vector Visibility
 
@@ -76,7 +77,7 @@ makeLenses ''World
 newWorld ∷ Map → World
 newWorld m = let iniv = Vec.replicate (squareSize m) Unknown 
                  pp = V2 1 1
-             in  World pp pp m iniv ""
+             in  World pp Nothing m iniv ""
     where
         squareSize m = fromIntegral $ m^.m_width * m^.m_height
 
@@ -119,15 +120,30 @@ movePlayer v = do
 
 
 moveAim ∷ (MonadWorld u) ⇒ V2 Int → u ()
-moveAim v = w_aim += v
+moveAim v = w_aim %= fmap (+v)
 
 
 interact ∷ (MonadWorld u) ⇒ (V2 Int → Tile → u ()) → u ()
 interact f = do
-    playerInfo "Direction?"
-    v ← use w_aim
-    o ← uses w_map (`tileAt` v)
-    f v o
+    mv ← use w_aim
+    case mv of
+        Just v → do
+                 o ← uses w_map (`tileAt` v)
+                 f v o
+        _      → return ()
+
+
+
+updateAim ∷ (MonadWorld u) ⇒ u ()
+updateAim = do
+    pp ← use w_playerPos
+    m  ← use w_map
+    let points = clipOutOfBounds $ floodFillRange 2 pp
+    w_aim .= foldr (\x a → case tileAt m x of
+                               OpenedDoor → Just x
+                               ClosedDoor → Just x
+                               _          → a) Nothing points
+    
 
 
 updateVisible ∷ (MonadWorld u) ⇒ u ()
@@ -152,10 +168,10 @@ updateVisible = do
                                in  bool (head rem : front) front (null rem)
 
 
+
 tileVisible ∷ Map → V2 Int → V2 Int → [(V2 Int, Bool)]
 tileVisible m o d = let pass  = isPassable . tileAt m
-                        rmOOB = filter (\(V2 x y) → x >= 0 && y >= 0)
-                    in  fmap ((,) <$> id <*> pass) $ rmOOB $ bla o d
+                    in  fmap ((,) <$> id <*> pass) $ clipOutOfBounds $ bla o d
 
 
 -- | See <http://roguebasin.roguelikedevelopment.org/index.php/Digital_lines>.

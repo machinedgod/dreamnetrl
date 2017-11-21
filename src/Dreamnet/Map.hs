@@ -9,6 +9,7 @@ module Dreamnet.Map
 
 , linCoord
 , coordLin
+, clipOutOfBounds
 , tileAt
 
 , Tile(..)
@@ -48,6 +49,9 @@ coordLin i m = let w = m^.m_width
                in  V2 x y 
 {-# INLINE coordLin #-}
 
+
+clipOutOfBounds ∷ [V2 Int] → [V2 Int]
+clipOutOfBounds = filter (\(V2 x y) → x >= 0 && y >= 0)
 
 -- TODO so fucking shaky :-D
 --      replace with making objects during loading

@@ -58,8 +58,8 @@ dreamnet d = Curses.runCurses $ do
     Curses.defaultWindow >>= (`Curses.setKeypad` True)
     Curses.setCursorMode Curses.CursorInvisible
 
-   
-    g ← newGame
+    rdf ← initRenderer
+    g   ← newGame rdf
     runGame g loopTheLoop
     where
         loopTheLoop ∷ (MonadGame m) ⇒ m ()
@@ -67,30 +67,39 @@ dreamnet d = Curses.runCurses $ do
             doInput
             r ← use g_keepRunning
             when r $ do
-                doUpdate worldM
-                doRender rendererM
+                doUpdate update
+                doRender render
                 loopTheLoop 
             
-        worldM ∷ WorldF ()
-        worldM = do
-            e ← ask
-            case e of
-                Open → interact $ \v o → case o of
-                    ClosedDoor → changeObject v OpenedDoor
-                    _          → return ()
-                Close → interact $ \v o → case o of
-                    OpenedDoor → changeObject v ClosedDoor
-                    _          → return ()
+update ∷ WorldF ()
+update = do
+    e ← ask
+    case e of
+        Open   → openDoors
+        Close  → closeDoors
+        Move v → moveActive v
+        Aim  v → moveAim v
 
-                Move v → movePlayer v
-                Aim  v → moveAim v
+        _      → return ()
 
-                _        → return ()
-            updateVisible
-        rendererM ∷ RendererF ()
-        rendererM = do
-            drawMap
-            drawPlayer
-            drawAim
-            swap
+    updateVisible
+    where
+        openDoors  = interact $ \v o → case o of
+            ClosedDoor → changeObject v OpenedDoor
+            _          → return ()
+        closeDoors = interact $ \v o → case o of
+            OpenedDoor → changeObject v ClosedDoor
+            _          → return ()
+        moveActive v = do
+             movePlayer v
+             updateAim
+
+
+
+render ∷ RendererF ()
+render = do
+    drawMap
+    drawPlayer
+    drawAim
+    swap
 

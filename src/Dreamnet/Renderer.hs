@@ -1,10 +1,13 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Renderer
 ( MonadRender(..)
 , RendererF
+, RendererData
+, initRenderer
 , runRenderer
 
 , drawMap
@@ -24,22 +27,37 @@ import Dreamnet.World
 
 --------------------------------------------------------------------------------
 
-class (MonadReader World r) ⇒ MonadRender r where
-    getColors    ∷ r [Curses.ColorID]
+data Styles = Styles {
+      _s_mapUnknown ∷ [Curses.Attribute]
+    , _s_mapKnown   ∷ [Curses.Attribute]
+    , _s_mapVisible ∷ [Curses.Attribute]
+
+    , _s_aim ∷ [Curses.Attribute]
+    }
+
+makeLenses ''Styles
+
+-- TODO maybe world shouldn't be mixed into init block?
+data RendererData = RendererData {
+      _re_styles ∷ Styles
+    , _re_world ∷ World
+    }
+
+makeLenses ''RendererData
+
+--------------------------------------------------------------------------------
+
+class (MonadReader RendererData r) ⇒ MonadRender r where
     drawCharAt   ∷ (Integral a) ⇒ a → a → Char → [Curses.Attribute] → r ()
     drawStringAt ∷ (Integral a) ⇒ a → a → String → r ()
     swap         ∷ r ()
     
 
-newtype RendererF a = RendererF { runRendererF ∷ ReaderT World Curses.Curses a }
-                    deriving (Functor, Applicative, Monad, MonadReader World, MonadCurses)
+newtype RendererF a = RendererF { runRendererF ∷ ReaderT RendererData Curses.Curses a }
+                    deriving (Functor, Applicative, Monad, MonadReader RendererData, MonadCurses)
 
 
 instance MonadRender RendererF where
-    getColors = liftCurses $
-        sequence [ Curses.newColorID  Curses.ColorWhite  Curses.ColorBlack  1
-                 , Curses.newColorID  Curses.ColorBlue   Curses.ColorBlack  2
-                 ] 
     drawCharAt x y c s = liftCurses $ Curses.defaultWindow >>= \w → Curses.updateWindow w $ do
         Curses.moveCursor (fromIntegral y) (fromIntegral x)
         Curses.drawGlyph (Curses.Glyph c s)
@@ -49,37 +67,58 @@ instance MonadRender RendererF where
     swap = liftCurses Curses.render
 
 
-runRenderer ∷ World → RendererF () → Curses.Curses ()
-runRenderer w = flip runReaderT w . runRendererF
+initRenderer ∷ Curses.Curses (World → RendererData)
+initRenderer = do
+    c1 ← Curses.newColorID  Curses.ColorBlue   Curses.ColorBlack  1
+    c2 ← Curses.newColorID  Curses.ColorWhite  Curses.ColorBlack  2
+    c3 ← Curses.newColorID  Curses.ColorGreen  Curses.ColorBlack  3
+    return $ RendererData $ Styles {
+          _s_mapUnknown = [Curses.AttributeColor c1, Curses.AttributeDim]
+        , _s_mapKnown   = [Curses.AttributeColor c1, Curses.AttributeDim]
+        , _s_mapVisible = [Curses.AttributeColor c2]
+        , _s_aim        = [Curses.AttributeColor Curses.defaultColorID]
+        }
+
+
+runRenderer ∷ RendererData → RendererF () → Curses.Curses ()
+runRenderer rd = flip runReaderT rd . runRendererF
     
 --------------------------------------------------------------------------------
 
+drawTile ∷ (MonadRender r) ⇒ Map → Int → (Char, Visibility) → r ()
+drawTile m i (c, v) = do
+    let (V2 x y) = coordLin i m
+    unknown ← view (re_styles.s_mapUnknown)
+    known   ← view (re_styles.s_mapKnown)
+    visible ← view (re_styles.s_mapVisible)
+    uncurry (drawCharAt x y) $ case v of
+         Unknown → (' ', unknown)
+         Known   → (c,   known)
+         Visible → (c,   visible)
+
+
 drawMap ∷ (MonadRender r) ⇒ r ()
 drawMap = do
-    m   ← view w_map
-    vis ← view w_visible
+    m   ← view (re_world.w_map)
+    vis ← view (re_world.w_visible)
     Vec.imapM_ (drawTile m) $ Vec.zip (m^.m_data) vis
     where
-        drawTile ∷ (MonadRender r) ⇒ Map → Int → (Char, Visibility) → r ()
-        drawTile m i (c, v) = do
-            let (V2 x y) = coordLin i m
-            cs ← getColors
-            uncurry (drawCharAt x y) $ case v of
-                 Unknown → (' ', [Curses.AttributeColor (cs !! 0)])
-                 Known   → (c,   [Curses.AttributeColor (cs !! 1), Curses.AttributeDim])
-                 Visible → (c,   [Curses.AttributeColor (cs !! 0)])
 
 
 drawPlayer ∷ (MonadRender r) ⇒ r ()
 drawPlayer = do
-    (V2 x y) ← view w_playerPos
+    (V2 x y) ← view (re_world.w_playerPos)
     drawCharAt x y '@' []
 
 
 drawAim ∷ (MonadRender r) ⇒ r ()
 drawAim = do
-    (V2 x y) ← view w_aim
-    drawCharAt x y '╋' []
+    s  ← view (re_styles.s_aim)
+    ma ← view (re_world.w_aim)
+    case ma of
+        Just (V2 x y) → drawCharAt x y '╋' s
+        _             → return ()
+         
 
 
 debugPrint ∷ (MonadRender r) ⇒ String → r ()

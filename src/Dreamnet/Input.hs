@@ -42,9 +42,9 @@ instance MonadInput InputF where
         ce ← InputF $ do
             w ← Curses.defaultWindow
             keepAskingUntilDelivered w
-        case ce of
-            Curses.EventCharacter c → return $ charToEvent c
-            _                       → nextEvent
+        case cursesToEvent ce of
+            (Just e) → return e
+            _        → nextEvent
         where
             keepAskingUntilDelivered w = do
                 e ← Curses.getEvent w Nothing 
@@ -59,28 +59,28 @@ runInput ∷ (MonadCurses m) ⇒ InputF a → m a
 runInput = liftCurses . runInputF
 
 
-charToEvent ∷ Char → Event
-charToEvent 'h' = Move (V2 -1  0)
-charToEvent 'j' = Move (V2  0  1)
-charToEvent 'k' = Move (V2  0 -1)
-charToEvent 'l' = Move (V2  1  0)
-charToEvent 'y' = Move (V2 -1 -1)
-charToEvent 'u' = Move (V2  1 -1)
-charToEvent 'b' = Move (V2 -1  1)
-charToEvent 'n' = Move (V2  1  1)
+cursesToEvent ∷ Curses.Event → Maybe Event
+cursesToEvent (Curses.EventCharacter 'h') = Just $ Move (V2 -1  0)
+cursesToEvent (Curses.EventCharacter 'j') = Just $ Move (V2  0  1)
+cursesToEvent (Curses.EventCharacter 'k') = Just $ Move (V2  0 -1)
+cursesToEvent (Curses.EventCharacter 'l') = Just $ Move (V2  1  0)
+cursesToEvent (Curses.EventCharacter 'y') = Just $ Move (V2 -1 -1)
+cursesToEvent (Curses.EventCharacter 'u') = Just $ Move (V2  1 -1)
+cursesToEvent (Curses.EventCharacter 'b') = Just $ Move (V2 -1  1)
+cursesToEvent (Curses.EventCharacter 'n') = Just $ Move (V2  1  1)
+ 
+cursesToEvent (Curses.EventCharacter 'H') = Just $ Aim (V2 -1  0)
+cursesToEvent (Curses.EventCharacter 'J') = Just $ Aim (V2  0  1)
+cursesToEvent (Curses.EventCharacter 'K') = Just $ Aim (V2  0 -1)
+cursesToEvent (Curses.EventCharacter 'L') = Just $ Aim (V2  1  0)
+cursesToEvent (Curses.EventCharacter 'Y') = Just $ Aim (V2 -1 -1)
+cursesToEvent (Curses.EventCharacter 'U') = Just $ Aim (V2  1 -1)
+cursesToEvent (Curses.EventCharacter 'B') = Just $ Aim (V2 -1  1)
+cursesToEvent (Curses.EventCharacter 'N') = Just $ Aim (V2  1  1)
 
-charToEvent 'H' = Aim (V2 -1  0)
-charToEvent 'J' = Aim (V2  0  1)
-charToEvent 'K' = Aim (V2  0 -1)
-charToEvent 'L' = Aim (V2  1  0)
-charToEvent 'Y' = Aim (V2 -1 -1)
-charToEvent 'U' = Aim (V2  1 -1)
-charToEvent 'B' = Aim (V2 -1  1)
-charToEvent 'N' = Aim (V2  1  1)
+cursesToEvent (Curses.EventCharacter 'o') = Just $ Open
+cursesToEvent (Curses.EventCharacter 'c') = Just $ Close
 
-charToEvent 'o' = Open
-charToEvent 'c' = Close
+cursesToEvent (Curses.EventCharacter 'q') = Just $ Quit
 
-charToEvent 'q' = Quit
-
-charToEvent k   = error $ "unmapped key: " ++ [k]
+cursesToEvent k = Nothing
