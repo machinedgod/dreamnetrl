@@ -24,6 +24,7 @@ import Linear
 import qualified UI.NCurses  as Curses
 import qualified Config.Dyre as Dyre
 
+import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
 import Dreamnet.Renderer
 import Dreamnet.World
@@ -64,6 +65,8 @@ dreamnet d = Curses.runCurses $ do
     where
         loopTheLoop ∷ (MonadGame m) ⇒ m ()
         loopTheLoop = do
+            doUpdate updateVisible
+            doRender render
             doInput
             r ← use g_keepRunning
             when r $ do
@@ -74,35 +77,29 @@ dreamnet d = Curses.runCurses $ do
 
 update ∷ WorldF ()
 update = do
+    w_status .= replicate 80 ' '
     e ← ask
     case e of
-        Open     → interactWithAim
-        Close    → interactWithAim
-        Interact → interactWithAim
-        Talk     → interactWithAim
-
-        Move v   → moveActive v
-        Aim  v   → moveAim v
-
-        _      → return ()
+        Move v   → movePlayer v >> switchAim
+        NextAim  → switchAim
+        Interact → interactWithAim >> w_aim .= Nothing
+        _        → return ()
 
     updateVisible
     where
         -- TODO pull specific object data from some map or store it next to a tile
-        interactWithAim = interact $ \v t → case t of
-            OpenedDoor → changeTile v ClosedDoor
-            ClosedDoor → changeTile v OpenedDoor
-            Computer   → objectAt v >>= \case
-                Just BoxComputer → w_status .= "Using a computer"
-                _ → return ()
-            Person     → objectAt v >>= \case
-                Just BoxPerson → w_status .= "Talking to someone"
-                _ → return ()
-            _          → return ()
-
-        moveActive v = do
-             movePlayer v
-             updateAim
+        interactWithAim = interact $ \v o → case o of
+            Computer    → w_status .= "Using a computer"
+            Person      → w_status .= "Talking to someone"
+            Door o      → changeObject_ v (Door (not o))
+            Container t → w_status .= "Inspecting the " ++ show t ++ " for stuff..."
+            Dispenser t → w_status .= "Dispensing items from the " ++ show t
+            Stairs t    → w_status .= "These lead to " ++ show t
+            Prop t      → case t of
+                              TMap.Table → w_status .= "Nothing to do with this table."
+                              TMap.Chair → do
+                                w_status .= "You sit down and chill out..."
+                                w_playerPos .= v
 
 
 

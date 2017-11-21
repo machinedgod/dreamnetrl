@@ -21,11 +21,8 @@ import qualified UI.NCurses as Curses
 --------------------------------------------------------------------------------
 
 data Event = Move (V2 Int)
-           | Aim  (V2 Int)
-           | Open
-           | Close
+           | NextAim
            | Interact
-           | Talk
            | Quit
            | Start
            deriving (Eq, Show)
@@ -71,18 +68,8 @@ cursesToEvent (Curses.EventCharacter 'u') = Just $ Move (V2  1 -1)
 cursesToEvent (Curses.EventCharacter 'b') = Just $ Move (V2 -1  1)
 cursesToEvent (Curses.EventCharacter 'n') = Just $ Move (V2  1  1)
  
-cursesToEvent (Curses.EventCharacter 'H') = Just $ Aim (V2 -1  0)
-cursesToEvent (Curses.EventCharacter 'J') = Just $ Aim (V2  0  1)
-cursesToEvent (Curses.EventCharacter 'K') = Just $ Aim (V2  0 -1)
-cursesToEvent (Curses.EventCharacter 'L') = Just $ Aim (V2  1  0)
-cursesToEvent (Curses.EventCharacter 'Y') = Just $ Aim (V2 -1 -1)
-cursesToEvent (Curses.EventCharacter 'U') = Just $ Aim (V2  1 -1)
-cursesToEvent (Curses.EventCharacter 'B') = Just $ Aim (V2 -1  1)
-cursesToEvent (Curses.EventCharacter 'N') = Just $ Aim (V2  1  1)
-
-cursesToEvent (Curses.EventCharacter 'o') = Just $ Open
-cursesToEvent (Curses.EventCharacter 'c') = Just $ Close
-cursesToEvent (Curses.EventCharacter 'i') = Just $ Interact
+cursesToEvent (Curses.EventCharacter '\t') = Just $ NextAim
+cursesToEvent (Curses.EventCharacter ' ')  = Just $ Interact
 
 cursesToEvent (Curses.EventCharacter 'q') = Just $ Quit
 

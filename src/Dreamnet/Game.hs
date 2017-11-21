@@ -17,6 +17,7 @@ import Prelude hiding (interact)
 import Control.Monad.State
 import Control.Lens
 
+import Dreamnet.TileMap
 import Dreamnet.World
 import Dreamnet.Renderer
 import Dreamnet.Input
@@ -44,7 +45,7 @@ makeLenses ''Game
 
 newGame ∷ (MonadIO m) ⇒ (World → RendererData) → m Game
 newGame rdf = do
-    m ← loadTileMap "res/map1"
+    m ← loadTileMap "res/bar"
     return $ Game Start (newWorld m) True rdf
 
 --------------------------------------------------------------------------------
