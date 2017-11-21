@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.World
-( module Dreamnet.Map
+( module Dreamnet.TileMap
 , module Control.Monad.Reader
 
 , MonadWorld(..)
@@ -14,12 +14,16 @@ module Dreamnet.World
 , w_aim
 , w_map
 , w_visible
+, w_status
 , newWorld
 , runWorld
 
+, ObjectBox(..)
+, objectAt
+
 , Visibility(..)
 
-, changeObject
+, changeTile
 , movePlayer
 , updateAim
 , moveAim
@@ -36,10 +40,11 @@ import Data.Bool
 import Data.Maybe
 import Data.List
 
+import qualified Data.Map    as Map
 import qualified Data.Set    as Set
 import qualified Data.Vector as Vec
 
-import Dreamnet.Map
+import Dreamnet.TileMap
 import Dreamnet.Input
 
 --------------------------------------------------------------------------------
@@ -48,11 +53,13 @@ isPassable ∷ Tile → Bool
 isPassable OuterWall  = False
 isPassable InnerWall  = False
 isPassable Floor      = True
-isPassable Spawn      = True
+isPassable MapSpawn   = True
 isPassable Table      = False
 isPassable Chair      = True
 isPassable OpenedDoor = True
 isPassable ClosedDoor = False
+isPassable Computer   = True
+isPassable Person     = False
 {-# INLINE isPassable #-}
 
 
@@ -62,29 +69,46 @@ data Visibility = Visible
                 deriving (Eq, Show, Ord, Enum)
 
 
+data ObjectBox = BoxComputer
+               | BoxPerson
+               | BoxDoor      Bool
+               deriving (Eq, Show)
+
 data World = World {
       _w_playerPos ∷ V2 Int
     , _w_aim ∷ Maybe (V2 Int)
-    , _w_map ∷ Map
+    , _w_map ∷ TileMap
     , _w_visible ∷ Vec.Vector Visibility
 
     , _w_status ∷ String
+
+    , _w_objects ∷ Map.Map (V2 Int) ObjectBox
     }
 
 makeLenses ''World
 
 
-newWorld ∷ Map → World
-newWorld m = let iniv = Vec.replicate (squareSize m) Unknown 
-                 pp = V2 1 1
-             in  World pp Nothing m iniv ""
+newWorld ∷ TileMap → World
+newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown 
+                 pp      = V2 1 1
+                 objects = let maybeObject c        = c `lookup` asciiTable >>= createObject
+                               insertIntoMap i os o = Map.insert (coordLin m i) o os
+                               findObjects i c os   = maybe os (insertIntoMap i os) (maybeObject c)
+                           in  Vec.ifoldr findObjects Map.empty (m ^. m_data)
+             in  World pp Nothing m iniv "" objects
     where
-        squareSize m = fromIntegral $ m^.m_width * m^.m_height
+        squareSize m   = fromIntegral $ m^.m_width * m^.m_height
+
+        createObject Person     = Just BoxPerson
+        createObject Computer   = Just BoxComputer
+        createObject OpenedDoor = Just (BoxDoor True)
+        createObject ClosedDoor = Just (BoxDoor False)
+        createObject _          = Nothing
 
 --------------------------------------------------------------------------------
 
 class (MonadState World u) ⇒ MonadWorld u where
-    changeMap    ∷ V2 Int → Char → u ()
+    changeTileMap    ∷ V2 Int → Char → u ()
     playerInfo   ∷ String → u ()
 
 
@@ -93,9 +117,9 @@ newtype WorldF a = WorldF { runWorldF ∷ ReaderT Event (State World) a }
 
 
 instance MonadWorld WorldF where
-    changeMap v c = do
+    changeTileMap v c = do
         m ← use w_map
-        w_map.m_data %= (element (linCoord v m) .~ c)
+        w_map.m_data %= (element (linCoord m v) .~ c)
     playerInfo s = w_status .= s
     
 
@@ -104,11 +128,15 @@ runWorld wf e w = flip execState w $ flip runReaderT e $ runWorldF wf
 
 --------------------------------------------------------------------------------
 
-changeObject ∷ (MonadWorld u) ⇒ V2 Int → Tile → u ()
-changeObject v o = let c =  maybe '.' id $ lookup o $ flipTuple <$> asciiTable
-                   in  changeMap v c
+changeTile ∷ (MonadWorld u) ⇒ V2 Int → Tile → u ()
+changeTile v o = let c =  maybe '.' id $ lookup o $ flipTuple <$> asciiTable
+                 in  changeTileMap v c
     where
         flipTuple (x, y) = (y, x)
+
+
+objectAt ∷ (MonadWorld u) ⇒ V2 Int → u (Maybe ObjectBox)
+objectAt v = uses w_objects (Map.lookup v)
 
 
 movePlayer ∷ (MonadWorld u) ⇒ V2 Int → u ()
@@ -139,10 +167,8 @@ updateAim = do
     pp ← use w_playerPos
     m  ← use w_map
     let points = clipOutOfBounds $ floodFillRange 2 pp
-    w_aim .= foldr (\x a → case tileAt m x of
-                               OpenedDoor → Just x
-                               ClosedDoor → Just x
-                               _          → a) Nothing points
+    na ← foldM (\a x → maybe a (const $ Just x) <$> objectAt x) Nothing points
+    w_aim .= na
     
 
 
@@ -153,7 +179,7 @@ updateVisible = do
 
     let points    = circle 20 pp
         los       = concat $ (fmap fst . visibleAndOneExtra . tileVisible m pp) <$> points
-        linPoints = Set.fromList $ (`linCoord` m) <$> los
+        linPoints = Set.fromList $ linCoord m <$> los
 
     -- TODO resolving 'x' causes problems
     w_visible %= Vec.imap (\i x → if i `Set.member` linPoints
@@ -169,7 +195,7 @@ updateVisible = do
 
 
 
-tileVisible ∷ Map → V2 Int → V2 Int → [(V2 Int, Bool)]
+tileVisible ∷ TileMap → V2 Int → V2 Int → [(V2 Int, Bool)]
 tileVisible m o d = let pass  = isPassable . tileAt m
                     in  fmap ((,) <$> id <*> pass) $ clipOutOfBounds $ bla o d
 

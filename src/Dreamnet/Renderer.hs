@@ -7,12 +7,15 @@ module Dreamnet.Renderer
 ( MonadRender(..)
 , RendererF
 , RendererData
+, re_world
+
 , initRenderer
 , runRenderer
 
 , drawMap
 , drawPlayer
 , drawAim
+, messagePrint
 ) where
 
 import Control.Lens
@@ -85,9 +88,9 @@ runRenderer rd = flip runReaderT rd . runRendererF
     
 --------------------------------------------------------------------------------
 
-drawTile ∷ (MonadRender r) ⇒ Map → Int → (Char, Visibility) → r ()
+drawTile ∷ (MonadRender r) ⇒ TileMap → Int → (Char, Visibility) → r ()
 drawTile m i (c, v) = do
-    let (V2 x y) = coordLin i m
+    let (V2 x y) = coordLin m i
     unknown ← view (re_styles.s_mapUnknown)
     known   ← view (re_styles.s_mapKnown)
     visible ← view (re_styles.s_mapVisible)
@@ -119,11 +122,6 @@ drawAim = do
         Just (V2 x y) → drawCharAt x y '╋' s
         _             → return ()
          
-
-
-debugPrint ∷ (MonadRender r) ⇒ String → r ()
-debugPrint = drawStringAt 41 2
-
 
 messagePrint ∷ (MonadRender r) ⇒ String → r ()
 messagePrint = drawStringAt 40 2

@@ -24,6 +24,8 @@ data Event = Move (V2 Int)
            | Aim  (V2 Int)
            | Open
            | Close
+           | Interact
+           | Talk
            | Quit
            | Start
            deriving (Eq, Show)
@@ -80,6 +82,7 @@ cursesToEvent (Curses.EventCharacter 'N') = Just $ Aim (V2  1  1)
 
 cursesToEvent (Curses.EventCharacter 'o') = Just $ Open
 cursesToEvent (Curses.EventCharacter 'c') = Just $ Close
+cursesToEvent (Curses.EventCharacter 'i') = Just $ Interact
 
 cursesToEvent (Curses.EventCharacter 'q') = Just $ Quit
 

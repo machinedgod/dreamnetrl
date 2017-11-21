@@ -44,7 +44,7 @@ makeLenses ''Game
 
 newGame ∷ (MonadIO m) ⇒ (World → RendererData) → m Game
 newGame rdf = do
-    m ← loadMap "res/map1"
+    m ← loadTileMap "res/map1"
     return $ Game Start (newWorld m) True rdf
 
 --------------------------------------------------------------------------------

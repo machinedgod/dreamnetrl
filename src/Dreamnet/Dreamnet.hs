@@ -70,26 +70,36 @@ dreamnet d = Curses.runCurses $ do
                 doUpdate update
                 doRender render
                 loopTheLoop 
-            
+ 
+
 update ∷ WorldF ()
 update = do
     e ← ask
     case e of
-        Open   → openDoors
-        Close  → closeDoors
-        Move v → moveActive v
-        Aim  v → moveAim v
+        Open     → interactWithAim
+        Close    → interactWithAim
+        Interact → interactWithAim
+        Talk     → interactWithAim
+
+        Move v   → moveActive v
+        Aim  v   → moveAim v
 
         _      → return ()
 
     updateVisible
     where
-        openDoors  = interact $ \v o → case o of
-            ClosedDoor → changeObject v OpenedDoor
+        -- TODO pull specific object data from some map or store it next to a tile
+        interactWithAim = interact $ \v t → case t of
+            OpenedDoor → changeTile v ClosedDoor
+            ClosedDoor → changeTile v OpenedDoor
+            Computer   → objectAt v >>= \case
+                Just BoxComputer → w_status .= "Using a computer"
+                _ → return ()
+            Person     → objectAt v >>= \case
+                Just BoxPerson → w_status .= "Talking to someone"
+                _ → return ()
             _          → return ()
-        closeDoors = interact $ \v o → case o of
-            OpenedDoor → changeObject v ClosedDoor
-            _          → return ()
+
         moveActive v = do
              movePlayer v
              updateAim
@@ -101,5 +111,6 @@ render = do
     drawMap
     drawPlayer
     drawAim
+    view (re_world.w_status) >>= messagePrint
     swap
 

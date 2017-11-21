@@ -1,8 +1,8 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dreamnet.Map
-( Map
+module Dreamnet.TileMap
+( TileMap
 , m_width
 , m_height
 , m_data
@@ -14,7 +14,7 @@ module Dreamnet.Map
 
 , Tile(..)
 , asciiTable
-, loadMap
+, loadTileMap
 ) where
 
 import Control.Monad.IO.Class 
@@ -27,23 +27,23 @@ import qualified Data.Vector as Vec
 
 --------------------------------------------------------------------------------
 
-data Map = Map {
+data TileMap = TileMap {
       _m_width ∷ Word
     , _m_height ∷ Word
     , _m_data ∷ Vec.Vector Char
     }
 
-makeLenses ''Map
+makeLenses ''TileMap
 
 
-linCoord ∷ V2 Int → Map → Int
-linCoord (V2 x y) m = let w = fromIntegral (m^.m_width)
+linCoord ∷ TileMap → V2 Int → Int
+linCoord m (V2 x y) = let w = fromIntegral (m^.m_width)
                       in  y * w + x
 {-# INLINE linCoord #-}
 
 
-coordLin ∷ Int → Map → V2 Int
-coordLin i m = let w = m^.m_width
+coordLin ∷ TileMap → Int → V2 Int
+coordLin m i = let w = m^.m_width
                    x = i `mod` (fromIntegral w)
                    y = i `div` (fromIntegral w)
                in  V2 x y 
@@ -53,10 +53,9 @@ coordLin i m = let w = m^.m_width
 clipOutOfBounds ∷ [V2 Int] → [V2 Int]
 clipOutOfBounds = filter (\(V2 x y) → x >= 0 && y >= 0)
 
--- TODO so fucking shaky :-D
---      replace with making objects during loading
-tileAt ∷ Map → V2 Int → Tile
-tileAt m v = fromMaybe Floor $ (`lookup` asciiTable) $ (m^.m_data) Vec.! linCoord v m
+
+tileAt ∷ TileMap → V2 Int → Tile
+tileAt m v = fromMaybe Floor $ (`lookup` asciiTable) $ (m^.m_data) Vec.! linCoord m v
 
 
 --------------------------------------------------------------------------------
@@ -64,11 +63,14 @@ tileAt m v = fromMaybe Floor $ (`lookup` asciiTable) $ (m^.m_data) Vec.! linCoor
 data Tile = OuterWall
           | InnerWall
           | Floor
-          | Spawn
+          | MapSpawn
+
           | Table
           | Chair
           | OpenedDoor
           | ClosedDoor
+          | Computer
+          | Person
           deriving (Eq, Show)
 
 
@@ -85,19 +87,22 @@ asciiTable = [ ('═', OuterWall)
              , ('┐', InnerWall)
              , ('┘', InnerWall)
              , ('.', Floor)
-             , ('╳', Spawn)
+             , ('╳', MapSpawn)
+
              , ('#', Table)
              , ('%', Chair)
              , ('\'', OpenedDoor)
              , ('+', ClosedDoor)
+             , ('◈', Computer)
+             , ('@', Person)
              ]
 
 
-loadMap ∷ (MonadIO m) ⇒ FilePath → m Map
-loadMap fp = do
+loadTileMap ∷ (MonadIO m) ⇒ FilePath → m TileMap
+loadTileMap fp = do
     str ← liftIO $ readFile fp
     let w = fromMaybe 0 $ elemIndex '\n' str
         h = length str - w
-    return $ Map (fromIntegral w) (fromIntegral h) (Vec.fromList $ filter (/='\n') str)
+    return $ TileMap (fromIntegral w) (fromIntegral h) (Vec.fromList $ filter (/='\n') str)
 
 
