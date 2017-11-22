@@ -22,6 +22,7 @@ import qualified UI.NCurses as Curses
 
 data Event = Move (V2 Int)
            | NextAim
+           | Examine
            | Interact
            | Quit
            | Start
@@ -69,6 +70,7 @@ cursesToEvent (Curses.EventCharacter 'b') = Just $ Move (V2 -1  1)
 cursesToEvent (Curses.EventCharacter 'n') = Just $ Move (V2  1  1)
  
 cursesToEvent (Curses.EventCharacter '\t') = Just $ NextAim
+cursesToEvent (Curses.EventCharacter 'e')  = Just $ Examine
 cursesToEvent (Curses.EventCharacter ' ')  = Just $ Interact
 
 cursesToEvent (Curses.EventCharacter 'q') = Just $ Quit

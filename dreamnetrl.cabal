@@ -70,7 +70,9 @@ executable dreamnetrl
                        lens,
                        dyre,
                        linear,
-                       ncurses
+                       ncurses,
+                       bytestring,
+                       cassava
   
   -- Directories containing source files.
   hs-source-dirs:      src

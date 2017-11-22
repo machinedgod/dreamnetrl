@@ -28,6 +28,7 @@ module Dreamnet.World
 , switchAim
 , moveAim
 , interact
+, talkTo
 , updateVisible
 ) where
 
@@ -49,6 +50,7 @@ import qualified Data.Vector as Vec
 
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
+import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
@@ -97,8 +99,8 @@ data Visibility = Visible
 
 
 data Object = Computer
-            | Person
-            | Door       Bool
+            | Person     String     -- <-- Name
+            | Door       Bool       -- <-- Is opened?
             | Container  TMap.Tile
             | Dispenser  TMap.Tile
             | Stairs     TMap.Tile
@@ -110,7 +112,9 @@ data World = World {
     , _w_aim ∷ Maybe (V2 Int)
     , _w_map ∷ TMap.TileMap
     , _w_visible ∷ Vec.Vector Visibility
+
     , _w_objects ∷ Map.Map (V2 Int) Object
+    , _w_people ∷ Map.Map String Character
     , _w_status ∷ String
     }
 
@@ -119,14 +123,12 @@ makeLenses ''World
 
 newWorld ∷ TMap.TileMap → World
 newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown 
-                 objects = let maybeObject c        = c `lookup` TMap.asciiTable >>= tileToObject
-                               insertIntoMap i os o = Map.insert (TMap.coordLin m i) o os
-                               findObjects i c os   = maybe os (insertIntoMap i os) (maybeObject c)
-                           in  Vec.ifoldr findObjects Map.empty (m ^. TMap.m_data)
-                 pp      = let isSpawnTile c         = fromMaybe False $ fmap (==TMap.MapSpawn) $ c `lookup` TMap.asciiTable
-                               foldSpawnCoords i c l = bool l (TMap.coordLin m i : l) (isSpawnTile c)
-                           in  headNote "Map is missing spawn points!" $ Vec.ifoldr foldSpawnCoords [] (m ^. TMap.m_data)
-             in  World pp Nothing m iniv objects ""
+                 objects = TMap.findObjects m tileToObject
+                 people  = Map.fromList [ ("Moe", newCharacter "Moe")
+                                        , ("Gary", newCharacter "Gary")
+                                        ]
+                 pp      = headNote "Map is missing spawn points!" $ TMap.findSpawnPoints m
+             in  World pp Nothing m iniv objects people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
 
@@ -146,23 +148,23 @@ runWorld wf e w = flip execState w $ flip runReaderT e $ runWorldF wf
 
 --------------------------------------------------------------------------------
 
-tileToObject ∷ TMap.Tile → Maybe Object
-tileToObject TMap.Person     = Just Person
-tileToObject TMap.Computer   = Just Computer
-tileToObject TMap.OpenedDoor = Just (Door True)
-tileToObject TMap.ClosedDoor = Just (Door False)
-tileToObject TMap.Cupboard   = Just (Container TMap.Cupboard)
-tileToObject TMap.Sink       = Just (Dispenser TMap.Sink)
-tileToObject TMap.Toilet     = Just (Container TMap.Toilet)
-tileToObject TMap.StairsDown = Just (Stairs TMap.StairsDown)
-tileToObject TMap.StairsUp   = Just (Stairs TMap.StairsDown)
-tileToObject TMap.Table      = Just (Prop TMap.Table)
-tileToObject TMap.Chair      = Just (Prop TMap.Chair)
-tileToObject _               = Nothing
+tileToObject ∷ Vec.Vector String → V2 Int → TMap.Tile → Maybe Object
+tileToObject extra v TMap.Person     = Just (Person $ fromMaybe "!Redshirt!" $ extra Vec.!? 1)
+tileToObject extra v TMap.Computer   = Just Computer
+tileToObject extra v TMap.OpenedDoor = Just (Door True)
+tileToObject extra v TMap.ClosedDoor = Just (Door False)
+tileToObject extra v TMap.Cupboard   = Just (Container TMap.Cupboard)
+tileToObject extra v TMap.Sink       = Just (Dispenser TMap.Sink)
+tileToObject extra v TMap.Toilet     = Just (Container TMap.Toilet)
+tileToObject extra v TMap.StairsDown = Just (Stairs TMap.StairsDown)
+tileToObject extra v TMap.StairsUp   = Just (Stairs TMap.StairsDown)
+tileToObject extra v TMap.Table      = Just (Prop TMap.Table)
+tileToObject extra v TMap.Chair      = Just (Prop TMap.Chair)
+tileToObject extra v _               = Nothing
 
 
 objectToTile ∷ Object → TMap.Tile
-objectToTile Person        = TMap.Person
+objectToTile (Person _)    = TMap.Person
 objectToTile Computer      = TMap.Computer
 objectToTile (Door o)      = bool TMap.ClosedDoor TMap.OpenedDoor o
 objectToTile (Container t) = t
@@ -205,6 +207,15 @@ interact f = void $ runMaybeT $ do
     o ← MaybeT (objectAt v)
     MaybeT (Just <$> f v o)
 
+
+talkTo ∷ (MonadWorld u) ⇒ String → u ()
+talkTo n = do
+    mc ← uses w_people (Map.lookup n)
+    case mc of
+        Just c  → w_status .= (c ^. c_name) ++ " says to fuck off."
+        Nothing → w_status .= "You call out '" ++ n ++ "', but no one responds..."
+
+
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]
 interestingObjects = do
     pp ← use w_playerPos
@@ -233,10 +244,10 @@ updateVisible = do
 
     -- TODO resolving 'x' causes problems
     w_visible %= Vec.imap (\i x → if i `Set.member` linPoints
-                                       then Visible
-                                       else case x of
-                                                Visible → Known
-                                                _       → x)
+                                    then Visible
+                                    else case x of
+                                      Visible → Known
+                                      _       → x)
     where
         visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
         visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l

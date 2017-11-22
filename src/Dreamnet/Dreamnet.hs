@@ -82,6 +82,7 @@ update = do
     case e of
         Move v   → movePlayer v >> switchAim
         NextAim  → switchAim
+        Examine  → examineAimOrEnvironment
         Interact → interactWithAim >> w_aim .= Nothing
         _        → return ()
 
@@ -90,7 +91,7 @@ update = do
         -- TODO pull specific object data from some map or store it next to a tile
         interactWithAim = interact $ \v o → case o of
             Computer    → w_status .= "Using a computer"
-            Person      → w_status .= "Talking to someone"
+            Person c    → talkTo c
             Door o      → changeObject_ v (Door (not o))
             Container t → w_status .= "Inspecting the " ++ show t ++ " for stuff..."
             Dispenser t → w_status .= "Dispensing items from the " ++ show t
@@ -98,8 +99,20 @@ update = do
             Prop t      → case t of
                               TMap.Table → w_status .= "Nothing to do with this table."
                               TMap.Chair → do
-                                w_status .= "You sit down and chill out..."
+                                w_status    .= "You sit down and chill out..."
                                 w_playerPos .= v
+        examineAimOrEnvironment = do
+            ma ← use w_aim
+            case ma of
+                Just a → interact $ \_ o → case o of
+                    Computer    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "This is a common machine found everywhere today. You wonder if its for better or worse.")
+                    Person c    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "He is grumpy.")
+                    Door o      → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "Just a common door that's " ++ bool "closed." "opened." o)
+                    Container t → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "This particular " ++ show t ++ " has no inventory coded yet.")
+                    Dispenser t → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet.")
+                    Stairs t    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "If map changing would've been coded in, you would use these to switch between maps and layers.")
+                    Prop t      → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "A common " ++ show t ++ ". You wonder if it fulfilled its existence.")
+                _ → w_status .= "Moe's bar. A dive, but rich in contacts, and what is a businesswoman without contacts?"
 
 
 
