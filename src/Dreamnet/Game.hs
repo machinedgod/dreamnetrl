@@ -58,7 +58,8 @@ newtype GameF a = GameF { runGameF ∷ StateT Game Curses.Curses a }
 
 instance MonadGame GameF where
     doInput = do
-        e ← runInput nextEvent
+        ps ← use (g_world.w_playerState)
+        e  ← runInput (nextEvent ps)
         case e of
             Quit → g_keepRunning .= False
             e    → g_input .= e

@@ -5,11 +5,13 @@
 
 module Dreamnet.World
 ( module Control.Monad.Reader
+, module Dreamnet.Character
 
 , MonadWorld(..)
 , WorldF
 , World
 , w_playerPos
+, w_playerState
 , w_aim
 , w_map
 , w_visible
@@ -17,19 +19,19 @@ module Dreamnet.World
 , newWorld
 , runWorld
 
+, Visibility(..)
+, updateVisible
+
 , Object(..)
 , objectAt
 , changeObject
 , changeObject_
 
-, Visibility(..)
-
 , movePlayer
 , switchAim
-, moveAim
 , interact
+, examine
 , talkTo
-, updateVisible
 ) where
 
 import Prelude hiding (interact, head)
@@ -107,9 +109,13 @@ data Object = Computer
             | Prop       TMap.Tile
             deriving (Eq, Show)
 
+
 data World = World {
       _w_playerPos ∷ V2 Int
+    , _w_playerChar ∷ Character
+    , _w_playerState ∷ CharacterState
     , _w_aim ∷ Maybe (V2 Int)
+
     , _w_map ∷ TMap.TileMap
     , _w_visible ∷ Vec.Vector Visibility
 
@@ -128,7 +134,8 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
                                         , ("Gary", newCharacter "Gary")
                                         ]
                  pp      = headNote "Map is missing spawn points!" $ TMap.findSpawnPoints m
-             in  World pp Nothing m iniv objects people ""
+                 pc      = newCharacter "Carla"
+             in  World pp pc Normal Nothing m iniv objects people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
 
@@ -143,7 +150,7 @@ newtype WorldF a = WorldF { runWorldF ∷ ReaderT Event (State World) a }
 instance MonadWorld WorldF
 
 
-runWorld ∷ WorldF () → Event → World → World
+runWorld ∷ WorldF () → Event → World → (World)
 runWorld wf e w = flip execState w $ flip runReaderT e $ runWorldF wf
 
 --------------------------------------------------------------------------------
@@ -197,10 +204,6 @@ movePlayer v = do
         w_playerPos += v
 
 
-moveAim ∷ (MonadWorld u) ⇒ V2 Int → u ()
-moveAim v = w_aim %= fmap (+v)
-
-
 interact ∷ (MonadWorld u) ⇒ (V2 Int → Object → u ()) → u ()
 interact f = void $ runMaybeT $ do
     v ← MaybeT (use w_aim)
@@ -208,12 +211,16 @@ interact f = void $ runMaybeT $ do
     MaybeT (Just <$> f v o)
 
 
+examine ∷ (MonadWorld u) ⇒ String → u ()
+examine s = w_playerState .= Examination s
+
+
 talkTo ∷ (MonadWorld u) ⇒ String → u ()
 talkTo n = do
     mc ← uses w_people (Map.lookup n)
     case mc of
-        Just c  → w_status .= (c ^. c_name) ++ " says to fuck off."
-        Nothing → w_status .= "You call out '" ++ n ++ "', but no one responds..."
+        Just c  → w_playerState .= Conversation c
+        Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..."
 
 
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]

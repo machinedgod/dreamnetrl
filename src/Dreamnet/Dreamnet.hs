@@ -77,13 +77,23 @@ dreamnet d = Curses.runCurses $ do
 
 update ∷ WorldF ()
 update = do
+    -- Clear status line
     w_status .= replicate 80 ' '
+
+    -- Process input depending on the state
     e ← ask
     case e of
         Move v   → movePlayer v >> switchAim
         NextAim  → switchAim
         Examine  → examineAimOrEnvironment
         Interact → interactWithAim >> w_aim .= Nothing
+
+        ScrollUp     → w_status .= "Scrolling down"
+        ScrollDown   → w_status .= "Scrolling up"
+        SelectChoice → w_status .= "Selecting choice and back to normal" >> w_playerState .= Normal
+        BackToNormal → w_playerState .= Normal
+
+        CustomInteraction c → w_status .= "Sending keystroke to current object"
         _        → return ()
 
     updateVisible
@@ -105,19 +115,20 @@ update = do
             ma ← use w_aim
             case ma of
                 Just a → interact $ \_ o → case o of
-                    Computer    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "This is a common machine found everywhere today. You wonder if its for better or worse.")
-                    Person c    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "He is grumpy.")
-                    Door o      → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "Just a common door that's " ++ bool "closed." "opened." o)
-                    Container t → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "This particular " ++ show t ++ " has no inventory coded yet.")
-                    Dispenser t → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet.")
-                    Stairs t    → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "If map changing would've been coded in, you would use these to switch between maps and layers.")
-                    Prop t      → w_status .= ("You're looking at a " ++ show o ++ ". " ++ "A common " ++ show t ++ ". You wonder if it fulfilled its existence.")
-                _ → w_status .= "Moe's bar. A dive, but rich in contacts, and what is a businesswoman without contacts?"
+                    Computer    → examine $ "You're looking at a " ++ show o ++ ". " ++ "This is a common machine found everywhere today. You wonder if its for better or worse."
+                    Person c    → examine $ "You're looking at a " ++ show o ++ ". " ++ "He is grumpy."
+                    Door o      → examine $ "You're looking at a " ++ show o ++ ". " ++ "Just a common door that's " ++ bool "closed." "opened." o
+                    Container t → examine $ "You're looking at a " ++ show o ++ ". " ++ "This particular " ++ show t ++ " has no inventory coded yet."
+                    Dispenser t → examine $ "You're looking at a " ++ show o ++ ". " ++ "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet."
+                    Stairs t    → examine $ "You're looking at a " ++ show o ++ ". " ++ "If map changing would've been coded in, you would use these to switch between maps and layers."
+                    Prop t      → examine $ "You're looking at a " ++ show o ++ ". " ++ "A common " ++ show t ++ ". You wonder if it fulfilled its existence."
+                _ → examine "Moe's bar. A dive, but rich in contacts, and what is a businesswoman without contacts?"
 
 
 
 render ∷ RendererF ()
 render = do
+    state ← view (re_world.w_playerState)
     drawMap
     drawPlayer
     drawAim
