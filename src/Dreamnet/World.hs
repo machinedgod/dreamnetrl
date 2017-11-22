@@ -219,7 +219,7 @@ talkTo ∷ (MonadWorld u) ⇒ String → u ()
 talkTo n = do
     mc ← uses w_people (Map.lookup n)
     case mc of
-        Just c  → w_playerState .= Conversation c
+        Just c  → w_playerState .= Talking c "Hey dude!"
         Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..."
 
 

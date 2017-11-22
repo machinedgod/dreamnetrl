@@ -15,7 +15,7 @@ import Control.Monad.Trans.Class
 
 import Data.Bool  (bool)
 import Data.Char  (ord)
-import Data.List  (elemIndex, nub, unfoldr)
+import Data.List  (elemIndex, nub, unfoldr, intersperse)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set            as Set
 import qualified Data.Vector         as Vec
@@ -94,7 +94,8 @@ update = do
         BackToNormal → w_playerState .= Normal
 
         CustomInteraction c → w_status .= "Sending keystroke to current object"
-        _        → return ()
+
+        _ → return ()
 
     updateVisible
     where
@@ -116,22 +117,33 @@ update = do
             case ma of
                 Just a → interact $ \_ o → case o of
                     Computer    → examine $ "You're looking at a " ++ show o ++ ". " ++ "This is a common machine found everywhere today. You wonder if its for better or worse."
-                    Person c    → examine $ "You're looking at a " ++ show o ++ ". " ++ "He is grumpy."
-                    Door o      → examine $ "You're looking at a " ++ show o ++ ". " ++ "Just a common door that's " ++ bool "closed." "opened." o
+                    Person c    → examine $ c ++ " looks grumpy."
+                    Door o      → examine $ "Just a common door. They're " ++ bool "closed." "opened." o
                     Container t → examine $ "You're looking at a " ++ show o ++ ". " ++ "This particular " ++ show t ++ " has no inventory coded yet."
                     Dispenser t → examine $ "You're looking at a " ++ show o ++ ". " ++ "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet."
                     Stairs t    → examine $ "You're looking at a " ++ show o ++ ". " ++ "If map changing would've been coded in, you would use these to switch between maps and layers."
                     Prop t      → examine $ "You're looking at a " ++ show o ++ ". " ++ "A common " ++ show t ++ ". You wonder if it fulfilled its existence."
-                _ → examine "Moe's bar. A dive, but rich in contacts, and what is a businesswoman without contacts?"
+                _ → examine $ concat $ intersperse "\n" [ "Moe's bar."
+                                                        , "A dive with cheap drinks and... interesting... clientele."
+                                                        , ""
+                                                        , "You wonder if any person here would be willing to give you a job."
+                                                        ]
 
 
 
 render ∷ RendererF ()
 render = do
     state ← view (re_world.w_playerState)
-    drawMap
-    drawPlayer
-    drawAim
-    view (re_world.w_status) >>= messagePrint
+    case state of
+        Normal        → do
+            --updateWindow Curses.clear
+            drawMap
+            drawPlayer
+            drawAim
+            drawHud
+        Examination s → drawExamination s
+        Talking c s   → drawConversationWindow 0 c s
+        Listening c s → drawConversationWindow 1 c s
+        Interaction   → drawInteraction
     swap
 

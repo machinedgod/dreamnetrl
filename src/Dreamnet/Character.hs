@@ -51,9 +51,10 @@ newCharacter n = Character n leftHand rightHand
 --------------------------------------------------------------------------------
 
 data CharacterState = Normal
-                    | Examination   String
-                    | Conversation  Character
+                    | Examination  String
                     | Interaction
+                    | Talking      Character String
+                    | Listening    Character String
                     deriving (Show)
 
 
