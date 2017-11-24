@@ -1,8 +1,5 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.Dreamnet
 where
@@ -83,7 +80,7 @@ loopTheLoop = do
             (UIEv uie)        = e
             (PassThrough pte) = e
 
-        when (e == Quit) $
+        when (e == Quit)
             stopGameLoop
 
         s ← view g_gameState
@@ -128,7 +125,7 @@ updateWorld (Move v) = do
     updateVisible
     return Normal
 updateWorld NextAim = switchAim >> return Normal
-updateWorld Examine = examine >>= return . Examination
+updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
     w_aim .= Nothing

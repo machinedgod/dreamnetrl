@@ -117,7 +117,7 @@ instance MonadWorld WorldM
 
 
 runWorld ∷ WorldM GameState → World → (GameState, World)
-runWorld wm w = runState (runWorldM wm) w 
+runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
@@ -216,7 +216,7 @@ bla (V2 x0 y0) d@(V2 x1 y1) =
         yxStep b (V2 x y) = V2 (x + signum dx * b) (y + signum dy)
         (p, q, step) | abs dx > abs dy = (abs dy, abs dx, xyStep)
                      | otherwise       = (abs dx, abs dy, yxStep)
-        walk w xy | xy == d   = xy : []
+        walk w xy | xy == d   = [xy]
                   | otherwise = xy : walk (tail w) (step (head w) xy)
     in  walk (balancedWord p q 0) (V2 x0 y0)
     where
@@ -261,7 +261,7 @@ floodFillRange r o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton
                         _2 %= Set.insert x
                         _1 %= Set.filter ((&&) . inRange r o <*> not . (`Set.member` closedSet)) . Set.union (neighbors x)
                 ) openSet
-            when (not $ Set.null openSet)
+            unless (Set.null openSet)
                 nearestNeighbor
 
         inRange ∷ Word → V2 Int → V2 Int → Bool

@@ -38,7 +38,7 @@ controlChoice MoveUp = do
     cm_currentSelection -= 1 
     return False
 controlChoice MoveDown = do
-    maxV ← uses cm_options (\v → fromIntegral $ (Vec.length v) - 1) 
+    maxV ← uses cm_options (\v → fromIntegral $ Vec.length v - 1) 
     cm_currentSelection %= min maxV . (+1)
     return False
 controlChoice SelectChoice = return True

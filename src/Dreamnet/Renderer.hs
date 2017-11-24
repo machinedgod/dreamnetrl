@@ -109,26 +109,24 @@ initRenderer = do
     mainW          ← Curses.newWindow mainHeight mainWidth 0 0
     hudW           ← Curses.newWindow hudHeight hudWidth mainHeight 0
 
+    let lowLeftW = mainWidth `div` 3
+        lowLeftH = mainHeight `div` 3
+        lowLeftX = 0
+        lowLeftY = mainHeight `div` 3 * 2
+
+        topRightW = mainWidth `div` 3
+        topRightH = mainHeight `div` 3
+        topRightX = mainWidth `div` 3 * 2
+        topRightY = 0
+
     examineW       ← let w = 50
                          h = 10
                          x = (mainWidth - w) `div` 2
                          y = (mainHeight - h) `div` 2
                      in  Curses.newWindow h w y x
-    choiceW        ← let w = mainWidth `div` 3
-                         h = mainHeight `div` 3
-                         x = 0
-                         y = mainHeight `div` 3 * 2
-                     in  Curses.newWindow h w y x
-    conversationW0 ← let w = mainWidth `div` 3
-                         h = mainHeight `div` 3
-                         x = 0
-                         y = mainHeight `div` 3 * 2
-                     in  Curses.newWindow h w y x
-    conversationW1 ← let w = mainWidth `div` 3
-                         h = mainHeight `div` 3
-                         x = mainWidth `div` 3 * 2
-                         y = 0
-                     in  Curses.newWindow h w y x
+    choiceW        ← Curses.newWindow lowLeftH lowLeftW lowLeftX lowLeftY
+    conversationW0 ← Curses.newWindow lowLeftH lowLeftW lowLeftX lowLeftY
+    conversationW1 ← Curses.newWindow topRightH topRightW topRightY topRightX
     interactionW   ← Curses.newWindow (rows - 4) (columns - 4) 2 2
 
     styles ← createStyles 
@@ -140,13 +138,13 @@ initRenderer = do
                 c2 ← Curses.newColorID  Curses.ColorWhite  Curses.ColorBlack  2
                 c3 ← Curses.newColorID  Curses.ColorRed    Curses.ColorBlack  3
                 --c3 ← Curses.newColorID  Curses.ColorBlue   Curses.ColorBlack  3
-                return $ Styles {
-                           _s_mapUnknown       = [Curses.AttributeColor c1, Curses.AttributeDim]
-                         , _s_mapKnown         = [Curses.AttributeColor c1, Curses.AttributeDim]
-                         , _s_mapVisible       = [Curses.AttributeColor c2, Curses.AttributeBold]
-                         , _s_aim              = [Curses.AttributeColor c3]
-                         , _s_playerCharacters = [Curses.AttributeColor c1, Curses.AttributeBold]
-                         }
+                return Styles {
+                         _s_mapUnknown       = [Curses.AttributeColor c1, Curses.AttributeDim]
+                       , _s_mapKnown         = [Curses.AttributeColor c1, Curses.AttributeDim]
+                       , _s_mapVisible       = [Curses.AttributeColor c2, Curses.AttributeBold]
+                       , _s_aim              = [Curses.AttributeColor c3]
+                       , _s_playerCharacters = [Curses.AttributeColor c1, Curses.AttributeBold]
+                       }
 
 
 runRenderer ∷ RendererData → World → RendererF () → Curses.Curses ()
@@ -173,11 +171,11 @@ drawMap = do
     updateWindow w $
         Vec.imapM_ (drawTile unknown known visible m) $ Vec.zip (m^.TMap.m_data) vis
     where
-        drawTile us ks vs m i (c, v) = do
-            uncurry (drawCharAt $ TMap.coordLin m i) $ case v of
-                 Unknown → (' ', us)
-                 Known   → (c,   ks)
-                 Visible → (c,   vs)
+        drawTile us ks vs m i (c, v) = uncurry (drawCharAt $ TMap.coordLin m i) $
+            case v of
+                Unknown → (' ', us)
+                Known   → (c,   ks)
+                Visible → (c,   vs)
 
 
 --drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()

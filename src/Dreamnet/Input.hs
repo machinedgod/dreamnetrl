@@ -1,5 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -94,9 +93,9 @@ worldEvent 'y'  = Just $ Move (V2 -1 -1)
 worldEvent 'u'  = Just $ Move (V2  1 -1)
 worldEvent 'b'  = Just $ Move (V2 -1  1)
 worldEvent 'n'  = Just $ Move (V2  1  1)
-worldEvent '\t' = Just $ NextAim
-worldEvent 'e'  = Just $ Examine
-worldEvent ' '  = Just $ Interact
+worldEvent '\t' = Just   NextAim
+worldEvent 'e'  = Just   Examine
+worldEvent ' '  = Just   Interact
 worldEvent _    = Nothing
 
 

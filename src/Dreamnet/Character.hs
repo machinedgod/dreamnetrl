@@ -15,7 +15,7 @@ import Control.Lens
 
 --------------------------------------------------------------------------------
 
-data Item = Item {
+newtype Item = Item {
       _i_name ∷ String
     }
     deriving (Show)

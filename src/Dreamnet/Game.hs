@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts, StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
 module Dreamnet.Game
@@ -38,11 +38,9 @@ import Dreamnet.UI.ConversationView
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
 
-import qualified Debug.Trace as Debug
-
 --------------------------------------------------------------------------------
 
-data ScrollModel = ScrollModel {
+newtype ScrollModel = ScrollModel {
       _sm_scrollLine ∷ Word
     }
 

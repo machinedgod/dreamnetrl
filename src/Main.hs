@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE UnicodeSyntax #-}
 
 module Main
 where

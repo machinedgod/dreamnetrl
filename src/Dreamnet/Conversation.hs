@@ -1,5 +1,4 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Dreamnet.Conversation
@@ -61,7 +60,7 @@ testLinearConvo =
                         $ ListenNode "Mmmmm..."
                             $ TalkNode "Actually, hold that drink, will ya? If he's not here I'll use the time and go do some stuff."
                                 $ ListenNode "Later, Cal."
-                                    $ End
+                                    End
 
 
 testBranchingConvo ∷ ConversationNode

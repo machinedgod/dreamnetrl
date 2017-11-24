@@ -24,7 +24,7 @@ module Dreamnet.TileMap
 import Control.Monad.IO.Class 
 import Control.Lens 
 import Data.Maybe (fromMaybe)
-import Data.List (elemIndex, intersperse)
+import Data.List (elemIndex, intercalate)
 import Data.Bool (bool)
 import Linear 
 
@@ -54,8 +54,8 @@ linCoord m (V2 x y) = let w = fromIntegral (m^.m_width)
 
 coordLin ∷ TileMap → Int → V2 Int
 coordLin m i = let w = m^.m_width
-                   x = i `mod` (fromIntegral w)
-                   y = i `div` (fromIntegral w)
+                   x = i `mod` fromIntegral w
+                   y = i `div` fromIntegral w
                in  V2 x y 
 {-# INLINE coordLin #-}
 
@@ -153,7 +153,7 @@ loadTileMap fp = do
         (fromIntegral w)
         (fromIntegral h)
         (Vec.fromList $ filter (/='\n') str)
-        (concat $ intersperse "\n"
+        (intercalate "\n"
             [ "Moe's bar."
             , "A dive with cheap drinks and... interesting... clientele."
             , ""
@@ -167,12 +167,12 @@ readExtra fp = do
     errOrVec ← liftIO $ CSV.decode CSV.HasHeader <$> BS.readFile (fp ++ ".extra")
     case errOrVec of
         Left e  → error $ "Error loading extras: " ++ e
-        Right v → let fillDataVectors (x, y, t, d0, d1, d2) m = Map.insert (V2 x y) (Vec.fromList [t, d0, d1, d2])  m
+        Right v → let fillDataVectors (x, y, t, d0, d1, d2) = Map.insert (V2 x y) (Vec.fromList [t, d0, d1, d2])
                   in  return $ Vec.foldr fillDataVectors Map.empty v
 
 
 changeTile ∷ V2 Int → Tile → TileMap → TileMap
-changeTile v o m = let c = maybe '.' id $ lookup o $ flipTuple <$> asciiTable
+changeTile v o m = let c = fromMaybe '.' $ lookup o $ flipTuple <$> asciiTable
                    in  (m_data . element (linCoord m v) .~ c) m
     where
         flipTuple (x, y) = (y, x)
@@ -189,7 +189,7 @@ findObjects m tileToObject =
 
 findSpawnPoints ∷ TileMap → [V2 Int]
 findSpawnPoints m =
-    let isSpawnTile c         = fromMaybe False $ fmap (==MapSpawn) $ c `lookup` asciiTable
+    let isSpawnTile c         = maybe False (==MapSpawn) $ c `lookup` asciiTable
         foldSpawnCoords i c l = bool l (coordLin m i : l) (isSpawnTile c)
     in  Vec.ifoldr foldSpawnCoords [] (m ^. m_data)
 
