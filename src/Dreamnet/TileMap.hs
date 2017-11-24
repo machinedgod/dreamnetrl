@@ -6,6 +6,7 @@ module Dreamnet.TileMap
 , m_width
 , m_height
 , m_data
+, m_desc
 
 , linCoord
 , coordLin
@@ -23,7 +24,7 @@ module Dreamnet.TileMap
 import Control.Monad.IO.Class 
 import Control.Lens 
 import Data.Maybe (fromMaybe)
-import Data.List (elemIndex)
+import Data.List (elemIndex, intersperse)
 import Data.Bool (bool)
 import Linear 
 
@@ -35,10 +36,11 @@ import qualified Data.Csv             as CSV
 --------------------------------------------------------------------------------
 
 data TileMap = TileMap {
-      _m_width ∷ Word
+      _m_width  ∷ Word
     , _m_height ∷ Word
-    , _m_data ∷ Vec.Vector Char
-    , _m_extra ∷ Map.Map (V2 Int) (Vec.Vector String)
+    , _m_data   ∷ Vec.Vector Char
+    , _m_desc   ∷ String
+    , _m_extra  ∷ Map.Map (V2 Int) (Vec.Vector String)
     }
 
 makeLenses ''TileMap
@@ -147,7 +149,17 @@ loadTileMap fp = do
     let w     = fromMaybe 0 $ elemIndex '\n' str
         h     = length $ filter (=='\n') str
     extra ← readExtra fp
-    return $ TileMap (fromIntegral w) (fromIntegral h) (Vec.fromList $ filter (/='\n') str) extra
+    return $ TileMap
+        (fromIntegral w)
+        (fromIntegral h)
+        (Vec.fromList $ filter (/='\n') str)
+        (concat $ intersperse "\n"
+            [ "Moe's bar."
+            , "A dive with cheap drinks and... interesting... clientele."
+            , ""
+            , "You wonder if any person here would be willing to give you a job."
+            ])
+        extra
 
 
 readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Vec.Vector String))

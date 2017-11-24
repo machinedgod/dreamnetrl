@@ -9,8 +9,6 @@ module Dreamnet.Character
 , ch_leftHand
 , ch_rightHand
 , newCharacter
-
-, CharacterState(..)
 ) where
 
 import Control.Lens
@@ -47,14 +45,4 @@ newCharacter n = Character n leftHand rightHand
     where
         leftHand  = EquipmentSlot "leftHand" Nothing
         rightHand = EquipmentSlot "rightHand" Nothing
-
---------------------------------------------------------------------------------
-
-data CharacterState = Normal
-                    | Examination  String
-                    | Interaction
-                    | Talking      Character String
-                    | Listening    Character String
-                    deriving (Show)
-
 

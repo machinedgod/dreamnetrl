@@ -4,17 +4,17 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.World
-( module Control.Monad.Reader
-, module Dreamnet.Character
+( module Dreamnet.Character
 
 , MonadWorld(..)
-, WorldF
 , World
+, WorldM
 , w_playerPos
-, w_playerState
 , w_aim
 , w_map
 , w_visible
+, w_objects
+, w_people
 , w_status
 , newWorld
 , runWorld
@@ -26,12 +26,13 @@ module Dreamnet.World
 , objectAt
 , changeObject
 , changeObject_
+, objectDescription
+, objectInteraction
 
 , movePlayer
 , switchAim
 , interact
-, examine
-, talkTo
+, interactOrElse
 ) where
 
 import Prelude hiding (interact, head)
@@ -39,7 +40,6 @@ import Safe
 
 import Control.Lens
 import Control.Monad.State
-import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Linear
 import Data.Bool
@@ -53,52 +53,19 @@ import qualified Data.Vector as Vec
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
 import Dreamnet.Character
+import Dreamnet.GameState
+import Dreamnet.Conversation
 
 --------------------------------------------------------------------------------
 
-isPassable ∷ TMap.Tile → Bool
-isPassable TMap.OuterWall  = False
-isPassable TMap.InnerWall  = False
-isPassable TMap.Floor      = True
-isPassable TMap.MapSpawn   = True
-isPassable TMap.Table      = False
-isPassable TMap.Chair      = False
-isPassable TMap.OpenedDoor = True
-isPassable TMap.ClosedDoor = False
-isPassable TMap.Computer   = False
-isPassable TMap.Person     = False
-isPassable TMap.Cupboard   = False
-isPassable TMap.Sink       = False
-isPassable TMap.Toilet     = False
-isPassable TMap.StairsDown = True
-isPassable TMap.StairsUp   = True
-{-# INLINE isPassable #-}
+class (MonadState World u) ⇒ MonadWorld u
 
-
-isSeeThrough ∷ TMap.Tile → Bool
-isSeeThrough TMap.OuterWall  = False
-isSeeThrough TMap.InnerWall  = False
-isSeeThrough TMap.Floor      = True
-isSeeThrough TMap.MapSpawn   = True
-isSeeThrough TMap.Table      = True
-isSeeThrough TMap.Chair      = True
-isSeeThrough TMap.OpenedDoor = True
-isSeeThrough TMap.ClosedDoor = False
-isSeeThrough TMap.Computer   = True
-isSeeThrough TMap.Person     = True
-isSeeThrough TMap.Cupboard   = False
-isSeeThrough TMap.Sink       = True
-isSeeThrough TMap.Toilet     = True
-isSeeThrough TMap.StairsDown = True
-isSeeThrough TMap.StairsUp   = True
-{-# INLINE isSeeThrough #-}
-
+--------------------------------------------------------------------------------
 
 data Visibility = Visible
                 | Known
                 | Unknown
                 deriving (Eq, Show, Ord, Enum)
-
 
 data Object = Computer
             | Person     String     -- <-- Name
@@ -110,10 +77,11 @@ data Object = Computer
             deriving (Eq, Show)
 
 
+
+
 data World = World {
       _w_playerPos ∷ V2 Int
     , _w_playerChar ∷ Character
-    , _w_playerState ∷ CharacterState
     , _w_aim ∷ Maybe (V2 Int)
 
     , _w_map ∷ TMap.TileMap
@@ -135,50 +103,22 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
                                         ]
                  pp      = headNote "Map is missing spawn points!" $ TMap.findSpawnPoints m
                  pc      = newCharacter "Carla"
-             in  World pp pc Normal Nothing m iniv objects people ""
+             in  World pp pc Nothing m iniv objects people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
 
 --------------------------------------------------------------------------------
 
-class (MonadState World u) ⇒ MonadWorld u
+newtype WorldM a = WorldM { runWorldM ∷ State World a }
+                 deriving (Functor, Applicative, Monad, MonadState World)
+
+instance MonadWorld WorldM
 
 
-newtype WorldF a = WorldF { runWorldF ∷ ReaderT Event (State World) a }
-                 deriving (Functor, Applicative, Monad, MonadReader Event, MonadState World)
-
-instance MonadWorld WorldF
-
-
-runWorld ∷ WorldF () → Event → World → (World)
-runWorld wf e w = flip execState w $ flip runReaderT e $ runWorldF wf
+runWorld ∷ WorldM GameState → World → (GameState, World)
+runWorld wm w = runState (runWorldM wm) w 
 
 --------------------------------------------------------------------------------
-
-tileToObject ∷ Vec.Vector String → V2 Int → TMap.Tile → Maybe Object
-tileToObject extra v TMap.Person     = Just (Person $ fromMaybe "!Redshirt!" $ extra Vec.!? 1)
-tileToObject extra v TMap.Computer   = Just Computer
-tileToObject extra v TMap.OpenedDoor = Just (Door True)
-tileToObject extra v TMap.ClosedDoor = Just (Door False)
-tileToObject extra v TMap.Cupboard   = Just (Container TMap.Cupboard)
-tileToObject extra v TMap.Sink       = Just (Dispenser TMap.Sink)
-tileToObject extra v TMap.Toilet     = Just (Container TMap.Toilet)
-tileToObject extra v TMap.StairsDown = Just (Stairs TMap.StairsDown)
-tileToObject extra v TMap.StairsUp   = Just (Stairs TMap.StairsDown)
-tileToObject extra v TMap.Table      = Just (Prop TMap.Table)
-tileToObject extra v TMap.Chair      = Just (Prop TMap.Chair)
-tileToObject extra v _               = Nothing
-
-
-objectToTile ∷ Object → TMap.Tile
-objectToTile (Person _)    = TMap.Person
-objectToTile Computer      = TMap.Computer
-objectToTile (Door o)      = bool TMap.ClosedDoor TMap.OpenedDoor o
-objectToTile (Container t) = t
-objectToTile (Dispenser t) = t
-objectToTile (Stairs t)    = t
-objectToTile (Prop t)      = t
-
 
 objectAt ∷ (MonadWorld u) ⇒ V2 Int → u (Maybe Object)
 objectAt v = uses w_objects (Map.lookup v)
@@ -205,22 +145,14 @@ movePlayer v = do
 
 
 interact ∷ (MonadWorld u) ⇒ (V2 Int → Object → u ()) → u ()
-interact f = void $ runMaybeT $ do
+interact f = interactOrElse f (return ())
+
+
+interactOrElse ∷ (MonadWorld u) ⇒ (V2 Int → Object → u a) → u a → u a
+interactOrElse f e = fromMaybe e <=< runMaybeT $ do
     v ← MaybeT (use w_aim)
     o ← MaybeT (objectAt v)
-    MaybeT (Just <$> f v o)
-
-
-examine ∷ (MonadWorld u) ⇒ String → u ()
-examine s = w_playerState .= Examination s
-
-
-talkTo ∷ (MonadWorld u) ⇒ String → u ()
-talkTo n = do
-    mc ← uses w_people (Map.lookup n)
-    case mc of
-        Just c  → w_playerState .= Talking c "Hey dude!"
-        Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..."
+    return (f v o)
 
 
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]
@@ -341,4 +273,106 @@ floodFillRange r o = Set.toList $ snd $ execState nearestNeighbor (Set.singleton
                                                   , V2  0  1
                                                   , V2  1  1
                                                   ]
+
+--------------------------------------------------------------------------------
+
+isPassable ∷ TMap.Tile → Bool
+isPassable TMap.OuterWall  = False
+isPassable TMap.InnerWall  = False
+isPassable TMap.Floor      = True
+isPassable TMap.MapSpawn   = True
+isPassable TMap.Table      = False
+isPassable TMap.Chair      = False
+isPassable TMap.OpenedDoor = True
+isPassable TMap.ClosedDoor = False
+isPassable TMap.Computer   = False
+isPassable TMap.Person     = False
+isPassable TMap.Cupboard   = False
+isPassable TMap.Sink       = False
+isPassable TMap.Toilet     = False
+isPassable TMap.StairsDown = True
+isPassable TMap.StairsUp   = True
+{-# INLINE isPassable #-}
+
+
+isSeeThrough ∷ TMap.Tile → Bool
+isSeeThrough TMap.OuterWall  = False
+isSeeThrough TMap.InnerWall  = False
+isSeeThrough TMap.Floor      = True
+isSeeThrough TMap.MapSpawn   = True
+isSeeThrough TMap.Table      = True
+isSeeThrough TMap.Chair      = True
+isSeeThrough TMap.OpenedDoor = True
+isSeeThrough TMap.ClosedDoor = False
+isSeeThrough TMap.Computer   = True
+isSeeThrough TMap.Person     = True
+isSeeThrough TMap.Cupboard   = False
+isSeeThrough TMap.Sink       = True
+isSeeThrough TMap.Toilet     = True
+isSeeThrough TMap.StairsDown = True
+isSeeThrough TMap.StairsUp   = True
+{-# INLINE isSeeThrough #-}
+
+
+tileToObject ∷ Vec.Vector String → V2 Int → TMap.Tile → Maybe Object
+tileToObject extra v TMap.Person     = Just (Person $ fromMaybe "!Redshirt!" $ extra Vec.!? 1)
+tileToObject extra v TMap.Computer   = Just Computer
+tileToObject extra v TMap.OpenedDoor = Just (Door True)
+tileToObject extra v TMap.ClosedDoor = Just (Door False)
+tileToObject extra v TMap.Cupboard   = Just (Container TMap.Cupboard)
+tileToObject extra v TMap.Sink       = Just (Dispenser TMap.Sink)
+tileToObject extra v TMap.Toilet     = Just (Container TMap.Toilet)
+tileToObject extra v TMap.StairsDown = Just (Stairs TMap.StairsDown)
+tileToObject extra v TMap.StairsUp   = Just (Stairs TMap.StairsDown)
+tileToObject extra v TMap.Table      = Just (Prop TMap.Table)
+tileToObject extra v TMap.Chair      = Just (Prop TMap.Chair)
+tileToObject extra v _               = Nothing
+{-# INLINE tileToObject #-}
+
+
+--------------------------------------------------------------------------------
+
+objectToTile ∷ Object → TMap.Tile
+objectToTile (Person _)    = TMap.Person
+objectToTile Computer      = TMap.Computer
+objectToTile (Door o)      = bool TMap.ClosedDoor TMap.OpenedDoor o
+objectToTile (Container t) = t
+objectToTile (Dispenser t) = t
+objectToTile (Stairs t)    = t
+objectToTile (Prop t)      = t
+{-# INLINE objectToTile #-}
+
+
+objectDescription ∷ Object → String
+objectDescription Computer      = "This is a common machine found everywhere today. You wonder if its for better or worse."
+objectDescription (Person c)    = c ++ " looks grumpy."
+objectDescription (Door o)      = "Just a common door. They're " ++ bool "closed." "opened." o
+objectDescription (Container t) = "This particular " ++ show t ++ " has no inventory coded yet."
+objectDescription (Dispenser t) = "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet."
+objectDescription (Stairs t)    = "If map changing would've been coded in, you would use these to switch between maps and layers."
+objectDescription (Prop t)      = "A common " ++ show t ++ ". You wonder if it fulfilled its existence."
+{-# INLINE objectDescription #-}
+
+
+objectInteraction ∷ (MonadWorld u) ⇒ V2 Int → Object → u GameState
+objectInteraction v Computer      = w_status .= "Using a computer" >> return Normal
+objectInteraction v (Person n)    = do
+    mc ← uses w_people (Map.lookup n)
+    case mc of
+        Just c  → return $ Conversation testRecursiveConvo
+        Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..." >> return Normal
+objectInteraction v (Door o)      = changeObject_ v (Door (not o)) >> return Normal
+objectInteraction v (Container t) = w_status .= "Inspecting the " ++ show t ++ " for stuff..."  >> return Normal
+objectInteraction v (Dispenser t) = w_status .= "Dispensing items from the " ++ show t >> return Normal
+objectInteraction v (Stairs t)    = w_status .= "These lead to " ++ show t >> return Normal
+objectInteraction v (Prop t)      = propInteraction t
+    where
+        propInteraction ∷ (MonadWorld u) ⇒ TMap.Tile → u GameState
+        propInteraction TMap.Table = w_status .= "Nothing to do with this table." >> return Normal
+        propInteraction TMap.Chair = do
+            w_status    .= "You sit down and chill out..."
+            w_playerPos .= v 
+            return Normal
+        propInteraction _ = return Normal
+{-# INLINE objectInteraction #-}
 

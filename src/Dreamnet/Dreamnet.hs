@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.Dreamnet
 where
@@ -17,18 +18,25 @@ import Data.Bool  (bool)
 import Data.Char  (ord)
 import Data.List  (elemIndex, nub, unfoldr, intersperse)
 import Data.Maybe (fromMaybe)
-import qualified Data.Set            as Set
-import qualified Data.Vector         as Vec
+import qualified Data.Set    as Set
+import qualified Data.Vector as Vec
+import qualified Data.Map    as Map
 import Linear
 
 import qualified UI.NCurses  as Curses
 import qualified Config.Dyre as Dyre
 
+import Dreamnet.GameState
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
-import Dreamnet.Renderer
 import Dreamnet.World
 import Dreamnet.Game
+import Dreamnet.Conversation
+
+import Dreamnet.Renderer
+import Dreamnet.UI.ChoiceBox
+import Dreamnet.UI.ConversationView
+import Dreamnet.UI.InformationWindow
 
 --------------------------------------------------------------------------------
 
@@ -59,91 +67,96 @@ dreamnet d = Curses.runCurses $ do
     Curses.defaultWindow >>= (`Curses.setKeypad` True)
     Curses.setCursorMode Curses.CursorInvisible
 
-    rdf ← initRenderer
-    g   ← newGame rdf
-    runGame g loopTheLoop
-    where
-        loopTheLoop ∷ (MonadGame m) ⇒ m ()
-        loopTheLoop = do
-            doUpdate updateVisible
-            doRender render
-            doInput
-            r ← use g_keepRunning
-            when r $ do
-                doUpdate update
-                doRender render
-                loopTheLoop 
- 
+    g ← newGame
+    runGame g $ do
+        doUpdate $ updateVisible >> return Normal
+        doRender $ renderNormal >> swap
+        loopTheLoop
 
-update ∷ WorldF ()
-update = do
-    -- Clear status line
-    w_status .= replicate 80 ' '
 
-    -- Process input depending on the state
-    e ← ask
-    case e of
-        Move v   → movePlayer v >> switchAim
-        NextAim  → switchAim
-        Examine  → examineAimOrEnvironment
-        Interact → interactWithAim >> w_aim .= Nothing
+loopTheLoop ∷ (MonadGame m) ⇒ m ()
+loopTheLoop = do
+    r ← view g_keepRunning
+    when r $ do
+        e ← doInput
+        let (WorldEv we)      = e
+            (UIEv uie)        = e
+            (PassThrough pte) = e
 
-        ScrollUp     → w_status .= "Scrolling down"
-        ScrollDown   → w_status .= "Scrolling up"
-        SelectChoice → w_status .= "Selecting choice and back to normal" >> w_playerState .= Normal
-        BackToNormal → w_playerState .= Normal
+        when (e == Quit) $
+            stopGameLoop
 
-        CustomInteraction c → w_status .= "Sending keystroke to current object"
+        s ← view g_gameState
+        case s of
+            Normal → doUpdate (updateWorld we)
 
-        _ → return ()
+            Conversation (ChoiceNode s _) → case uie of
+                MoveUp   → choiceUp
+                MoveDown → choiceDown
+                SelectChoice → do
+                    sel ← view (g_choiceModel.cm_currentSelection)
+                    doConversation (pick sel)
+                _ → return ()
+            Conversation cs → doConversation (advance cs)
 
+            _ → return () -- We have no other updates coded in ATM
+
+
+        s' ← view g_gameState
+        cm ← view g_choiceModel
+        doRender $ do
+            case s' of
+                Normal          → renderNormal
+                Examination     → renderExamination
+                Interaction     → return ()
+                Conversation cn → renderConversation cm cn
+            swap
+        loopTheLoop 
+
+
+
+updateWorld ∷ (MonadWorld w) ⇒ WorldEvent → w GameState
+updateWorld (Move v) = do
+    movePlayer v
+    switchAim
     updateVisible
-    where
-        -- TODO pull specific object data from some map or store it next to a tile
-        interactWithAim = interact $ \v o → case o of
-            Computer    → w_status .= "Using a computer"
-            Person c    → talkTo c
-            Door o      → changeObject_ v (Door (not o))
-            Container t → w_status .= "Inspecting the " ++ show t ++ " for stuff..."
-            Dispenser t → w_status .= "Dispensing items from the " ++ show t
-            Stairs t    → w_status .= "These lead to " ++ show t
-            Prop t      → case t of
-                              TMap.Table → w_status .= "Nothing to do with this table."
-                              TMap.Chair → do
-                                w_status    .= "You sit down and chill out..."
-                                w_playerPos .= v
-        examineAimOrEnvironment = do
-            ma ← use w_aim
-            case ma of
-                Just a → interact $ \_ o → case o of
-                    Computer    → examine $ "You're looking at a " ++ show o ++ ". " ++ "This is a common machine found everywhere today. You wonder if its for better or worse."
-                    Person c    → examine $ c ++ " looks grumpy."
-                    Door o      → examine $ "Just a common door. They're " ++ bool "closed." "opened." o
-                    Container t → examine $ "You're looking at a " ++ show o ++ ". " ++ "This particular " ++ show t ++ " has no inventory coded yet."
-                    Dispenser t → examine $ "You're looking at a " ++ show o ++ ". " ++ "You could probably dispense items from this " ++ show t ++ " but this isn't coded yet."
-                    Stairs t    → examine $ "You're looking at a " ++ show o ++ ". " ++ "If map changing would've been coded in, you would use these to switch between maps and layers."
-                    Prop t      → examine $ "You're looking at a " ++ show o ++ ". " ++ "A common " ++ show t ++ ". You wonder if it fulfilled its existence."
-                _ → examine $ concat $ intersperse "\n" [ "Moe's bar."
-                                                        , "A dive with cheap drinks and... interesting... clientele."
-                                                        , ""
-                                                        , "You wonder if any person here would be willing to give you a job."
-                                                        ]
+    return Normal
+updateWorld NextAim = switchAim >> return Normal
+updateWorld Examine = return Examination
+updateWorld Interact = do
+    s ← interactOrElse objectInteraction (return Normal)
+    w_aim .= Nothing
+    return s
 
 
+-- Returned bool: close window?
+updateScroll ∷ (MonadGame g) ⇒ UIEvent → g ()
+updateScroll MoveUp   = scrollUp
+updateScroll MoveDown = scrollDown
+updateScroll _        = switchGameState Normal
 
-render ∷ RendererF ()
-render = do
-    state ← view (re_world.w_playerState)
-    case state of
-        Normal        → do
-            --updateWindow Curses.clear
-            drawMap
-            drawPlayer
-            drawAim
-            drawHud
-        Examination s → drawExamination s
-        Talking c s   → drawConversationWindow 0 c s
-        Listening c s → drawConversationWindow 1 c s
-        Interaction   → drawInteraction
-    swap
 
+renderNormal ∷ RendererF ()
+renderNormal = do
+    drawMap
+    drawPlayer
+    drawAim
+    drawHud
+
+
+-- TODO obviously, this is bad. Its world code inside rendering, looking
+--      for objects & shit. 
+renderExamination ∷ RendererF ()
+renderExamination = do
+    env ← view (re_world.w_map.TMap.m_desc)
+    drawCenteredWindow "Examine" <=< fmap (fromMaybe env) . runMaybeT $ do
+        v ← MaybeT (view (re_world.w_aim))
+        o ← MaybeT (views (re_world.w_objects) (Map.lookup v))
+        return $ objectDescription o
+
+
+renderConversation ∷ (MonadRender r) ⇒ ChoiceModel → ConversationNode → r ()
+renderConversation cm (TalkNode s _)    = drawConversationWindow 0 "Carla" s
+renderConversation cm (ListenNode s _)  = drawConversationWindow 1 "Moe"   s
+renderConversation cm (ChoiceNode ls _) = drawChoice (cm^.cm_currentSelection) (Vec.fromList ls)
+renderConversation cm End               = return ()
