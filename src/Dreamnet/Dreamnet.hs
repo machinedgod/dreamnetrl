@@ -96,8 +96,15 @@ loopTheLoop = do
                 SelectChoice → do
                     sel ← view (g_choiceModel.cm_currentSelection)
                     doConversation (pick sel)
-                _ → return ()
+                Back     → return ()
             Conversation cs → doConversation (advance cs)
+
+            Examination _ → case uie of
+                MoveUp       → scrollUp
+                MoveDown     → scrollDown
+                SelectChoice → switchGameState Normal
+                Back         → switchGameState Normal
+ 
 
             _ → return () -- We have no other updates coded in ATM
 
@@ -107,7 +114,7 @@ loopTheLoop = do
         doRender $ do
             case s' of
                 Normal          → renderNormal
-                Examination     → renderExamination
+                Examination s   → drawCenteredWindow "Examine" s
                 Interaction     → return ()
                 Conversation cn → renderConversation cm cn
             swap
@@ -122,7 +129,7 @@ updateWorld (Move v) = do
     updateVisible
     return Normal
 updateWorld NextAim = switchAim >> return Normal
-updateWorld Examine = return Examination
+updateWorld Examine = examine >>= return . Examination
 updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
     w_aim .= Nothing
@@ -142,17 +149,6 @@ renderNormal = do
     drawPlayer
     drawAim
     drawHud
-
-
--- TODO obviously, this is bad. Its world code inside rendering, looking
---      for objects & shit. 
-renderExamination ∷ RendererF ()
-renderExamination = do
-    env ← view (re_world.w_map.TMap.m_desc)
-    drawCenteredWindow "Examine" <=< fmap (fromMaybe env) . runMaybeT $ do
-        v ← MaybeT (view (re_world.w_aim))
-        o ← MaybeT (views (re_world.w_objects) (Map.lookup v))
-        return $ objectDescription o
 
 
 renderConversation ∷ (MonadRender r) ⇒ ChoiceModel → ConversationNode → r ()

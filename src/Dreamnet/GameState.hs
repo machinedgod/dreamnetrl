@@ -8,7 +8,7 @@ module Dreamnet.GameState
 import Dreamnet.Conversation
 
 data GameState = Normal
-               | Examination
+               | Examination   String
                | Interaction
                | Conversation  ConversationNode
 

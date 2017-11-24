@@ -33,6 +33,7 @@ module Dreamnet.World
 , switchAim
 , interact
 , interactOrElse
+, examine
 ) where
 
 import Prelude hiding (interact, head)
@@ -153,6 +154,10 @@ interactOrElse f e = fromMaybe e <=< runMaybeT $ do
     v ← MaybeT (use w_aim)
     o ← MaybeT (objectAt v)
     return (f v o)
+
+
+examine ∷ (MonadWorld w) ⇒ w String
+examine = interactOrElse (\_ → return . objectDescription) (use (w_map.TMap.m_desc))
 
 
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]

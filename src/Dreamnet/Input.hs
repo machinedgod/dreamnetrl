@@ -78,7 +78,7 @@ runInput = liftCurses . runInputF
 cursesToEvent ∷ GameState → Curses.Event → Maybe Event
 cursesToEvent _                (Curses.EventCharacter 'q') = Just Quit
 cursesToEvent Normal           (Curses.EventCharacter   c) = WorldEv <$> worldEvent c
-cursesToEvent Examination      (Curses.EventCharacter   c) = UIEv <$> uiEvent c
+cursesToEvent (Examination _)  (Curses.EventCharacter   c) = UIEv <$> uiEvent c
 cursesToEvent (Conversation _) (Curses.EventCharacter   c) = UIEv <$> uiEvent c
 cursesToEvent Interaction      (Curses.EventCharacter   c) = Just (PassThrough c)
 cursesToEvent _ _                                          = Nothing
