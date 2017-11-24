@@ -121,7 +121,6 @@ loopTheLoop = do
         loopTheLoop 
 
 
-
 updateWorld ∷ (MonadWorld w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     movePlayer v
@@ -152,7 +151,7 @@ renderNormal = do
 
 
 renderConversation ∷ (MonadRender r) ⇒ ChoiceModel → ConversationNode → r ()
-renderConversation cm (TalkNode s _)    = drawConversationWindow 0 "Carla" s
-renderConversation cm (ListenNode s _)  = drawConversationWindow 1 "Moe"   s
-renderConversation cm (ChoiceNode ls _) = drawChoice (cm^.cm_currentSelection) (Vec.fromList ls)
-renderConversation cm End               = return ()
+renderConversation cm (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
+renderConversation cm (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 "Moe"   s
+renderConversation cm (ChoiceNode ls _) = clearConversationWindow 1 >> drawChoice (cm^.cm_currentSelection) (Vec.fromList ls)
+renderConversation _ _                  = return () -- We'll never end up here

@@ -33,6 +33,7 @@ import Dreamnet.Input
 import Dreamnet.Conversation
 
 import Dreamnet.UI.ChoiceBox
+import Dreamnet.UI.ConversationView
 
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
@@ -125,7 +126,9 @@ instance MonadGame GameM where
         Conversation c → do
             let nc = c `runConversation` cm
             case nc of
-                End → g_gameState .= Normal
+                End → do
+                    g_gameState .= Normal
+                    doRender $ clearConversationWindow 0 >> clearConversationWindow 1
                 _   → g_gameState .= Conversation nc
         _ → return ()
     scrollUp   = g_scrollModel.sm_scrollLine -= 1

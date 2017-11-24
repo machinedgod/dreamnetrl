@@ -3,13 +3,23 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Dreamnet.UI.ConversationView
-( drawConversationWindow
+( clearConversationWindow
+, drawConversationWindow
 ) where
 
 import Dreamnet.Renderer
 import qualified UI.NCurses as Curses
 
 --------------------------------------------------------------------------------
+
+clearConversationWindow ∷ (MonadRender r) ⇒ Word → r ()
+clearConversationWindow i = do
+    w ← view $ case i of
+        0 → re_data.rd_conversationWindow0
+        1 → re_data.rd_conversationWindow1
+        _ → re_data.rd_conversationWindow0
+    updateWindow w Curses.clear
+
 
 -- TODO REDO as multiple ncurses windows
 drawConversationWindow ∷ (MonadRender r) ⇒ Word → String → String → r ()
