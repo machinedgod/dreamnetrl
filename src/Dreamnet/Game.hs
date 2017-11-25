@@ -113,9 +113,6 @@ instance MonadGame GameM where
         let (gs, w') = runWorld um w
         g_world .= w'
         g_gameState .= gs
-        --case gs of
-        --    Conversation c → g_gameState .= Conversation (c `runConversation` advance c)
-        --    _ → return ()
     doRender r = do
         w  ← use g_world
         re ← use g_rendererData

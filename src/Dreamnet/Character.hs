@@ -1,7 +1,6 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 
 module Dreamnet.Character
 ( Character
@@ -13,27 +12,16 @@ module Dreamnet.Character
 
 import Control.Lens
 
+import Dreamnet.Item
+
 --------------------------------------------------------------------------------
-
-newtype Item = Item {
-      _i_name ∷ String
-    }
-    deriving (Show)
-
-makeLenses ''Item
-
-data EquipmentSlot = EquipmentSlot {
-      _es_name ∷ String
-    , _es_item ∷ Maybe Item
-    }
-    deriving (Show)
-
-makeLenses ''EquipmentSlot
 
 data Character = Character {
       _ch_name      ∷ String
-    , _ch_leftHand  ∷ EquipmentSlot
-    , _ch_rightHand ∷ EquipmentSlot
+    , _ch_leftHand  ∷ Slot 'Hand
+    , _ch_rightHand ∷ Slot 'Hand
+
+    , _ch_torso ∷ Slot 'Torso
     }
     deriving (Show)
 
@@ -41,8 +29,7 @@ makeLenses ''Character
 
 
 newCharacter ∷ String → Character
-newCharacter n = Character n leftHand rightHand
+newCharacter n = Character n empty empty empty
     where
-        leftHand  = EquipmentSlot "leftHand" Nothing
-        rightHand = EquipmentSlot "rightHand" Nothing
+        empty = Slot Nothing
 

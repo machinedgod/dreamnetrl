@@ -72,4 +72,3 @@ drawChoice c ls = view (re_data.rd_choiceWindow) >>= \w → updateWindow w $ do
             let widgetStart = 2
             Curses.moveCursor (fromIntegral i + 1) widgetStart
             Curses.drawGlyph (Curses.Glyph '»' [])
-

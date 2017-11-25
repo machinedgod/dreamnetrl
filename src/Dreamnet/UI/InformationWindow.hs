@@ -2,12 +2,17 @@
 
 module Dreamnet.UI.InformationWindow
 ( drawCenteredWindow
+, clearCenteredWindow
 ) where
 
 import Dreamnet.Renderer
 import qualified UI.NCurses as Curses
 
 --------------------------------------------------------------------------------
+
+clearCenteredWindow ∷ (MonadRender r) ⇒ r ()
+clearCenteredWindow = view (re_data.rd_examineWindow) >>= (`updateWindow` Curses.clear)
+    
 
 -- TODO add title & shit
 drawCenteredWindow ∷ (MonadRender r) ⇒ String → String → r ()

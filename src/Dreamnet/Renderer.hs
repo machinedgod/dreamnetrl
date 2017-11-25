@@ -140,23 +140,23 @@ initRenderer = do
     return $ RendererData styles mainW hudW examineW interactionW choiceW conversationW0 conversationW1
         where
             createStyles mc
-                | mc > 0 && mc <= 7    = createStyles7Colors    -- (And disable lighting)
-                | mc > 8 && mc <= 255  = createStyles7Colors   -- (And disable lighting)
-                | mc >= 255            = createStyles7Colors  -- (And enable lighting!)
+                | mc > 0 && mc <= 8    = createStyles8Colors    -- (And disable lighting)
+                | mc > 8 && mc <= 255  = createStyles8Colors   -- (And disable lighting)
+                | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
                 | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
-            createStyles7Colors = do 
-                cRed      ←  Curses.newColorID  Curses.ColorRed      Curses.ColorBlack  1
-                cGreen    ←  Curses.newColorID  Curses.ColorGreen    Curses.ColorBlack  2
-                cYellow   ←  Curses.newColorID  Curses.ColorYellow   Curses.ColorBlack  3
-                cBlue     ←  Curses.newColorID  Curses.ColorBlue     Curses.ColorBlack  4
-                cMagenta  ←  Curses.newColorID  Curses.ColorMagenta  Curses.ColorBlack  5
-                cCyan     ←  Curses.newColorID  Curses.ColorCyan     Curses.ColorBlack  6
-                cWhite    ←  Curses.newColorID  Curses.ColorWhite    Curses.ColorBlack  7
+            createStyles8Colors = do 
+                cRed     ←  Curses.newColorID  Curses.ColorRed      Curses.ColorBlack  1
+                cGreen   ←  Curses.newColorID  Curses.ColorGreen    Curses.ColorBlack  2
+                cYellow  ←  Curses.newColorID  Curses.ColorYellow   Curses.ColorBlack  3
+                cBlue    ←  Curses.newColorID  Curses.ColorBlue     Curses.ColorBlack  4
+                cMagenta ←  Curses.newColorID  Curses.ColorMagenta  Curses.ColorBlack  5
+                cCyan    ←  Curses.newColorID  Curses.ColorCyan     Curses.ColorBlack  6
+                cWhite   ←  Curses.newColorID  Curses.ColorWhite    Curses.ColorBlack  7
 
                 let materialWood       = [ Curses.AttributeColor cYellow, Curses.AttributeDim ]
                     materialMetal      = [ Curses.AttributeColor cCyan,   Curses.AttributeDim ]
                     materialRedPlastic = [ Curses.AttributeColor cRed,    Curses.AttributeDim ]
-                    materialCeramics   = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
+                    materialCeramics   = [ Curses.AttributeColor cWhite,  Curses.AttributeDim ]
                     objects            = Map.fromList
                         [ (Computer       , materialMetal )
                         , (Person "Carla" , [ Curses.AttributeColor cMagenta ])
@@ -176,9 +176,9 @@ initRenderer = do
 
                 return Styles {
                          _s_objects           = objects
-                       , _s_playerAim         = [ Curses.AttributeColor cRed, Curses.AttributeBold]
+                       , _s_playerAim         = [ Curses.AttributeColor cGreen, Curses.AttributeBold]
 
-                       , _s_visibilityUnknown = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
+                       , _s_visibilityUnknown = []
                        , _s_visibilityKnown   = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
                        , _s_visibilityVisible = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
                        }
@@ -221,14 +221,16 @@ drawObject v o = do
     m   ← view (re_world.w_map)
     vis ← view (re_world.w_visible)
 
-    os ← view (re_data.rd_styles.s_objects)
-    w  ← view (re_data.rd_mainWindow)
+    base  ← views (re_data.rd_styles.s_objects) (fromMaybe [] . Map.lookup o)
+    items ← views (re_world.w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
+    known ← view (re_data.rd_styles.s_visibilityKnown)
 
-    known   ← view (re_data.rd_styles.s_visibilityKnown)
+    w  ← view (re_data.rd_mainWindow)
+    let c = TMap.tileChar $ objectToTile o
     case isVisible vis m of
         Unknown → return ()
-        Known   → updateWindow w $ drawCharAt v (TMap.tileChar $ objectToTile o) known
-        Visible → updateWindow w $ drawCharAt v (TMap.tileChar $ objectToTile o) (fromMaybe [] $ Map.lookup o os)
+        Known   → updateWindow w $ drawCharAt v c known
+        Visible → updateWindow w $ drawCharAt v c (base ++ items)
     where
         isVisible vis m = vis Vec.! TMap.linCoord m v
 
@@ -260,6 +262,15 @@ drawHud = do
     w ← view (re_data.rd_hudWindow)
     s ← view (re_world.w_status)
     updateWindow w $ do
+        Curses.drawBorder (Just $ Curses.Glyph '│' [])
+                          (Just $ Curses.Glyph '│' [])
+                          (Just $ Curses.Glyph '─' [])
+                          (Just $ Curses.Glyph '─' [])
+                          (Just $ Curses.Glyph '╭' [])
+                          (Just $ Curses.Glyph '╮' [])
+                          (Just $ Curses.Glyph '╰' [])
+                          (Just $ Curses.Glyph '╯' [])
+
         Curses.moveCursor 2 2
         Curses.drawString $ "Status: " ++ s
 

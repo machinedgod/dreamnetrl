@@ -76,18 +76,15 @@ loopTheLoop = do
     r ← view g_keepRunning
     when r $ do
         e ← doInput
-        let (WorldEv we)      = e
-            (UIEv uie)        = e
-            (PassThrough pte) = e
-
+        
         when (e == Quit)
             stopGameLoop
 
         s ← view g_gameState
         case s of
-            Normal → doUpdate (updateWorld we)
+            Normal → doUpdate (let (WorldEv we) = e in updateWorld we)
 
-            Conversation (ChoiceNode s _) → case uie of
+            Conversation (ChoiceNode s _) → let (UIEv uie)= e in case uie of
                 MoveUp   → choiceUp
                 MoveDown → choiceDown
                 SelectChoice → do
@@ -96,11 +93,10 @@ loopTheLoop = do
                 Back     → return ()
             Conversation cs → doConversation (advance cs)
 
-            Examination _ → case uie of
-                MoveUp       → scrollUp
-                MoveDown     → scrollDown
-                SelectChoice → switchGameState Normal
-                Back         → switchGameState Normal
+            Examination _ → let (UIEv uie)= e in case uie of
+                MoveUp   → scrollUp
+                MoveDown → scrollDown
+                _        → switchGameState Normal >> doRender clearCenteredWindow
  
 
             _ → return () -- We have no other updates coded in ATM

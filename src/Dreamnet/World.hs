@@ -14,6 +14,7 @@ module Dreamnet.World
 , w_map
 , w_visible
 , w_objects
+, w_items
 , w_people
 , w_status
 , newWorld
@@ -47,6 +48,7 @@ import Linear
 import Data.Bool
 import Data.Maybe
 import Data.List
+import Data.Char (toLower)
 
 import qualified Data.Map    as Map
 import qualified Data.Set    as Set
@@ -54,6 +56,7 @@ import qualified Data.Vector as Vec
 
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
+import Dreamnet.Item
 import Dreamnet.Character
 import Dreamnet.GameState
 import Dreamnet.Conversation
@@ -88,6 +91,7 @@ data World = World {
     , _w_visible ∷ Vec.Vector Visibility
 
     , _w_objects ∷ Map.Map (V2 Int) Object
+    , _w_items ∷ Map.Map (V2 Int) [Item]
     , _w_people ∷ Map.Map String Character
     , _w_status ∷ String
     }
@@ -100,12 +104,15 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
                  objects = let extraData v    = fromMaybe Vec.empty $ Map.lookup v $ m ^. TMap.m_extra
                                gatherObject v = tileToObject (extraData v) v
                            in  Map.mapWithKey gatherObject (m^.TMap.m_objects)
+                 items   = Map.fromList [ (V2 14 7, [ Item "Beer bottle", Item "Whiskey glass", Item "Shot glass" ])
+                                        , (V2 10 5, [ Item "Credit scanner" ])
+                                        ]
                  people  = Map.fromList [ ("Moe", newCharacter "Moe")
                                         , ("Gary", newCharacter "Gary")
                                         ]
                  pp      = headNote "Map is missing spawn points!" $ m^.TMap.m_spawnPoints
                  pc      = newCharacter "Carla"
-             in  World pp pc Nothing m iniv objects people ""
+             in  World pp pc Nothing m iniv objects items people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
 
@@ -158,7 +165,15 @@ interactOrElse f e = fromMaybe e <=< runMaybeT $ do
 
 
 examine ∷ (MonadWorld w) ⇒ w String
-examine = interactOrElse (\_ → return . objectDescription) (use (w_map.TMap.m_desc))
+examine = interactOrElse examineText (use (w_map.TMap.m_desc))
+    where
+        examineText v o    = (objectDescription o ++) <$> itemsText v
+        itemsText v        = maybe "" itemsDescription <$> uses w_items (Map.lookup v)
+        itemsDescription []  = ""
+        itemsDescription [i] = "\nThere's a " ++ (toLower <$> i^.i_name) ++ " here."
+        itemsDescription l   = "\nThere are " ++ itemListToText l ++ " here."
+        itemListToText l     = let sl = fmap toLower . view i_name <$> l
+                               in  intercalate ", " (take (length sl - 1) sl) ++ " and " ++ last sl
 
 
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]
