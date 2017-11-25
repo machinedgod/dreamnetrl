@@ -142,6 +142,7 @@ updateScroll _        = switchGameState Normal
 renderNormal ∷ RendererF ()
 renderNormal = do
     drawMap
+    drawObjects
     drawPlayer
     drawAim
     drawHud

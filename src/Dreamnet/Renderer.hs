@@ -28,6 +28,8 @@ module Dreamnet.Renderer
 , runRenderer
 
 , drawMap
+, drawObject
+, drawObjects
 , drawPlayer
 , drawAim
 , drawHud
@@ -36,10 +38,12 @@ module Dreamnet.Renderer
 import Control.Lens
 import Control.Monad.Reader
 import Linear
+import Data.Maybe (fromMaybe)
 
 import UI.NCurses.Class
-import qualified UI.NCurses       as Curses
-import qualified Data.Vector      as Vec
+import qualified UI.NCurses  as Curses
+import qualified Data.Map    as Map
+import qualified Data.Vector as Vec
 
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.World
@@ -48,18 +52,20 @@ import Dreamnet.Character
 --------------------------------------------------------------------------------
 
 data Styles = Styles {
-      _s_mapUnknown ∷ [Curses.Attribute]
-    , _s_mapKnown   ∷ [Curses.Attribute]
-    , _s_mapVisible ∷ [Curses.Attribute]
+      _s_objects ∷ Map.Map Object    [Curses.Attribute]
 
-    , _s_aim ∷ [Curses.Attribute]
-    , _s_playerCharacters ∷ [Curses.Attribute]
+    , _s_playerAim        ∷ [Curses.Attribute]
+
+    , _s_visibilityUnknown ∷ [Curses.Attribute]
+    , _s_visibilityKnown   ∷ [Curses.Attribute]
+    , _s_visibilityVisible ∷ [Curses.Attribute]
     }
 
 makeLenses ''Styles
 
 data RendererData = RendererData {
-      _rd_styles ∷ Styles
+      _rd_styles              ∷ Styles
+
     , _rd_mainWindow          ∷ Curses.Window
     , _rd_hudWindow           ∷ Curses.Window
     , _rd_examineWindow       ∷ Curses.Window
@@ -124,27 +130,59 @@ initRenderer = do
                          x = (mainWidth - w) `div` 2
                          y = (mainHeight - h) `div` 2
                      in  Curses.newWindow h w y x
-    choiceW        ← Curses.newWindow lowLeftH lowLeftW lowLeftX lowLeftY
-    conversationW0 ← Curses.newWindow lowLeftH lowLeftW lowLeftX lowLeftY
+    choiceW        ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
+    conversationW0 ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     conversationW1 ← Curses.newWindow topRightH topRightW topRightY topRightX
     interactionW   ← Curses.newWindow (rows - 4) (columns - 4) 2 2
 
-    styles ← createStyles 
+    styles ← Curses.maxColor >>= createStyles 
 
     return $ RendererData styles mainW hudW examineW interactionW choiceW conversationW0 conversationW1
         where
-            createStyles = do
-                c1 ← Curses.newColorID  Curses.ColorBlue   Curses.ColorBlack  1
-                c2 ← Curses.newColorID  Curses.ColorWhite  Curses.ColorBlack  2
-                c3 ← Curses.newColorID  Curses.ColorRed    Curses.ColorBlack  3
-                --c3 ← Curses.newColorID  Curses.ColorBlue   Curses.ColorBlack  3
+            createStyles mc
+                | mc > 0 && mc <= 7    = createStyles7Colors    -- (And disable lighting)
+                | mc > 8 && mc <= 255  = createStyles7Colors   -- (And disable lighting)
+                | mc >= 255            = createStyles7Colors  -- (And enable lighting!)
+                | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
+            createStyles7Colors = do 
+                cRed      ←  Curses.newColorID  Curses.ColorRed      Curses.ColorBlack  1
+                cGreen    ←  Curses.newColorID  Curses.ColorGreen    Curses.ColorBlack  2
+                cYellow   ←  Curses.newColorID  Curses.ColorYellow   Curses.ColorBlack  3
+                cBlue     ←  Curses.newColorID  Curses.ColorBlue     Curses.ColorBlack  4
+                cMagenta  ←  Curses.newColorID  Curses.ColorMagenta  Curses.ColorBlack  5
+                cCyan     ←  Curses.newColorID  Curses.ColorCyan     Curses.ColorBlack  6
+                cWhite    ←  Curses.newColorID  Curses.ColorWhite    Curses.ColorBlack  7
+
+                let materialWood       = [ Curses.AttributeColor cYellow, Curses.AttributeDim ]
+                    materialMetal      = [ Curses.AttributeColor cCyan,   Curses.AttributeDim ]
+                    materialRedPlastic = [ Curses.AttributeColor cRed,    Curses.AttributeDim ]
+                    materialCeramics   = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
+                    objects            = Map.fromList
+                        [ (Computer       , materialMetal )
+                        , (Person "Carla" , [ Curses.AttributeColor cMagenta ])
+                        , (Door True      , materialWood)
+                        , (Door False     , materialWood)
+                        , (Stairs True    , materialWood)
+                        , (Stairs False   , materialWood)
+                        
+                        , (Prop TMap.Table      , materialWood)
+                        , (Prop TMap.Chair      , materialRedPlastic)
+                        
+                        , (Prop TMap.Cupboard   , materialWood)
+                        , (Prop TMap.Sink       , materialCeramics)
+                        , (Prop TMap.Toilet     , materialCeramics)
+                        
+                        ]
+
                 return Styles {
-                         _s_mapUnknown       = [Curses.AttributeColor c1, Curses.AttributeDim]
-                       , _s_mapKnown         = [Curses.AttributeColor c1, Curses.AttributeDim]
-                       , _s_mapVisible       = [Curses.AttributeColor c2, Curses.AttributeBold]
-                       , _s_aim              = [Curses.AttributeColor c3]
-                       , _s_playerCharacters = [Curses.AttributeColor c1, Curses.AttributeBold]
+                         _s_objects           = objects
+                       , _s_playerAim         = [ Curses.AttributeColor cRed, Curses.AttributeBold]
+
+                       , _s_visibilityUnknown = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
+                       , _s_visibilityKnown   = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
+                       , _s_visibilityVisible = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
                        }
+
 
 
 runRenderer ∷ RendererData → World → RendererF () → Curses.Curses ()
@@ -165,9 +203,9 @@ drawMap = do
     m   ← view (re_world.w_map)
     vis ← view (re_world.w_visible)
 
-    unknown ← view (re_data.rd_styles.s_mapUnknown)
-    known   ← view (re_data.rd_styles.s_mapKnown)
-    visible ← view (re_data.rd_styles.s_mapVisible)
+    unknown ← view (re_data.rd_styles.s_visibilityUnknown)
+    known   ← view (re_data.rd_styles.s_visibilityKnown)
+    visible ← view (re_data.rd_styles.s_visibilityVisible)
     updateWindow w $
         Vec.imapM_ (drawTile unknown known visible m) $ Vec.zip (m^.TMap.m_data) vis
     where
@@ -178,21 +216,31 @@ drawMap = do
                 Visible → (c,   vs)
 
 
---drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
---drawObject v Computer      = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v Person        = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Door True)   = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Door False)  = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Container t) = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Dispenser t) = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Stairs t)    = drawCharAt v 'o' [ Curses.AttributeBlink ]
---drawObject v (Prop t)      = drawCharAt v 'o' [ Curses.AttributeBlink ]
+drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
+drawObject v o = do
+    m   ← view (re_world.w_map)
+    vis ← view (re_world.w_visible)
+
+    os ← view (re_data.rd_styles.s_objects)
+    w  ← view (re_data.rd_mainWindow)
+
+    known   ← view (re_data.rd_styles.s_visibilityKnown)
+    case isVisible vis m of
+        Unknown → return ()
+        Known   → updateWindow w $ drawCharAt v (TMap.tileChar $ objectToTile o) known
+        Visible → updateWindow w $ drawCharAt v (TMap.tileChar $ objectToTile o) (fromMaybe [] $ Map.lookup o os)
+    where
+        isVisible vis m = vis Vec.! TMap.linCoord m v
+
+
+drawObjects ∷ (MonadRender r) ⇒ r ()
+drawObjects = view (re_world.w_objects) >>= Map.foldWithKey (\k v p → p >> drawObject k v) (return ())
 
 
 drawPlayer ∷ (MonadRender r) ⇒ r ()
 drawPlayer = do
     w ← view (re_data.rd_mainWindow)
-    s ← view (re_data.rd_styles.s_playerCharacters)
+    s ← views (re_data.rd_styles.s_objects) (fromMaybe [] . Map.lookup (Person "Carla"))
     v ← view (re_world.w_playerPos)
     updateWindow w $ drawCharAt v '@' s
 
@@ -200,7 +248,7 @@ drawPlayer = do
 drawAim ∷ (MonadRender r) ⇒ r ()
 drawAim = do
     w  ← view (re_data.rd_mainWindow)
-    s  ← view (re_data.rd_styles.s_aim)
+    s  ← view (re_data.rd_styles.s_playerAim)
     ma ← view (re_world.w_aim)
     case ma of
         Just v → updateWindow w $ drawCharAt v '×' s
