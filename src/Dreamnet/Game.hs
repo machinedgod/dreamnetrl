@@ -2,14 +2,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Game
 ( MonadGame(..)
 , Game
 , g_keepRunning
 , g_world
-, g_gameState
 , g_rendererData
 , newGame
 , runGame
@@ -31,8 +30,8 @@ import Dreamnet.Conversation
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
 
-import Dreamnet.ScrollModel (setText)
-import Dreamnet.UI.ConversationView (clearConversationWindow)
+import Dreamnet.ScrollModel          (setText, setLines)
+import Dreamnet.UI.ConversationView  (clearConversationWindow)
 import Dreamnet.UI.InformationWindow (clearCenteredWindow)
 
 --------------------------------------------------------------------------------
@@ -42,7 +41,8 @@ import Dreamnet.UI.InformationWindow (clearCenteredWindow)
 --      game.
 class (MonadState Game m) ⇒ MonadGame m where
     switchGameState ∷ GameState → m ()
-    stopGameLoop ∷ m ()
+    gameState       ∷ m GameState
+    stopGameLoop    ∷ m ()
 
     doInput  ∷ m Event
     doUpdate ∷ WorldM GameState → m ()
@@ -74,23 +74,27 @@ newGame = do
 newtype GameM a = GameM { runGameM ∷ StateT Game Curses.Curses a }
                 deriving (Functor, Applicative, Monad, MonadState Game, MonadCurses)
 
+
 instance MonadCurses (StateT Game Curses.Curses) where
     liftCurses = lift
 
 
 instance MonadGame GameM where
-    switchGameState gs = g_gameState .= gs
-    stopGameLoop = g_keepRunning .= False
-    doInput = do
-        ps ← use g_gameState
-        runInput (nextEvent ps)
-    doUpdate um = do
+    switchGameState gs = do
         ogs ← use g_gameState
-        w   ← use g_world
-        let (gs, w') = runWorld um w
-        when (ogs /= gs) $ do
+        when (gs /= ogs) $ do
             onStateSwitch ogs gs
             g_gameState .= gs
+    gameState = use g_gameState
+    stopGameLoop = g_keepRunning .= False
+    doInput = do
+        ps ← gameState
+        runInput (nextEvent ps)
+    doUpdate um = do
+        ogs ← gameState
+        w   ← use g_world
+        let (gs, w') = runWorld um w
+        switchGameState gs
         g_world .= w'
     doRender r = do
         w  ← use g_world
@@ -98,20 +102,23 @@ instance MonadGame GameM where
         (x, re') ← liftCurses (runRenderer re w r)
         g_rendererData .= re'
         return x
-    doConversation cm = use g_gameState >>= \case
+    doConversation cm = gameState >>= \case
         Conversation ch c → do
             let nc = c `runConversation` cm
             case nc of
                 End → do
-                    g_gameState .= Normal
+                    switchGameState Normal
                     doRender $ clearConversationWindow 0 >> clearConversationWindow 1
-                _   → g_gameState .= Conversation ch nc
+                _   → switchGameState (Conversation ch nc)
         _ → return ()
 
 
 onStateSwitch ∷ (MonadGame g) ⇒ GameState → GameState → g ()
 onStateSwitch Normal (Examination s) = g_rendererData.rd_scrollModel %= (>>setText s)
---onStateSwitch Normal (Conversation _) = doRender $ clearConversationWindow 0 >> clearConversationWindow 1 
+onStateSwitch Normal InventoryUI     = do
+    is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap (view i_name))
+    g_rendererData.rd_scrollModel %= (>>setLines is)
+onStateSwitch Normal CharacterUI     = g_rendererData.rd_scrollModel %= (>>setText "Character sheet")
 onStateSwitch _ _ = return ()
 
 

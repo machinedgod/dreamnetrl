@@ -11,5 +11,7 @@ data GameState = Normal
                | Examination   String
                | Interaction
                | Conversation  String ConversationNode
+               | InventoryUI
+               | CharacterUI
                deriving(Eq)
 

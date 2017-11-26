@@ -17,7 +17,7 @@ import Control.Lens
 newtype Item = Item {
       _i_name ∷ String
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 makeLenses ''Item
 

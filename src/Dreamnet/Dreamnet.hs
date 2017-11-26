@@ -1,13 +1,13 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Dreamnet
 where
 
-import Prelude hiding (interact)
+import Prelude hiding (interact, take)
 import Control.Monad.IO.Class
 import Control.Lens
-import Control.Monad.State
+import Control.Monad.State hiding (get)
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Class
 
@@ -81,7 +81,7 @@ loopTheLoop = do
         when (e == Quit)
             stopGameLoop
 
-        s ← use g_gameState
+        s ← gameState
         case s of
             Normal → doUpdate (let (WorldEv we) = e in updateWorld we)
 
@@ -90,16 +90,21 @@ loopTheLoop = do
 
             Examination s → let (UIEv uie) = e in updateScroll uie
 
+            InventoryUI → let (UIEv uie) = e in updateScroll uie
+            CharacterUI → let (UIEv uie) = e in updateScroll uie
+
             _ → return () -- We have no other updates coded in ATM
 
 
-        s' ← use g_gameState
+        s' ← gameState
         doRender $ do
             case s' of
-                Normal          → renderNormal
-                Examination _   → drawCenteredWindow
-                Interaction     → return ()
+                Normal            → renderNormal
+                Examination _     → drawCenteredWindow
                 Conversation n cn → renderConversation n cn
+                InventoryUI       → drawCenteredWindow
+                CharacterUI       → drawCenteredWindow
+                _                 → return ()
             swap
         loopTheLoop 
 
@@ -117,6 +122,17 @@ updateWorld Interact = do
     w_aim .= Nothing
     updateVisible
     return s
+updateWorld Get = get >>= \case
+        Just i → do
+            w_status .= "Picked up " ++ (i^.i_name)
+            w_aim .= Nothing
+            return Normal
+        Nothing → do
+            w_status .= "There's nothing there."
+            w_aim .= Nothing
+            return Normal
+updateWorld InventorySheet = return InventoryUI
+updateWorld CharacterSheet = return CharacterUI
 
 
 -- Returned bool: close window?

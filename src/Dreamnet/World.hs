@@ -10,6 +10,7 @@ module Dreamnet.World
 , World
 , WorldM
 , w_playerPos
+, w_playerCharacter
 , w_aim
 , w_map
 , w_visible
@@ -36,18 +37,19 @@ module Dreamnet.World
 , interact
 , interactOrElse
 , examine
+, get
 ) where
 
-import Prelude hiding (interact, head)
+import Prelude hiding (interact)
 import Safe
 
 import Control.Lens
-import Control.Monad.State
+import Control.Monad.State hiding (get)
 import Control.Monad.Trans.Maybe
 import Linear
 import Data.Bool
 import Data.Maybe
-import Data.List
+import Data.List (intercalate, unfoldr)
 import Data.Char (toLower)
 
 import qualified Data.Map    as Map
@@ -84,7 +86,7 @@ data Object = Computer
 
 data World = World {
       _w_playerPos ∷ V2 Int
-    , _w_playerChar ∷ Character
+    , _w_playerCharacter ∷ Character
     , _w_aim ∷ Maybe (V2 Int)
 
     , _w_map ∷ TMap.TileMap
@@ -155,7 +157,7 @@ movePlayer v = do
         w_playerPos += v
 
 
-interact ∷ (MonadWorld u) ⇒ (V2 Int → Object → u ()) → u ()
+interact ∷ (MonadWorld w) ⇒ (V2 Int → Object → w ()) → w ()
 interact f = interactOrElse f (return ())
 
 
@@ -176,6 +178,25 @@ examine = interactOrElse examineText (use (w_map.TMap.m_desc))
         itemsDescription l   = "\nThere are " ++ itemListToText l ++ " here."
         itemListToText l     = let sl = fmap toLower . view i_name <$> l
                                in  intercalate ", " (take (length sl - 1) sl) ++ " and " ++ last sl
+
+
+get ∷ (MonadWorld w) ⇒ w (Maybe Item)
+get = interactOrElse getItem (return Nothing)
+    where
+        getItem v o = runMaybeT $ do
+            i ← MaybeT (uses w_items (Map.lookup v >=> headMay))
+            addToCharacterInventory i
+            lift (removeFromWorldPile v i)
+            return i
+        addToCharacterInventory i = w_playerCharacter.ch_inventory %= (i:)
+
+
+removeFromWorldPile ∷ (MonadWorld w) ⇒ V2 Int → Item → w ()
+removeFromWorldPile v i = w_items %= Map.update (wrapMaybe . removeFromList i) v
+    where
+        removeFromList i l = filter (/=i) l
+        wrapMaybe [] = Nothing
+        wrapMaybe l  = Just l
 
 
 interestingObjects ∷ (MonadWorld u) ⇒ u [V2 Int]

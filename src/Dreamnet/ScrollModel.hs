@@ -26,6 +26,7 @@ import qualified Data.Vector as Vec
 
 class ScrollModelAPI m where
     setText      ∷ String → m ()
+    setLines     ∷ [String] → m ()
     setLineWidth ∷ Word → m ()
     setMaxLines  ∷ Word → m ()
     scrollUp     ∷ m ()
@@ -38,6 +39,7 @@ class ScrollModelAPI m where
 -- Bit me in the ass nicely...
 data ScrollData = ScrollData {
       _sd_text ∷ String
+    , _sd_lines ∷ [String]
     , _sd_lineWidth ∷ Int
     , _sd_maxLines ∷ Int
     , _sd_startLine ∷ Int
@@ -47,7 +49,7 @@ makeLenses ''ScrollData
 
 
 defaultScrollData ∷ ScrollData
-defaultScrollData = ScrollData "" 0 0 0
+defaultScrollData = ScrollData "" [] 0 0 0
 
 --------------------------------------------------------------------------------
 
@@ -55,16 +57,14 @@ type ScrollModel = State ScrollData ()
 
 
 createScrollModel ∷ Word → Word → ScrollModel
-createScrollModel w ml = put $ ScrollData "" (fromIntegral w) (fromIntegral ml) 0
+createScrollModel w ml = put $ ScrollData "" [] (fromIntegral w) (fromIntegral ml) 0
 
 
 visibleLines ∷ ScrollModel → Vec.Vector String
 visibleLines st = let sd        = execState st defaultScrollData
-                      text      = view sd_text      sd
-                      width     = view sd_lineWidth sd
                       maxLines  = view sd_maxLines  sd
                       startLine = view sd_startLine sd
-                  in  Vec.take maxLines $ Vec.drop startLine (lineList width text)
+                  in  Vec.fromList $ take maxLines $ drop startLine $ view sd_lines sd
 
 
 isAtTop ∷ ScrollModel → Bool
@@ -80,8 +80,11 @@ hasMoreLines sm = let sd = execState sm defaultScrollData
 
 instance ScrollModelAPI (State ScrollData) where
     setText s      = do
+        w ← use sd_lineWidth
         sd_text      .= s
+        sd_lines     .= lineList w s
         sd_startLine .= 0
+    setLines l     = sd_lines     .= l
     setLineWidth w = sd_lineWidth .= fromIntegral w
     setMaxLines  l = sd_maxLines  .= fromIntegral l
     scrollUp       = sd_startLine %= (\i → max 0 (i - 1))
@@ -94,17 +97,15 @@ instance ScrollModelAPI (State ScrollData) where
 
 
 totalLineCount ∷ ScrollData → Int
-totalLineCount sd = let width    = sd ^. sd_lineWidth
-                        text     = sd ^. sd_text
-                    in  Vec.length (lineList width text)
+totalLineCount sd = views sd_lines length sd
 
 
 -- TODO sometime in the future, fix this without hackish folds and reverses and
 --      trimming of empty lines
 --      I *do* understand how folds work, but I'm too tired now to focus on it
 --      enough to get it right
-lineList ∷ Int → String → Vec.Vector String
-lineList w s = Vec.fromList $ dropWhile (=="") $ reverse $ foldl (concatLines w) [] (lines s)
+lineList ∷ Int → String → [String]
+lineList w s = dropWhile (=="") $ reverse $ foldl (concatLines w) [] (lines s)
     where
         concatLines ∷ Int → [String] → String → [String]
         concatLines w newLines l = let bls = foldl (breakLine w) [] (words l)
