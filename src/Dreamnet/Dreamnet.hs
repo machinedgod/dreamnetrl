@@ -30,6 +30,8 @@ import Dreamnet.World
 import Dreamnet.Game
 import Dreamnet.Conversation
 
+import Dreamnet.ScrollModel
+import Dreamnet.ChoiceModel
 import Dreamnet.Renderer
 import Dreamnet.UI.ChoiceBox
 import Dreamnet.UI.ConversationView
@@ -63,7 +65,6 @@ dreamnet d = Curses.runCurses $ do
     Curses.setEcho    False
     Curses.defaultWindow >>= (`Curses.setKeypad` True)
     Curses.setCursorMode Curses.CursorInvisible
-
     g ← newGame
     runGame g $ do
         doUpdate $ updateVisible >> return Normal
@@ -73,43 +74,32 @@ dreamnet d = Curses.runCurses $ do
 
 loopTheLoop ∷ (MonadGame m) ⇒ m ()
 loopTheLoop = do
-    r ← view g_keepRunning
+    r ← use g_keepRunning
     when r $ do
         e ← doInput
         
         when (e == Quit)
             stopGameLoop
 
-        s ← view g_gameState
+        s ← use g_gameState
         case s of
             Normal → doUpdate (let (WorldEv we) = e in updateWorld we)
 
-            Conversation (ChoiceNode s _) → let (UIEv uie)= e in case uie of
-                MoveUp   → choiceUp
-                MoveDown → choiceDown
-                SelectChoice → do
-                    sel ← view (g_choiceModel.cm_currentSelection)
-                    doConversation (pick sel)
-                Back     → return ()
-            Conversation cs → doConversation (advance cs)
+            Conversation _ (ChoiceNode s _) → let (UIEv uie) = e in updateConversationChoice uie
+            Conversation _ cs → doConversation (advance cs)
 
-            Examination _ → let (UIEv uie)= e in case uie of
-                MoveUp   → scrollUp
-                MoveDown → scrollDown
-                _        → switchGameState Normal >> doRender clearCenteredWindow
- 
+            Examination s → let (UIEv uie) = e in updateScroll uie
 
             _ → return () -- We have no other updates coded in ATM
 
 
-        s' ← view g_gameState
-        cm ← view g_choiceModel
+        s' ← use g_gameState
         doRender $ do
             case s' of
                 Normal          → renderNormal
-                Examination s   → drawCenteredWindow "Examine" s
+                Examination _   → drawCenteredWindow
                 Interaction     → return ()
-                Conversation cn → renderConversation cm cn
+                Conversation n cn → renderConversation n cn
             swap
         loopTheLoop 
 
@@ -130,9 +120,18 @@ updateWorld Interact = do
 
 -- Returned bool: close window?
 updateScroll ∷ (MonadGame g) ⇒ UIEvent → g ()
-updateScroll MoveUp   = scrollUp
-updateScroll MoveDown = scrollDown
-updateScroll _        = switchGameState Normal
+updateScroll MoveUp   = g_rendererData.rd_scrollModel %= (>> scrollUp)
+updateScroll MoveDown = g_rendererData.rd_scrollModel %= (>> scrollDown)
+updateScroll _        = switchGameState Normal >> doRender clearCenteredWindow
+
+
+updateConversationChoice ∷ (MonadGame g) ⇒ UIEvent → g ()
+updateConversationChoice MoveUp       = g_rendererData.rd_choiceModel.cm_currentSelection -= 1
+updateConversationChoice MoveDown     = g_rendererData.rd_choiceModel.cm_currentSelection += 1
+updateConversationChoice SelectChoice = selection >>= doConversation . pick
+    where
+        selection = use (g_rendererData.rd_choiceModel.cm_currentSelection)
+updateConversationChoice Back = return ()
 
 
 renderNormal ∷ RendererF ()
@@ -144,8 +143,9 @@ renderNormal = do
     drawHud
 
 
-renderConversation ∷ (MonadRender r) ⇒ ChoiceModel → ConversationNode → r ()
-renderConversation cm (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
-renderConversation cm (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 "Moe"   s
-renderConversation cm (ChoiceNode ls _) = clearConversationWindow 1 >> drawChoice (cm^.cm_currentSelection) (Vec.fromList ls)
-renderConversation _ _                  = return () -- We'll never end up here
+renderConversation ∷ (MonadRender r) ⇒ String → ConversationNode → r ()
+renderConversation n (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
+renderConversation n (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 n s
+renderConversation n (ChoiceNode ls _) = clearConversationWindow 1 >> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
+renderConversation n _                 = return () -- We'll never end up here
+

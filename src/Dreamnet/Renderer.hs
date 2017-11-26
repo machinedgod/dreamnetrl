@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Renderer
 ( module Control.Lens
@@ -10,8 +11,10 @@ module Dreamnet.Renderer
 , MonadRender(..)
 , RendererF
 
-, RendererData
+, RendererEnvironment
 , rd_styles
+, rd_scrollModel
+, rd_choiceModel
 , rd_mainWindow
 , rd_hudWindow
 , rd_examineWindow
@@ -19,10 +22,6 @@ module Dreamnet.Renderer
 , rd_choiceWindow
 , rd_conversationWindow0
 , rd_conversationWindow1
-
-, RendererEnvironment
-, re_data
-, re_world
 
 , initRenderer
 , runRenderer
@@ -37,6 +36,7 @@ module Dreamnet.Renderer
 
 import Control.Lens
 import Control.Monad.Reader
+import Control.Monad.State
 import Linear
 import Data.Maybe (fromMaybe)
 
@@ -48,6 +48,8 @@ import qualified Data.Vector as Vec
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.World
 import Dreamnet.Character
+import Dreamnet.ScrollModel
+import Dreamnet.ChoiceModel
 
 --------------------------------------------------------------------------------
 
@@ -63,8 +65,11 @@ data Styles = Styles {
 
 makeLenses ''Styles
 
-data RendererData = RendererData {
+data RendererEnvironment = RendererEnvironment {
       _rd_styles              ∷ Styles
+
+    , _rd_scrollModel ∷ ScrollModel
+    , _rd_choiceModel ∷ ChoiceModel
 
     , _rd_mainWindow          ∷ Curses.Window
     , _rd_hudWindow           ∷ Curses.Window
@@ -75,25 +80,22 @@ data RendererData = RendererData {
     , _rd_conversationWindow1 ∷ Curses.Window
     }
 
-makeLenses ''RendererData
-
-
-data RendererEnvironment = RendererEnvironment {
-      _re_data ∷ RendererData 
-    , _re_world ∷ World
-    }
-
 makeLenses ''RendererEnvironment
 
 --------------------------------------------------------------------------------
 
-class (MonadReader RendererEnvironment r) ⇒ MonadRender r where
+class (MonadState RendererEnvironment r, MonadReader World r) ⇒ MonadRender r where
     updateWindow ∷ Curses.Window → Curses.Update () → r ()
     swap         ∷ r ()
     
 
-newtype RendererF a = RendererF { runRendererF ∷ ReaderT RendererEnvironment Curses.Curses a }
-                    deriving (Functor, Applicative, Monad, MonadReader RendererEnvironment, MonadCurses)
+-- SOME stuff should be just reader, some stuff state
+newtype RendererF a = RendererF { runRendererF ∷ ReaderT World (StateT RendererEnvironment Curses.Curses) a }
+                    deriving (Functor, Applicative, Monad, MonadReader World, MonadState RendererEnvironment, MonadCurses)
+
+
+instance MonadCurses (ReaderT World (StateT RendererEnvironment Curses.Curses)) where
+    liftCurses = lift . lift
 
 
 instance MonadRender RendererF where
@@ -101,7 +103,7 @@ instance MonadRender RendererF where
     swap = liftCurses Curses.render
 
 
-initRenderer ∷ Curses.Curses RendererData
+initRenderer ∷ Curses.Curses RendererEnvironment
 initRenderer = do
     -- TODO respond to resize events and resize all the windows!
     --      this should happen automatically and be inacessible by API
@@ -111,9 +113,10 @@ initRenderer = do
         hudHeight  = 8
         mainWidth  = columns
         mainHeight = rows - hudHeight
+    mainWin ← Curses.newWindow mainHeight mainWidth 0 0
+    hudWin  ← Curses.newWindow hudHeight hudWidth mainHeight 0
 
-    mainW          ← Curses.newWindow mainHeight mainWidth 0 0
-    hudW           ← Curses.newWindow hudHeight hudWidth mainHeight 0
+
 
     let lowLeftW = mainWidth `div` 3
         lowLeftH = mainHeight `div` 3
@@ -125,19 +128,31 @@ initRenderer = do
         topRightX = mainWidth `div` 3 * 2
         topRightY = 0
 
-    examineW       ← let w = 50
-                         h = 10
-                         x = (mainWidth - w) `div` 2
-                         y = (mainHeight - h) `div` 2
-                     in  Curses.newWindow h w y x
-    choiceW        ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
-    conversationW0 ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
-    conversationW1 ← Curses.newWindow topRightH topRightW topRightY topRightX
-    interactionW   ← Curses.newWindow (rows - 4) (columns - 4) 2 2
+        examineW = 50
+        examineH = 10
+        examineX = (mainWidth - examineW) `div` 2
+        examineY = (mainHeight - examineH) `div` 2
+
+        interactW = (columns - 4)
+        interactH = (rows - 4)
+        interactX = 2
+        interactY = 2
+
+    examineWin       ← Curses.newWindow examineH examineW examineY examineX
+    choiceWin        ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
+    interactionWin   ← Curses.newWindow interactH interactW interactY interactX
+    conversationWin0 ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
+    conversationWin1 ← Curses.newWindow topRightH topRightW topRightY topRightX
 
     styles ← Curses.maxColor >>= createStyles 
+    let scrollW = fromIntegral $ examineW - 6 -- border, padding, arrow widgets
+        scrollH = fromIntegral $ examineH - 2
 
-    return $ RendererData styles mainW hudW examineW interactionW choiceW conversationW0 conversationW1
+    return $ RendererEnvironment styles
+                 (createScrollModel scrollW scrollH)
+                 (ChoiceModel Vec.empty 0)
+                 mainWin hudWin examineWin interactionWin choiceWin
+                 conversationWin0 conversationWin1
         where
             createStyles mc
                 | mc > 0 && mc <= 8    = createStyles8Colors    -- (And disable lighting)
@@ -184,10 +199,8 @@ initRenderer = do
                        }
 
 
-
-runRenderer ∷ RendererData → World → RendererF () → Curses.Curses ()
-runRenderer rd w f = let re = RendererEnvironment rd w
-                     in  runReaderT (runRendererF f) re 
+runRenderer ∷ RendererEnvironment → World → RendererF a → Curses.Curses (a, RendererEnvironment)
+runRenderer rd w f = runStateT (runReaderT (runRendererF f) w) rd
     
 --------------------------------------------------------------------------------
 
@@ -199,13 +212,13 @@ drawCharAt (V2 x y) c s = do
 
 drawMap ∷ (MonadRender r) ⇒ r ()
 drawMap = do
-    w   ← view (re_data.rd_mainWindow)
-    m   ← view (re_world.w_map)
-    vis ← view (re_world.w_visible)
+    w   ← use rd_mainWindow
+    m   ← view w_map
+    vis ← view w_visible
 
-    unknown ← view (re_data.rd_styles.s_visibilityUnknown)
-    known   ← view (re_data.rd_styles.s_visibilityKnown)
-    visible ← view (re_data.rd_styles.s_visibilityVisible)
+    unknown ← use (rd_styles.s_visibilityUnknown)
+    known   ← use (rd_styles.s_visibilityKnown)
+    visible ← use (rd_styles.s_visibilityVisible)
     updateWindow w $
         Vec.imapM_ (drawTile unknown known visible m) $ Vec.zip (m^.TMap.m_data) vis
     where
@@ -218,14 +231,14 @@ drawMap = do
 
 drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
 drawObject v o = do
-    m   ← view (re_world.w_map)
-    vis ← view (re_world.w_visible)
+    m   ← view w_map
+    vis ← view w_visible
 
-    base  ← views (re_data.rd_styles.s_objects) (fromMaybe [] . Map.lookup o)
-    items ← views (re_world.w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
-    known ← view (re_data.rd_styles.s_visibilityKnown)
+    base  ← uses (rd_styles.s_objects) (fromMaybe [] . Map.lookup o)
+    items ← views (w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
+    known ← use (rd_styles.s_visibilityKnown)
 
-    w  ← view (re_data.rd_mainWindow)
+    w  ← use (rd_mainWindow)
     let c = TMap.tileChar $ objectToTile o
     case isVisible vis m of
         Unknown → return ()
@@ -236,22 +249,22 @@ drawObject v o = do
 
 
 drawObjects ∷ (MonadRender r) ⇒ r ()
-drawObjects = view (re_world.w_objects) >>= Map.foldWithKey (\k v p → p >> drawObject k v) (return ())
+drawObjects = view (w_objects) >>= Map.foldWithKey (\k v p → p >> drawObject k v) (return ())
 
 
 drawPlayer ∷ (MonadRender r) ⇒ r ()
 drawPlayer = do
-    w ← view (re_data.rd_mainWindow)
-    s ← views (re_data.rd_styles.s_objects) (fromMaybe [] . Map.lookup (Person "Carla"))
-    v ← view (re_world.w_playerPos)
+    w ← use rd_mainWindow
+    s ← uses (rd_styles.s_objects) (fromMaybe [] . Map.lookup (Person "Carla"))
+    v ← view w_playerPos
     updateWindow w $ drawCharAt v '@' s
 
 
 drawAim ∷ (MonadRender r) ⇒ r ()
 drawAim = do
-    w  ← view (re_data.rd_mainWindow)
-    s  ← view (re_data.rd_styles.s_playerAim)
-    ma ← view (re_world.w_aim)
+    w  ← use rd_mainWindow
+    s  ← use (rd_styles.s_playerAim)
+    ma ← view w_aim
     case ma of
         Just v → updateWindow w $ drawCharAt v '×' s
         _      → return ()
@@ -259,8 +272,8 @@ drawAim = do
 
 drawHud ∷ (MonadRender r) ⇒ r ()
 drawHud = do
-    w ← view (re_data.rd_hudWindow)
-    s ← view (re_world.w_status)
+    w ← use rd_hudWindow
+    s ← view w_status
     updateWindow w $ do
         Curses.drawBorder (Just $ Curses.Glyph '│' [])
                           (Just $ Curses.Glyph '│' [])

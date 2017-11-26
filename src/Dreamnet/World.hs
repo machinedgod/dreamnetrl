@@ -107,11 +107,11 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
                  items   = Map.fromList [ (V2 14 7, [ Item "Beer bottle", Item "Whiskey glass", Item "Shot glass" ])
                                         , (V2 10 5, [ Item "Credit scanner" ])
                                         ]
-                 people  = Map.fromList [ ("Moe", newCharacter "Moe")
-                                        , ("Gary", newCharacter "Gary")
+                 people  = Map.fromList [ ("Moe", newCharacter "Moe" moeConvo)
+                                        , ("Gary", newCharacter "Gary" beatItConversation)
                                         ]
                  pp      = headNote "Map is missing spawn points!" $ m^.TMap.m_spawnPoints
-                 pc      = newCharacter "Carla"
+                 pc      = newCharacter "Carla" End
              in  World pp pc Nothing m iniv objects items people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
@@ -181,7 +181,9 @@ interestingObjects = do
     pp ← use w_playerPos
     m  ← use w_map
     let points = filter (not . TMap.outOfBounds m) $ floodFillRange 2 pp
-    foldM (\l x → maybe l (const $ x:l) <$> objectAt x) [] points
+    foldM collectObjects [] points
+    where
+        collectObjects l x = maybe l (const $ x:l) <$> objectAt x
 
 
 switchAim ∷ (MonadWorld u) ⇒ u ()
@@ -398,7 +400,7 @@ objectInteraction v Computer      = w_status .= "Using a computer" >> return Nor
 objectInteraction v (Person n)    = do
     mc ← uses w_people (Map.lookup n)
     case mc of
-        Just c  → return $ Conversation testRecursiveConvo
+        Just c  → return $ Conversation (c^.ch_name) (c^.ch_conversation)
         Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..." >> return Normal
 objectInteraction v (Door o)      = changeObject_ v (Door (not o)) >> return Normal
 objectInteraction v (Stairs t)    = w_status .= "These lead to " ++ show t >> return Normal

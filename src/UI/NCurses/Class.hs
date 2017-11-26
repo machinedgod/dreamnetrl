@@ -13,11 +13,5 @@ import qualified UI.NCurses  as Curses
 --------------------------------------------------------------------------------
 
 class (Monad m) ⇒ MonadCurses m where
-    liftCurses    ∷ Curses.Curses a → m a
-
-instance MonadCurses (ReaderT a Curses.Curses) where
-    liftCurses = lift
-
-instance MonadCurses (StateT a Curses.Curses) where
-    liftCurses = lift
+    liftCurses ∷ Curses.Curses a → m a
 

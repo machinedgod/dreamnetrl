@@ -179,20 +179,22 @@ loadTileMap fp = do
                                   in  if t /= InnerWall && t /= OuterWall && t /= Floor
                                           then '.'
                                           else c) mdata
+    desc  ← readDesc  fp
     extra ← readExtra fp
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)
         cleanData
-        (intercalate "\n"
-            [ "Moe's bar."
-            , "A dive with cheap drinks and... interesting... clientele."
-            , ""
-            , "You wonder if any person here would be willing to give you a job."
-            ])
+        desc
         (findObjects w extra mdata)
         (findSpawnPoints w mdata)
         extra
+
+
+readDesc ∷ (MonadIO m) ⇒ FilePath → m String
+readDesc fp = cleanUpNewlines <$> liftIO $ readFile (fp ++ ".desc")
+    where
+        cleanUpNewlines s = s
 
 
 readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Vec.Vector String))

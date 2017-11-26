@@ -10,5 +10,6 @@ import Dreamnet.Conversation
 data GameState = Normal
                | Examination   String
                | Interaction
-               | Conversation  ConversationNode
+               | Conversation  String ConversationNode
+               deriving(Eq)
 

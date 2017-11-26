@@ -12,25 +12,24 @@ import qualified UI.NCurses as Curses
 
 clearConversationWindow ∷ (MonadRender r) ⇒ Word → r ()
 clearConversationWindow i = do
-    w ← view $ case i of
-        0 → re_data.rd_conversationWindow0
-        1 → re_data.rd_conversationWindow1
-        _ → re_data.rd_conversationWindow0
+    w ← use $ case i of
+        0 → rd_conversationWindow0
+        1 → rd_conversationWindow1
+        _ → rd_conversationWindow0
     updateWindow w Curses.clear
 
 
 -- TODO REDO as multiple ncurses windows
 drawConversationWindow ∷ (MonadRender r) ⇒ Word → String → String → r ()
 drawConversationWindow i n s = do
-    w ← view $ case i of
-        0 → re_data.rd_conversationWindow0
-        1 → re_data.rd_conversationWindow1
-        _ → re_data.rd_conversationWindow0
+    w ← use $ case i of
+        0 → rd_conversationWindow0
+        1 → rd_conversationWindow1
+        _ → rd_conversationWindow0
 
     updateWindow w (drawWindow n s)
     where
         drawWindow n s = do
-            Curses.clear
             Curses.drawBorder (Just $ Curses.Glyph '│' [])
                               (Just $ Curses.Glyph '│' [])
                               (Just $ Curses.Glyph '─' [])
