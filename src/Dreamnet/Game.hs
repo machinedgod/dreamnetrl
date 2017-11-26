@@ -104,7 +104,7 @@ instance MonadGame GameM where
             case nc of
                 End → do
                     g_gameState .= Normal
-                    --doRender $ clearConversationWindow 0 >> clearConversationWindow 1
+                    doRender $ clearConversationWindow 0 >> clearConversationWindow 1
                 _   → g_gameState .= Conversation ch nc
         _ → return ()
 

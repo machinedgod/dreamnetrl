@@ -12,7 +12,9 @@ module Dreamnet.Character
 , newCharacter
 
 , moeConvo
-, beatItConversation
+, garryConvo
+, johnnyConvo
+, sallyConvo
 ) where
 
 import Control.Lens
@@ -42,9 +44,22 @@ newCharacter n cn = Character n empty empty empty cn
 
 --------------------------------------------------------------------------------
 
-beatItConversation ∷ ConversationNode
-beatItConversation = ListenNode "Beat it, lizzie!" End
+garryConvo ∷ ConversationNode
+garryConvo = ListenNode "Beat it, lizzie!" End
 
+johnnyConvo ∷ ConversationNode
+johnnyConvo =
+    ListenNode "Yea?" $
+      TalkNode "Hey dude, I'm Carla" $
+        ListenNode "Who gives a shit? Now would you mind, we're in the middle of something." $
+          End
+
+sallyConvo ∷ ConversationNode
+sallyConvo =
+    ListenNode "Mmmm, hello _there_ hot stuff." $
+      TalkNode "Hi, I am..." $
+        ListenNode "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?" $
+          End
 
 moeConvo ∷ ConversationNode
 moeConvo =
@@ -62,7 +77,7 @@ moeConvo =
                          , ListenNode "Yeah yeah yeah... later girl." End
                          ]
               
-        brewBranch = ListenNode "Light brew specex!"
+        brewBranch = ListenNode "Indian light laced with my special mix!"
                          $ ChoiceNode [ "Hit me up!"
                                       , "Uuuh, I'll pass!"
                                       ]
@@ -74,7 +89,15 @@ moeConvo =
                                      , "Actually, I wanted to ask you:"
                                      ]
                             [ ListenNode "Word on the street he's some jacked up street surgeon from up the sprawl. Not a type of dude you wanna mess with." newPeopleBranch
-                            , ListenNode "His girlfriend. Also an assasin wired with Omega5. Storm tried to run a full scan on her, said her wetware fried his probe. She sent him over a bloody mary that evening. Kid knows when to back off." newPeopleBranch
+                            , ListenNode "His girlfriend. Also an assasin wired with Omega5. Storm tried to run a full scan on her, said her wetware fried his probe." $
+                                TalkNode "Shit, no kidding!" $
+                                  ListenNode "No kidding." $
+                                    TalkNode "Knowing Devin, it just ticked him off. He has a thing for puzzles." $
+                                      ListenNode "He backed off this one, though." $
+                                        TalkNode "Oh?" $
+                                          ListenNode "Yeah, she sent him a drink-" $
+                                            ListenNode "<laughs and snorts>" $
+                                              ListenNode "-a bloody mary! Subtle! <snort>" newPeopleBranch
                             , mainBranch
                             --, ListenNode "Yeah?" mainBranch
                             ]

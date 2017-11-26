@@ -107,8 +107,10 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
                  items   = Map.fromList [ (V2 14 7, [ Item "Beer bottle", Item "Whiskey glass", Item "Shot glass" ])
                                         , (V2 10 5, [ Item "Credit scanner" ])
                                         ]
-                 people  = Map.fromList [ ("Moe", newCharacter "Moe" moeConvo)
-                                        , ("Gary", newCharacter "Gary" beatItConversation)
+                 people  = Map.fromList [ ("Moe",    newCharacter "Moe"    moeConvo)
+                                        , ("Gary",   newCharacter "Gary"   garryConvo)
+                                        , ("Johnny", newCharacter "Johnny" johnnyConvo)
+                                        , ("Sally",  newCharacter "Sally"  sallyConvo)
                                         ]
                  pp      = headNote "Map is missing spawn points!" $ m^.TMap.m_spawnPoints
                  pc      = newCharacter "Carla" End

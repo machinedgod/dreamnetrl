@@ -115,6 +115,7 @@ updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
     w_aim .= Nothing
+    updateVisible
     return s
 
 

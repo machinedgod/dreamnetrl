@@ -199,7 +199,7 @@ readDesc fp = cleanUpNewlines <$> liftIO $ readFile (fp ++ ".desc")
 
 readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Vec.Vector String))
 readExtra fp = do
-    errOrVec ← liftIO $ CSV.decode CSV.HasHeader <$> BS.readFile (fp ++ ".extra")
+    errOrVec ← liftIO $ CSV.decode CSV.NoHeader <$> BS.readFile (fp ++ ".extra")
     case errOrVec of
         Left e  → error $ "Error loading extras: " ++ e
         Right v → let fillDataVectors (x, y, t, d0, d1, d2) = Map.insert (V2 x y) (Vec.fromList [t, d0, d1, d2])
