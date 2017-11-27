@@ -1,0 +1,14 @@
+▭,Prop,Booth seat,False,True
+■,Prop,Booth table,False,True
+□,Prop,Bar,False,True
+o,Prop,Bar stool,False,True
+c,Prop,Bar shelf,False,False
+0,Prop,Round table,False,True
+#,Prop,Chair,False,True
+t,Prop,Toilet,False,True
+s,Prop,Sink,False,True
+h,Prop,Shelf,False,True
+',Door,True,,
++,Door,False,,
+>,Stairs,True,,
+<,Stairs,False,,

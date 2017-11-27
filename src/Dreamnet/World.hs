@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.World
 ( module Dreamnet.Character
@@ -30,7 +31,6 @@ module Dreamnet.World
 , changeObject_
 , objectDescription
 , objectInteraction
-, objectToTile
 
 , movePlayer
 , switchAim
@@ -80,7 +80,7 @@ data Object = Computer
             | Person     String     -- <-- Name
             | Door       Bool       -- <-- Is opened?
             | Stairs     Bool       -- <-- Going up?
-            | Prop       TMap.Tile
+            | Prop       String  Bool  Bool  Char -- <-- Name, passable, seeThrough, Char
             deriving (Eq, Show, Ord)
 
 
@@ -92,7 +92,7 @@ data World = World {
     , _w_map ∷ TMap.TileMap
     , _w_visible ∷ Vec.Vector Visibility
 
-    , _w_objects ∷ Map.Map (V2 Int) Object
+    , _w_objects ∷ Map.Map (V2 Int) Object -- TODO unless this is a list and I have some stacking support, I won't be able to have eg. a computer sitting atop a table, or a PERSON walking through a DOOR (person would overwrite the door object!)
     , _w_items ∷ Map.Map (V2 Int) [Item]
     , _w_people ∷ Map.Map String Character
     , _w_status ∷ String
@@ -103,9 +103,7 @@ makeLenses ''World
 
 newWorld ∷ TMap.TileMap → World
 newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown 
-                 objects = let extraData v    = fromMaybe Vec.empty $ Map.lookup v $ m ^. TMap.m_extra
-                               gatherObject v = tileToObject (extraData v) v
-                           in  Map.mapWithKey gatherObject (m^.TMap.m_objects)
+                 objects = Map.map tupleToObject (m^.TMap.m_extra)
                  items   = Map.fromList [ (V2 14 7, [ Item "Beer bottle", Item "Whiskey glass", Item "Shot glass" ])
                                         , (V2 10 5, [ Item "Credit scanner" ])
                                         ]
@@ -119,6 +117,13 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
              in  World pp pc Nothing m iniv objects items people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
+        tupleToObject ("Computer", _, _, _, _) = Computer
+        tupleToObject ("Person", n, _, _, _)   = Person n
+        tupleToObject ("Door", o, _, _, _)     = Door (readDef False o)
+        tupleToObject ("Stairs", u, _, _, _)   = Stairs (readDef False u)
+        tupleToObject ("Prop", n, p, s, c)     = Prop n (readDef False p) (readDef False s) c
+        tupleToObject t                        = error $ "Unknown object definition: " ++ show t
+        {-# INLINE tupleToObject #-}
 
 --------------------------------------------------------------------------------
 
@@ -331,27 +336,15 @@ instance Collision TMap.Tile where
     isPassable TMap.OuterWall  = False
     isPassable TMap.InnerWall  = False
     isPassable TMap.Floor      = True
-    isPassable TMap.MapSpawn   = True
-    isPassable TMap.Table      = False
-    isPassable TMap.Chair      = False
-    isPassable TMap.OpenedDoor = True
-    isPassable TMap.ClosedDoor = False
-    isPassable TMap.Computer   = False
-    isPassable TMap.Person     = False
-    isPassable TMap.Cupboard   = False
-    isPassable TMap.Sink       = False
-    isPassable TMap.Toilet     = False
-    isPassable TMap.StairsDown = True
-    isPassable TMap.StairsUp   = True
     {-# INLINE isPassable #-}
 
 
 instance Collision Object where
-    isPassable Computer   = False
-    isPassable (Person _) = False -- TODO maybe passable if its ally?
-    isPassable (Door o)   = o
-    isPassable (Stairs _) = True
-    isPassable (Prop t)   = isPassable t
+    isPassable Computer       = False
+    isPassable (Person _)     = False -- TODO maybe passable if its ally?
+    isPassable (Door o)       = o
+    isPassable (Stairs _)     = True
+    isPassable (Prop _ p _ _) = p
     {-# INLINE isPassable #-}
 
 --------------------------------------------------------------------------------
@@ -363,58 +356,24 @@ instance Vision TMap.Tile where
     isSeeThrough TMap.OuterWall  = False
     isSeeThrough TMap.InnerWall  = False
     isSeeThrough TMap.Floor      = True
-    isSeeThrough TMap.MapSpawn   = True
-    isSeeThrough TMap.Table      = True
-    isSeeThrough TMap.Chair      = True
-    isSeeThrough TMap.OpenedDoor = True
-    isSeeThrough TMap.ClosedDoor = False
-    isSeeThrough TMap.Computer   = True
-    isSeeThrough TMap.Person     = True
-    isSeeThrough TMap.Cupboard   = False
-    isSeeThrough TMap.Sink       = True
-    isSeeThrough TMap.Toilet     = True
-    isSeeThrough TMap.StairsDown = True
-    isSeeThrough TMap.StairsUp   = True
     {-# INLINE isSeeThrough #-}
 
 
 instance Vision Object where
-    isSeeThrough Computer   = True
-    isSeeThrough (Person _) = True
-    isSeeThrough (Door o)   = o
-    isSeeThrough (Stairs _) = True
-    isSeeThrough (Prop t)   = isSeeThrough t
+    isSeeThrough Computer       = True
+    isSeeThrough (Person _)     = True
+    isSeeThrough (Door o)       = o
+    isSeeThrough (Stairs _)     = True
+    isSeeThrough (Prop _ _ s _) = s
 
 --------------------------------------------------------------------------------
-
-tileToObject ∷ Vec.Vector String → V2 Int → TMap.Tile → Object
-tileToObject extra v TMap.Person     = Person $ fromMaybe "!Redshirt!" $ extra Vec.!? 1
-tileToObject extra v TMap.Computer   = Computer
-tileToObject extra v TMap.OpenedDoor = Door True
-tileToObject extra v TMap.ClosedDoor = Door False
-tileToObject extra v TMap.StairsDown = Stairs False
-tileToObject extra v TMap.StairsUp   = Stairs True
-tileToObject extra v t               = Prop t
-{-# INLINE tileToObject #-}
-
-
---------------------------------------------------------------------------------
-
-objectToTile ∷ Object → TMap.Tile
-objectToTile (Person _)    = TMap.Person
-objectToTile Computer      = TMap.Computer
-objectToTile (Door o)      = bool TMap.ClosedDoor TMap.OpenedDoor o
-objectToTile (Stairs u)    = bool TMap.StairsUp   TMap.StairsDown u
-objectToTile (Prop t)      = t
-{-# INLINE objectToTile #-}
-
 
 objectDescription ∷ Object → String
-objectDescription Computer      = "This is a common machine found everywhere today. You wonder if its for better or worse."
-objectDescription (Person c)    = c ++ " looks grumpy."
-objectDescription (Door o)      = "Just a common door. They're " ++ bool "closed." "opened." o
-objectDescription (Stairs t)    = "If map changing would've been coded in, you would use these to switch between maps and layers."
-objectDescription (Prop t)      = "A common " ++ show t ++ ". You wonder if it fulfilled its existence."
+objectDescription Computer       = "This is a common machine found everywhere today. You wonder if its for better or worse."
+objectDescription (Person c)     = c ++ " looks grumpy."
+objectDescription (Door o)       = "Just a common door. They're " ++ bool "closed." "opened." o
+objectDescription (Stairs t)     = "If map changing would've been coded in, you would use these to switch between maps and layers."
+objectDescription (Prop t _ _ _) = "A common " ++ t ++ "."
 {-# INLINE objectDescription #-}
 
 
@@ -425,16 +384,8 @@ objectInteraction v (Person n)    = do
     case mc of
         Just c  → return $ Conversation (c^.ch_name) (c^.ch_conversation)
         Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..." >> return Normal
-objectInteraction v (Door o)      = changeObject_ v (Door (not o)) >> return Normal
-objectInteraction v (Stairs t)    = w_status .= "These lead to " ++ show t >> return Normal
-objectInteraction v (Prop t)      = propInteraction t
-    where
-        propInteraction ∷ (MonadWorld u) ⇒ TMap.Tile → u GameState
-        propInteraction TMap.Table = w_status .= "Nothing to do with this table." >> return Normal
-        propInteraction TMap.Chair = do
-            w_status    .= "You sit down and chill out..."
-            w_playerPos .= v 
-            return Normal
-        propInteraction _ = return Normal
+objectInteraction v (Door o)       = changeObject_ v (Door (not o)) >> return Normal
+objectInteraction v (Stairs t)     = w_status .= "These lead to " ++ show t >> return Normal
+objectInteraction v (Prop n _ _ _) = w_status .= "You have no idea what to do with this " ++ n >> return Normal
 {-# INLINE objectInteraction #-}
 

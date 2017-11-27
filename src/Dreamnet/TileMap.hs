@@ -1,17 +1,14 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.TileMap
 ( Tile(..)
-, tileFor
-, tileChar
-
 , TileMap
 , m_width
 , m_height
 , m_data
 , m_desc
-, m_objects
 , m_spawnPoints
 , m_extra
 , linCoord
@@ -20,7 +17,6 @@ module Dreamnet.TileMap
 , coordLin'
 , outOfBounds
 , tileAt
-
 
 , loadTileMap
 ) where
@@ -42,22 +38,8 @@ import qualified Data.Csv             as CSV
 data Tile = OuterWall
           | InnerWall
           | Floor
-          | MapSpawn
-
-          | Table
-          | Chair
-          | OpenedDoor
-          | ClosedDoor
-          | Computer
-          | Person
-
-          | Cupboard
-          | Sink
-          | Toilet
-
-          | StairsDown
-          | StairsUp
           deriving (Eq, Show, Ord)
+
 
 asciiTable = [ ('═', OuterWall)
              , ('║', OuterWall)
@@ -73,6 +55,7 @@ asciiTable = [ ('═', OuterWall)
              , ('╢', OuterWall)
              , ('╤', OuterWall)
              , ('╧', OuterWall)
+             , ('╬', OuterWall)
 
              , ('─', InnerWall)
              , ('│', InnerWall)
@@ -88,30 +71,8 @@ asciiTable = [ ('═', OuterWall)
              , ('╞', InnerWall)
              , ('╥', InnerWall)
              , ('╨', InnerWall)
-
              , ('.', Floor)
-
-             , ('╳', MapSpawn)
-             , ('#', Chair)
-             , ('▮', Table)
-             , ('O', Table)
-             , ('\'', OpenedDoor)
-             , ('+', ClosedDoor)
-             , ('◈', Computer)
-             , ('@', Person)
-
-             , ('c', Cupboard)
-             , ('s', Sink)
-             , ('t', Toilet)
-
-             , ('<', StairsDown)
-             , ('>', StairsUp)
              ]
-
-
-tileFor ∷ Char → Tile
-tileFor c = fromMaybe err $ c `lookup` asciiTable
-    where err = error $ "Unknown tile: " ++ show c
 
 
 tileChar ∷ Tile → Char
@@ -127,9 +88,8 @@ data TileMap = TileMap {
     , _m_data   ∷ Vec.Vector Char
     , _m_desc   ∷ String
 
-    , _m_objects     ∷ Map.Map (V2 Int) Tile
     , _m_spawnPoints ∷ [V2 Int]
-    , _m_extra  ∷ Map.Map (V2 Int) (Vec.Vector String)
+    , _m_extra  ∷ Map.Map (V2 Int) (String, String, String, String, Char) -- Should support multiple objects at same location
     }
 
 makeLenses ''TileMap
@@ -165,30 +125,53 @@ outOfBounds m (V2 x y) = let w = fromIntegral $ m ^. m_width
 
 tileAt ∷ TileMap → V2 Int → Tile
 tileAt m v = tileFor $ (m^.m_data) Vec.! linCoord m v
+    where
+        tileFor c = fromMaybe (err c) $ c `lookup` asciiTable
+        err c = error $ "Shouldn't happen! Ran into a tiletype that was not cleaned up during loading! :-O: " ++ [c]
+
+
 
 
 --------------------------------------------------------------------------------
 
 loadTileMap ∷ (MonadIO m) ⇒ FilePath → m TileMap
 loadTileMap fp = do
-    str ← liftIO $ readFile (fp ++ ".tilemap")
-    let w         = fromMaybe 0 $ elemIndex '\n' str
-        h         = length $ filter (=='\n') str
-        mdata     = Vec.fromList $ filter (/='\n') str
-        cleanData = Vec.map (\c → let t = tileFor c
-                                  in  if t /= InnerWall && t /= OuterWall && t /= Floor
-                                          then '.'
-                                          else c) mdata
-    desc  ← readDesc  fp
-    extra ← readExtra fp
+    (w, h, mdata, cdata) ← readTilemap fp
+    props                ← gatherProps w mdata <$> readTranslationTable fp
+    desc                 ← readDesc  fp
+    extra                ← readExtra fp
+
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)
-        cleanData
+        cdata
         desc
-        (findObjects w extra mdata)
         (findSpawnPoints w mdata)
-        extra
+        (props `Map.union` extra)
+
+
+readTilemap ∷ (MonadIO m) ⇒ FilePath → m (Int, Int, Vec.Vector Char, Vec.Vector Char)
+readTilemap fp = do
+    str ← liftIO $ readFile (fp ++ ".tilemap")
+    let w     = fromMaybe 0 $ elemIndex '\n' str
+        h     = length $ filter (=='\n') str
+        mdata = Vec.fromList $ filter (/='\n') str
+        cdata = Vec.map turnTile mdata
+    return $ (w, h, mdata, cdata)
+    where
+        turnTile c@((`lookup` asciiTable) → Just _) = c
+        turnTile _                                  = '.'
+
+
+readTranslationTable ∷ (MonadIO m) ⇒ FilePath → m (Map.Map Char (String, String,String,String, Char))
+readTranslationTable fp = let f (c, t, n, p, s) = Map.insert c (t, n, p, s, c)
+                          in  loadCsvToTupleMap fp ".trans" f
+
+
+gatherProps ∷ Int → Vec.Vector Char → Map.Map Char (String,String,String,String,Char) → Map.Map (V2 Int) (String, String,String,String,Char)
+gatherProps w mdata trtab = let appendIfObject i c m = maybe m (gatherObject i m) $ Map.lookup c trtab
+                                gatherObject i m o   = Map.insert (coordLin' w i) o m
+                            in  Vec.ifoldr appendIfObject Map.empty mdata
 
 
 readDesc ∷ (MonadIO m) ⇒ FilePath → m String
@@ -197,30 +180,25 @@ readDesc fp = cleanUpNewlines <$> liftIO $ readFile (fp ++ ".desc")
         cleanUpNewlines s = s
 
 
-readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Vec.Vector String))
-readExtra fp = do
-    errOrVec ← liftIO $ CSV.decode CSV.NoHeader <$> BS.readFile (fp ++ ".extra")
+readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (String, String, String, String, Char))
+readExtra fp = let f (x, y, t, n) = Map.insert (V2 x y) (t, n, "", "", ' ')
+               in  loadCsvToTupleMap fp ".extra" f
+
+
+loadCsvToTupleMap ∷ (MonadIO m, CSV.FromRecord c) ⇒ FilePath → String → (c → Map.Map a b → Map.Map a b) → m (Map.Map a b)
+loadCsvToTupleMap fp ext toDataTuple = do
+    errOrVec ← liftIO $ CSV.decode CSV.NoHeader <$> BS.readFile (fp ++ ext)
     case errOrVec of
-        Left e  → error $ "Error loading extras: " ++ e
-        Right v → let fillDataVectors (x, y, t, d0, d1, d2) = Map.insert (V2 x y) (Vec.fromList [t, d0, d1, d2])
-                  in  return $ Vec.foldr fillDataVectors Map.empty v
+        Left e  → error $ "Error loading '"++fp++"."++ext++"': " ++ e
+        Right v → return $ Vec.foldr toDataTuple Map.empty v
 
 
 changeTile ∷ V2 Int → Tile → TileMap → TileMap
 changeTile v o m = (m_data . element (linCoord m v) .~ tileChar o) m
 
 
-findObjects ∷ Int → Map.Map (V2 Int) (Vec.Vector String) → Vec.Vector Char → Map.Map (V2 Int) Tile
-findObjects w mextra mdata =
-    let isObject c = let t = tileFor c
-                     in  t /= OuterWall && t /= InnerWall && t /= Floor && t /= MapSpawn
-        findObjects i c os   = let v = coordLin' w i
-                               in  bool os (Map.insert v (tileFor c) os) (isObject c)
-    in  Vec.ifoldr findObjects Map.empty mdata
-
-
 findSpawnPoints ∷ Int → Vec.Vector Char → [V2 Int]
 findSpawnPoints w mdata =
-    let foldSpawnCoords i c l = bool l (coordLin' w i : l) (tileFor c == MapSpawn)
+    let foldSpawnCoords i c l = bool l (coordLin' w i : l) (c == '╳')
     in  Vec.ifoldr foldSpawnCoords [] mdata
 

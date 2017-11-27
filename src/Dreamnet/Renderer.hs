@@ -39,6 +39,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Linear
 import Data.Maybe (fromMaybe)
+import Data.Bool (bool)
 
 import UI.NCurses.Class
 import qualified UI.NCurses  as Curses
@@ -54,13 +55,21 @@ import Dreamnet.ChoiceModel
 --------------------------------------------------------------------------------
 
 data Styles = Styles {
-      _s_objects ∷ Map.Map Object    [Curses.Attribute]
-
-    , _s_playerAim        ∷ [Curses.Attribute]
+      _s_materials ∷ Map.Map String [Curses.Attribute]
+    , _s_unknown   ∷ [Curses.Attribute]
+    , _s_playerAim ∷ [Curses.Attribute]
 
     , _s_visibilityUnknown ∷ [Curses.Attribute]
     , _s_visibilityKnown   ∷ [Curses.Attribute]
     , _s_visibilityVisible ∷ [Curses.Attribute]
+
+    , _s_colorRed     ∷ Curses.ColorID
+    , _s_colorGreen   ∷ Curses.ColorID
+    , _s_colorYellow  ∷ Curses.ColorID
+    , _s_colorBlue    ∷ Curses.ColorID
+    , _s_colorMagenta ∷ Curses.ColorID
+    , _s_colorCyan    ∷ Curses.ColorID
+    , _s_colorWhite   ∷ Curses.ColorID
     }
 
 makeLenses ''Styles
@@ -168,34 +177,30 @@ initRenderer = do
                 cCyan    ←  Curses.newColorID  Curses.ColorCyan     Curses.ColorBlack  6
                 cWhite   ←  Curses.newColorID  Curses.ColorWhite    Curses.ColorBlack  7
 
-                let materialWood       = [ Curses.AttributeColor cYellow, Curses.AttributeDim ]
-                    materialMetal      = [ Curses.AttributeColor cCyan,   Curses.AttributeDim ]
-                    materialRedPlastic = [ Curses.AttributeColor cRed,    Curses.AttributeDim ]
-                    materialCeramics   = [ Curses.AttributeColor cWhite,  Curses.AttributeDim ]
-                    objects            = Map.fromList
-                        [ (Computer       , materialMetal )
-                        , (Person "Carla" , [ Curses.AttributeColor cMagenta ])
-                        , (Door True      , materialWood)
-                        , (Door False     , materialWood)
-                        , (Stairs True    , materialWood)
-                        , (Stairs False   , materialWood)
-                        
-                        , (Prop TMap.Table      , materialWood)
-                        , (Prop TMap.Chair      , materialRedPlastic)
-                        
-                        , (Prop TMap.Cupboard   , materialWood)
-                        , (Prop TMap.Sink       , materialCeramics)
-                        , (Prop TMap.Toilet     , materialCeramics)
-                        
+                let materials = Map.fromList
+                        [ ("wood"          , [ Curses.AttributeColor cYellow, Curses.AttributeDim  ])
+                        , ("metal"         , [ Curses.AttributeColor cCyan,   Curses.AttributeBold ])
+                        , ("blue plastic"  , [ Curses.AttributeColor cCyan,   Curses.AttributeDim  ])
+                        , ("red plastic"   , [ Curses.AttributeColor cRed,    Curses.AttributeDim  ])
+                        , ("ceramics"      , [ Curses.AttributeColor cWhite,  Curses.AttributeDim  ])
                         ]
-
+                    matUnknown = [ Curses.AttributeColor cMagenta, Curses.AttributeBold, Curses.AttributeBlink ]
                 return Styles {
-                         _s_objects           = objects
-                       , _s_playerAim         = [ Curses.AttributeColor cGreen, Curses.AttributeBold]
+                         _s_materials = materials
+                       , _s_unknown   = matUnknown
+                       , _s_playerAim = [ Curses.AttributeColor cGreen, Curses.AttributeBold]
 
                        , _s_visibilityUnknown = []
                        , _s_visibilityKnown   = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
                        , _s_visibilityVisible = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
+
+                       , _s_colorRed     = cRed    
+                       , _s_colorGreen   = cGreen  
+                       , _s_colorYellow  = cYellow 
+                       , _s_colorBlue    = cBlue   
+                       , _s_colorMagenta = cMagenta
+                       , _s_colorCyan    = cCyan   
+                       , _s_colorWhite   = cWhite  
                        }
 
 
@@ -229,23 +234,82 @@ drawMap = do
                 Visible → (c,   vs)
 
 
+
 drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
 drawObject v o = do
     m   ← view w_map
     vis ← view w_visible
 
-    base  ← uses (rd_styles.s_objects) (fromMaybe [] . Map.lookup o)
-    items ← views (w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
-    known ← use (rd_styles.s_visibilityKnown)
+    mats   ← use (rd_styles.s_materials)
+    matu   ← use (rd_styles.s_unknown)
+    items  ← views (w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
+    known  ← use (rd_styles.s_visibilityKnown)
 
     w  ← use (rd_mainWindow)
-    let c = TMap.tileChar $ objectToTile o
     case isVisible vis m of
         Unknown → return ()
-        Known   → updateWindow w $ drawCharAt v c known
-        Visible → updateWindow w $ drawCharAt v c (base ++ items)
+        Known   → updateWindow w $ drawCharAt v (objectChar o) known
+        Visible → updateWindow w $ drawCharAt v (objectChar o) (objectMat matu mats o)
     where
         isVisible vis m = vis Vec.! TMap.linCoord m v
+        objectChar Computer     = '&'
+        objectChar (Person n)   = '@'
+        objectChar (Door o)     = bool '+' '\'' o
+        objectChar (Stairs u)   = bool '<' '>' u
+        objectChar (Prop "Bed" _ _ _)          = '#'
+        objectChar (Prop "Coffee table" _ _ _) = '▮'
+        objectChar (Prop "Couch" _ _ _) = '#'
+        objectChar (Prop "Counter" _ _ _) = '▮'
+        objectChar (Prop "Crate" _ _ _) = '#'
+        objectChar (Prop "Fridge" _ _ _) = '#'
+        objectChar (Prop "Kitchen chair" _ _ _) = '#'
+        objectChar (Prop "Kitchen table" _ _ _) = '▮'
+        objectChar (Prop "Night table" _ _ _) = '▮'
+        objectChar (Prop "Shower" _ _ _) = '!'
+        objectChar (Prop "Sink" _ _ _) = 'u'
+        objectChar (Prop "Stove" _ _ _) = '%'
+        objectChar (Prop "Toilet" _ _ _) = 'u'
+        objectChar (Prop "TV stand" _ _ _) = '▮'
+        objectChar (Prop "Wardrobe" _ _ _) = '#'
+        objectChar (Prop "Washer" _ _ _) = 'w'
+        objectChar (Prop "Booth seat" _ _ _) = '▭'
+        objectChar (Prop "Booth table" _ _ _) = '■'
+        objectChar (Prop "Bar" _ _ _) = '□'
+        objectChar (Prop "Bar stool" _ _ _) = 'o'
+        objectChar (Prop "Bar shelf" _ _ _) = 'c'
+        objectChar (Prop "Round table" _ _ _) = '0'
+        objectChar (Prop "Chair" _ _ _) = '#'
+        objectChar (Prop "Shelf" _ _ _) = 'h'
+        objectChar (Prop _ _ _ _) = '?'
+        objectMat matu mats Computer   = fromMaybe matu $ Map.lookup "metal" mats
+        objectMat matu mats (Person _) = [] -- If ally, green. Also use red shades to communicate suspicion when sneaking
+        objectMat matu mats (Door _)   = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Stairs _) = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Bed" _ _ _)           = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Coffee table" _ _ _)  = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Couch" _ _ _)         = fromMaybe matu $ Map.lookup "red plastic" mats
+        objectMat matu mats (Prop "Counter" _ _ _)       = fromMaybe matu $ Map.lookup "blue plastic" mats
+        objectMat matu mats (Prop "Crate" _ _ _)         = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Fridge" _ _ _)        = fromMaybe matu $ Map.lookup "metal" mats
+        objectMat matu mats (Prop "Kitchen chair" _ _ _) = fromMaybe matu $ Map.lookup "red plastic" mats
+        objectMat matu mats (Prop "Kitchen table" _ _ _) = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Night table" _ _ _)   = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Shower" _ _ _)        = fromMaybe matu $ Map.lookup "metal" mats
+        objectMat matu mats (Prop "Sink" _ _ _)          = fromMaybe matu $ Map.lookup "ceramics" mats
+        objectMat matu mats (Prop "Stove" _ _ _)         = fromMaybe matu $ Map.lookup "metal" mats
+        objectMat matu mats (Prop "Toilet" _ _ _)        = fromMaybe matu $ Map.lookup "ceramics" mats
+        objectMat matu mats (Prop "TV stand" _ _ _)      = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Wardrobe" _ _ _)      = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Washer" _ _ _)        = fromMaybe matu $ Map.lookup "metal" mats
+        objectMat matu mats (Prop "Booth seat" _ _ _)    = fromMaybe matu $ Map.lookup "red plastic" mats
+        objectMat matu mats (Prop "Booth table"_ _ _)    = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Bar"_ _ _)            = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Bar stool"_ _ _)      = fromMaybe matu $ Map.lookup "red plastic" mats
+        objectMat matu mats (Prop "Bar shelf"_ _ _)      = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Round table"_ _ _)    = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Chair"_ _ _)          = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop "Shelf"_ _ _)          = fromMaybe matu $ Map.lookup "wood" mats
+        objectMat matu mats (Prop _ _ _ _)               = matu
 
 
 drawObjects ∷ (MonadRender r) ⇒ r ()
@@ -255,9 +319,9 @@ drawObjects = view (w_objects) >>= Map.foldWithKey (\k v p → p >> drawObject k
 drawPlayer ∷ (MonadRender r) ⇒ r ()
 drawPlayer = do
     w ← use rd_mainWindow
-    s ← uses (rd_styles.s_objects) (fromMaybe [] . Map.lookup (Person "Carla"))
+    s ← uses (rd_styles.s_colorMagenta) Curses.AttributeColor
     v ← view w_playerPos
-    updateWindow w $ drawCharAt v '@' s
+    updateWindow w $ drawCharAt v '@' [s]
 
 
 drawAim ∷ (MonadRender r) ⇒ r ()

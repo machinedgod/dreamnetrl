@@ -64,7 +64,7 @@ makeLenses ''Game
 newGame ∷ Curses.Curses Game
 newGame = do
     rdf ← initRenderer
-    m   ← loadTileMap "res/bar"
+    m   ← loadTileMap "res/apartment0"
     return $ Game (newWorld m) Normal True rdf
 
 --------------------------------------------------------------------------------
