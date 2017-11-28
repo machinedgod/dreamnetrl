@@ -89,7 +89,7 @@ data TileMap = TileMap {
     , _m_desc   ∷ String
 
     , _m_spawnPoints ∷ [V2 Int]
-    , _m_extra  ∷ Map.Map (V2 Int) (String, String, String, String, Char) -- Should support multiple objects at same location
+    , _m_extra  ∷ Map.Map (V2 Int) (Char, String, String, String, String, String) -- Should support multiple objects at same location
     }
 
 makeLenses ''TileMap
@@ -163,12 +163,12 @@ readTilemap fp = do
         turnTile _                                  = '.'
 
 
-readTranslationTable ∷ (MonadIO m) ⇒ FilePath → m (Map.Map Char (String, String,String,String, Char))
-readTranslationTable fp = let f (c, t, n, p, s) = Map.insert c (t, n, p, s, c)
+readTranslationTable ∷ (MonadIO m) ⇒ FilePath → m (Map.Map Char (Char, String, String, String, String, String))
+readTranslationTable fp = let f (c, m, t, n, p, s) = Map.insert c (c, m, t, n, p, s)
                           in  loadCsvToTupleMap fp ".trans" f
 
 
-gatherProps ∷ Int → Vec.Vector Char → Map.Map Char (String,String,String,String,Char) → Map.Map (V2 Int) (String, String,String,String,Char)
+gatherProps ∷ Int → Vec.Vector Char → Map.Map Char (Char,String,String,String,String,String) → Map.Map (V2 Int) (Char,String,String,String,String, String)
 gatherProps w mdata trtab = let appendIfObject i c m = maybe m (gatherObject i m) $ Map.lookup c trtab
                                 gatherObject i m o   = Map.insert (coordLin' w i) o m
                             in  Vec.ifoldr appendIfObject Map.empty mdata
@@ -180,8 +180,8 @@ readDesc fp = cleanUpNewlines <$> liftIO $ readFile (fp ++ ".desc")
         cleanUpNewlines s = s
 
 
-readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (String, String, String, String, Char))
-readExtra fp = let f (x, y, t, n) = Map.insert (V2 x y) (t, n, "", "", ' ')
+readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Char, String, String, String, String, String))
+readExtra fp = let f (x, y, t, n) = Map.insert (V2 x y) (' ', "", t, n, "", "")
                in  loadCsvToTupleMap fp ".extra" f
 
 

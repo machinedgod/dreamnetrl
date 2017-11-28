@@ -1,20 +1,20 @@
-▮,Prop,TV stand,False,True
-□,Prop,Coffee table,False,True
-#,Prop,Couch,False,True
-o,Prop,Kitchen chair,False,True
-0,Prop,Kitchen table,False,True
-f,Prop,Fridge,False,True
-c,Prop,Counter,False,True
-S,Prop,Stove,False,True
-t,Prop,Toilet,False,True
-s,Prop,Sink,False,True
-%,Prop,Shower,False,False
-w,Prop,Washer,False,True
-d,Prop,Wardrobe,False,False
-T,Prop,Night table,False,True
-b,Prop,Bed,False,True
-C,Prop,Crate,False,True
-',Door,True,,
-+,Door,False,,
->,Stairs,True,,
-<,Stairs,False,,
+',,Door,True,,
++,,Door,False,,
+>,,Stairs,True,,
+<,,Stairs,False,,
+▮,wood,Prop,TV stand,False,True
+□,wood,Prop,Coffee table,False,True
+#,red plastic,Prop,Couch,False,True
+o,red plastic,Prop,Kitchen chair,False,True
+0,wood,Prop,Kitchen table,False,True
+f,metal,Prop,Fridge,False,True
+c,wood,Prop,Counter,False,True
+%,metal,Prop,Stove,False,True
+t,ceramics,Prop,Toilet,False,True
+s,ceramics,Prop,Sink,False,True
+!,metal,Prop,Shower,False,False
+w,metal,Prop,Washer,False,True
+d,wood,Prop,Wardrobe,False,False
+T,wood,Prop,Night table,False,True
+b,red plastic,Prop,Bed,False,True
+C,wood,Prop,Crate,False,True

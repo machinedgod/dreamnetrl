@@ -80,7 +80,7 @@ data Object = Computer
             | Person     String     -- <-- Name
             | Door       Bool       -- <-- Is opened?
             | Stairs     Bool       -- <-- Going up?
-            | Prop       String  Bool  Bool  Char -- <-- Name, passable, seeThrough, Char
+            | Prop       String  Bool  Bool  Char  String  -- <-- Name, passable, seeThrough, Char, material
             deriving (Eq, Show, Ord)
 
 
@@ -117,12 +117,12 @@ newWorld m = let iniv    = Vec.replicate (squareSize m) Unknown
              in  World pp pc Nothing m iniv objects items people ""
     where
         squareSize m   = fromIntegral $ m ^. TMap.m_width * m ^. TMap.m_height
-        tupleToObject ("Computer", _, _, _, _) = Computer
-        tupleToObject ("Person", n, _, _, _)   = Person n
-        tupleToObject ("Door", o, _, _, _)     = Door (readDef False o)
-        tupleToObject ("Stairs", u, _, _, _)   = Stairs (readDef False u)
-        tupleToObject ("Prop", n, p, s, c)     = Prop n (readDef False p) (readDef False s) c
-        tupleToObject t                        = error $ "Unknown object definition: " ++ show t
+        tupleToObject (_, _, "Computer", _, _, _) = Computer
+        tupleToObject (_, _, "Person", n, _, _)   = Person n
+        tupleToObject (_, _, "Door", o, _, _)     = Door (readDef False o)
+        tupleToObject (_, _, "Stairs", u, _, _)   = Stairs (readDef False u)
+        tupleToObject (c, m, "Prop", n, p, s)     = Prop n (readDef False p) (readDef False s) c m
+        tupleToObject t                           = error $ "Unknown object definition: " ++ show t
         {-# INLINE tupleToObject #-}
 
 --------------------------------------------------------------------------------
@@ -340,11 +340,11 @@ instance Collision TMap.Tile where
 
 
 instance Collision Object where
-    isPassable Computer       = False
-    isPassable (Person _)     = False -- TODO maybe passable if its ally?
-    isPassable (Door o)       = o
-    isPassable (Stairs _)     = True
-    isPassable (Prop _ p _ _) = p
+    isPassable Computer         = False
+    isPassable (Person _)       = False -- TODO maybe passable if its ally?
+    isPassable (Door o)         = o
+    isPassable (Stairs _)       = True
+    isPassable (Prop _ p _ _ _) = p
     {-# INLINE isPassable #-}
 
 --------------------------------------------------------------------------------
@@ -360,20 +360,20 @@ instance Vision TMap.Tile where
 
 
 instance Vision Object where
-    isSeeThrough Computer       = True
-    isSeeThrough (Person _)     = True
-    isSeeThrough (Door o)       = o
-    isSeeThrough (Stairs _)     = True
-    isSeeThrough (Prop _ _ s _) = s
+    isSeeThrough Computer         = True
+    isSeeThrough (Person _)       = True
+    isSeeThrough (Door o)         = o
+    isSeeThrough (Stairs _)       = True
+    isSeeThrough (Prop _ _ s _ _) = s
 
 --------------------------------------------------------------------------------
 
 objectDescription ∷ Object → String
-objectDescription Computer       = "This is a common machine found everywhere today. You wonder if its for better or worse."
-objectDescription (Person c)     = c ++ " looks grumpy."
-objectDescription (Door o)       = "Just a common door. They're " ++ bool "closed." "opened." o
-objectDescription (Stairs t)     = "If map changing would've been coded in, you would use these to switch between maps and layers."
-objectDescription (Prop t _ _ _) = "A common " ++ t ++ "."
+objectDescription Computer         = "This is a common machine found everywhere today. You wonder if its for better or worse."
+objectDescription (Person c)       = c ++ " looks grumpy."
+objectDescription (Door o)         = "Just a common door. They're " ++ bool "closed." "opened." o
+objectDescription (Stairs t)       = "If map changing would've been coded in, you would use these to switch between maps and layers."
+objectDescription (Prop t _ _ _ _) = "A common " ++ t ++ "."
 {-# INLINE objectDescription #-}
 
 
@@ -384,8 +384,8 @@ objectInteraction v (Person n)    = do
     case mc of
         Just c  → return $ Conversation (c^.ch_name) (c^.ch_conversation)
         Nothing → w_status .= "You call out to " ++ n ++ ", but no one responds..." >> return Normal
-objectInteraction v (Door o)       = changeObject_ v (Door (not o)) >> return Normal
-objectInteraction v (Stairs t)     = w_status .= "These lead to " ++ show t >> return Normal
-objectInteraction v (Prop n _ _ _) = w_status .= "You have no idea what to do with this " ++ n >> return Normal
+objectInteraction v (Door o)         = changeObject_ v (Door (not o)) >> return Normal
+objectInteraction v (Stairs t)       = w_status .= "These lead to " ++ show t >> return Normal
+objectInteraction v (Prop n _ _ _ _) = w_status .= "You have no idea what to do with this " ++ n >> return Normal
 {-# INLINE objectInteraction #-}
 
