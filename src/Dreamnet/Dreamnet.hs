@@ -154,7 +154,7 @@ updateConversationChoice Back = return ()
 renderNormal ∷ RendererF ()
 renderNormal = do
     drawMap
-    drawObjects
+    --drawObjects
     drawPlayer
     drawAim
     drawHud

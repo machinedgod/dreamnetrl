@@ -3,23 +3,31 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.TileMap
-( Tile(..)
+( Tile
+, t_char
+, t_data
+
+, TileLayer
+, l_width
+, l_height
+, l_data
+, l_tileset
+
 , TileMap
 , m_width
 , m_height
-, m_data
+, m_layers
+, m_positioned
 , m_desc
-, m_spawnPoints
-, m_extra
-, linCoord
-, linCoord'
-, coordLin
-, coordLin'
-, outOfBounds
 , tileAt
+, changeTile
+, findAll
 
 , loadTileMap
 ) where
+
+import Prelude hiding (read)
+import Safe
 
 import Control.Monad.IO.Class 
 import Control.Lens 
@@ -28,177 +36,135 @@ import Data.List (elemIndex, intercalate)
 import Data.Bool (bool)
 import Linear 
 
-import qualified Data.Map    as Map
-import qualified Data.Vector as Vec
+import qualified Data.Map    as M
+import qualified Data.Vector as V
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Csv             as CSV
 
+import Dreamnet.CoordVector
+
 --------------------------------------------------------------------------------
 
-data Tile = OuterWall
-          | InnerWall
-          | Floor
-          deriving (Eq, Show, Ord)
+data Tile = Tile {
+      _t_char ∷ Char
+    , _t_data ∷ V.Vector String
+    }
+    deriving(Show)
+            
+makeLenses ''Tile
+
+--------------------------------------------------------------------------------
+
+data TileLayer = TileLayer {
+      _l_width      ∷ Word
+    , _l_height     ∷ Word
+    , _l_data       ∷ V.Vector Char
+    , _l_tileset    ∷ M.Map Char Tile
+    }
+    deriving(Show)
+
+makeLenses ''TileLayer
+
+instance CoordVector TileLayer where
+    width = view l_width
 
 
-asciiTable = [ ('═', OuterWall)
-             , ('║', OuterWall)
-             , ('╔', OuterWall)
-             , ('╚', OuterWall)
-             , ('╗', OuterWall)
-             , ('╝', OuterWall)
-             , ('╦', OuterWall)
-             , ('╩', OuterWall)
-             , ('╠', OuterWall)
-             , ('╣', OuterWall)
-             , ('╟', OuterWall)
-             , ('╢', OuterWall)
-             , ('╤', OuterWall)
-             , ('╧', OuterWall)
-             , ('╬', OuterWall)
-
-             , ('─', InnerWall)
-             , ('│', InnerWall)
-             , ('┌', InnerWall)
-             , ('└', InnerWall)
-             , ('┐', InnerWall)
-             , ('┘', InnerWall)
-             , ('┤', InnerWall)
-             , ('├', InnerWall)
-             , ('┴', InnerWall)
-             , ('┬', InnerWall)
-             , ('╡', InnerWall)
-             , ('╞', InnerWall)
-             , ('╥', InnerWall)
-             , ('╨', InnerWall)
-             , ('.', Floor)
-             ]
+tileAt ∷ TileLayer → V2 Int → Tile
+tileAt tl v = let char      = (tl^.l_data) V.! linCoord tl v
+                  maybeTile = char `M.lookup` (tl^.l_tileset)
+                  err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " ++ [char]
+              in  fromMaybe err maybeTile
 
 
-tileChar ∷ Tile → Char
-tileChar t = fromMaybe err $ t `lookup` (flipTuple <$> asciiTable)
-    where err              = error $ "Tile w/o char! " ++ show t
-          flipTuple (x, y) = (y, x)
+changeTile ∷ V2 Int → Tile → TileLayer → TileLayer
+changeTile v t tl = l_data . element (linCoord tl v) .~ (t^.t_char) $ tl
+
+
+findAll ∷ Char → TileLayer → [V2 Int]
+findAll ch tl = let foldCoord i c l = bool l (coordLin tl i : l) (c == ch)
+                in  V.ifoldr foldCoord [] (tl^.l_data)
 
 --------------------------------------------------------------------------------
 
 data TileMap = TileMap {
-      _m_width  ∷ Word
-    , _m_height ∷ Word
-    , _m_data   ∷ Vec.Vector Char
-    , _m_desc   ∷ String
-
-    , _m_spawnPoints ∷ [V2 Int]
-    , _m_extra  ∷ Map.Map (V2 Int) (Char, String, String, String, String, String) -- Should support multiple objects at same location
+      _m_width      ∷ Word
+    , _m_height     ∷ Word
+    , _m_layers     ∷ V.Vector TileLayer
+    , _m_positioned ∷ M.Map (V2 Int) [Tile]
+    , _m_desc       ∷ String
     }
+    deriving(Show)
 
 makeLenses ''TileMap
 
-linCoord' ∷ Int → V2 Int → Int
-linCoord' w (V2 x y) = y * w + x
-{-# INLINE linCoord' #-}
-
-
-linCoord ∷ TileMap → V2 Int → Int
-linCoord m = linCoord' (fromIntegral $ m^.m_width)
-{-# INLINE linCoord #-}
-
-
-coordLin' ∷ Int → Int → V2 Int
-coordLin' w i = let x = i `mod` w
-                    y = i `div` w
-                in  V2 x y 
-{-# INLINE coordLin' #-}
-
-
-coordLin ∷ TileMap → Int → V2 Int
-coordLin m i = coordLin' (fromIntegral $ m^.m_width) i
-{-# INLINE coordLin #-}
+instance CoordVector TileMap where
+    width = view m_width
 
 
 -- TODO convert to V2 Word
-outOfBounds ∷ TileMap → V2 Int → Bool
-outOfBounds m (V2 x y) = let w = fromIntegral $ m ^. m_width
-                             h = fromIntegral $ m ^. m_height
-                         in  x < 0 || y < 0 || x >= w || y >= h
-
-
-tileAt ∷ TileMap → V2 Int → Tile
-tileAt m v = tileFor $ (m^.m_data) Vec.! linCoord m v
-    where
-        tileFor c = fromMaybe (err c) $ c `lookup` asciiTable
-        err c = error $ "Shouldn't happen! Ran into a tiletype that was not cleaned up during loading! :-O: " ++ [c]
-
-
-
 
 --------------------------------------------------------------------------------
 
+makeFilename ∷ FilePath → String → FilePath
+makeFilename fp s = fp ++ "." ++ s
+
+
+makeFilename' ∷ FilePath → String → Word → FilePath
+makeFilename' fp s i = fp ++ "." ++ s ++ show i
+
+
 loadTileMap ∷ (MonadIO m) ⇒ FilePath → m TileMap
 loadTileMap fp = do
-    (w, h, mdata, cdata) ← readTilemap fp
-    props                ← gatherProps w mdata <$> readTranslationTable fp
-    desc                 ← readDesc  fp
-    extra                ← readExtra fp
+    layer0 ← readLayer fp 0
+    desc   ← liftIO $ readFile (makeFilename fp "desc")
+    pos    ← readPositioned (makeFilename fp "positioned")
 
+    let w = layer0^.l_width
+        h = layer0^.l_height
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)
-        cdata
+        (V.fromList [ layer0 ])
+        pos
         desc
-        (findSpawnPoints w mdata)
-        (props `Map.union` extra)
 
 
-readTilemap ∷ (MonadIO m) ⇒ FilePath → m (Int, Int, Vec.Vector Char, Vec.Vector Char)
-readTilemap fp = do
-    str ← liftIO $ readFile (fp ++ ".tilemap")
-    let w     = fromMaybe 0 $ elemIndex '\n' str
-        h     = length $ filter (=='\n') str
-        mdata = Vec.fromList $ filter (/='\n') str
-        cdata = Vec.map turnTile mdata
-    return $ (w, h, mdata, cdata)
+readLayer ∷ (MonadIO m) ⇒ FilePath → Word → m TileLayer
+readLayer fp i = do
+    mapStr   ← liftIO $ readFile (makeFilename' fp "layer" i)
+    tableStr ← liftIO $ BS.readFile (makeFilename' fp "set" i)
+
+    let w     = findWidth mapStr
+        h     = findHeight mapStr
+        ldata = cleanNewlines mapStr
+        tset  = createTable tableStr
+    return $ TileLayer w h ldata tset
     where
-        turnTile c@((`lookup` asciiTable) → Just _) = c
-        turnTile _                                  = '.'
+        findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
+        findHeight    = fromIntegral . length . filter (=='\n')
+        cleanNewlines = V.fromList . filter (/='\n')
+        createTable   = either err makeMap . CSV.decode CSV.NoHeader
+        err e         = error $ "Can't parse " ++ makeFilename' fp "set" i ++ ": " ++ e
+        makeMap       = V.foldr' insertTile M.empty
+        insertTile v  = let t = createTile v
+                        in  M.insert (t^.t_char) t
+        createTile v  = let char  = head . V.head $ v
+                            edata = V.drop 1 v
+                        in  Tile char edata
 
 
-readTranslationTable ∷ (MonadIO m) ⇒ FilePath → m (Map.Map Char (Char, String, String, String, String, String))
-readTranslationTable fp = let f (c, m, t, n, p, s) = Map.insert c (c, m, t, n, p, s)
-                          in  loadCsvToTupleMap fp ".trans" f
-
-
-gatherProps ∷ Int → Vec.Vector Char → Map.Map Char (Char,String,String,String,String,String) → Map.Map (V2 Int) (Char,String,String,String,String, String)
-gatherProps w mdata trtab = let appendIfObject i c m = maybe m (gatherObject i m) $ Map.lookup c trtab
-                                gatherObject i m o   = Map.insert (coordLin' w i) o m
-                            in  Vec.ifoldr appendIfObject Map.empty mdata
-
-
-readDesc ∷ (MonadIO m) ⇒ FilePath → m String
-readDesc fp = cleanUpNewlines <$> liftIO $ readFile (fp ++ ".desc")
+readPositioned ∷ (MonadIO m) ⇒ FilePath → m (M.Map (V2 Int) [Tile])
+readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
     where
-        cleanUpNewlines s = s
-
-
-readExtra ∷ (MonadIO m) ⇒ FilePath → m (Map.Map (V2 Int) (Char, String, String, String, String, String))
-readExtra fp = let f (x, y, t, n) = Map.insert (V2 x y) (' ', "", t, n, "", "")
-               in  loadCsvToTupleMap fp ".extra" f
-
-
-loadCsvToTupleMap ∷ (MonadIO m, CSV.FromRecord c) ⇒ FilePath → String → (c → Map.Map a b → Map.Map a b) → m (Map.Map a b)
-loadCsvToTupleMap fp ext toDataTuple = do
-    errOrVec ← liftIO $ CSV.decode CSV.NoHeader <$> BS.readFile (fp ++ ext)
-    case errOrVec of
-        Left e  → error $ "Error loading '"++fp++"."++ext++"': " ++ e
-        Right v → return $ Vec.foldr toDataTuple Map.empty v
-
-
-changeTile ∷ V2 Int → Tile → TileMap → TileMap
-changeTile v o m = (m_data . element (linCoord m v) .~ tileChar o) m
-
-
-findSpawnPoints ∷ Int → Vec.Vector Char → [V2 Int]
-findSpawnPoints w mdata =
-    let foldSpawnCoords i c l = bool l (coordLin' w i : l) (c == '╳')
-    in  Vec.ifoldr foldSpawnCoords [] mdata
+        makeTable    = either err vectorsToMap . CSV.decode CSV.NoHeader
+        err e        = error $ "CSV decoding error in '" ++ fp ++ "': " ++ e
+        vectorsToMap = V.foldr insertTile M.empty
+        insertTile v = M.insert (pos v) [(tile v)]
+        pos v        = let err = "Invalid coord when specifying positioned tile in '" ++ fp ++ "'"
+                           x   = readNote err (V.head v)
+                           y   = readNote err (V.head $ V.drop 1 v)
+                       in  V2 x y
+        tile v = Tile (charForType $ V.head $ V.drop 2 v) (V.drop 3 v)
+        charForType "Person" = '@'
+        charForType "Item"   = '['
 

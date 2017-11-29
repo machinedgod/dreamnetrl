@@ -22,6 +22,7 @@ import qualified Data.Vector as Vec
 
 import Dreamnet.GameState
 import Dreamnet.TileMap
+import Dreamnet.WorldMap
 import Dreamnet.World
 import Dreamnet.Renderer
 import Dreamnet.Input
@@ -65,7 +66,7 @@ newGame ∷ Curses.Curses Game
 newGame = do
     rdf ← initRenderer
     m   ← loadTileMap "res/apartment0"
-    return $ Game (newWorld m) Normal True rdf
+    return $ Game (newWorld (fromTileMap m)) Normal True rdf
 
 --------------------------------------------------------------------------------
 

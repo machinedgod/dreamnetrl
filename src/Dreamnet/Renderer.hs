@@ -27,8 +27,6 @@ module Dreamnet.Renderer
 , runRenderer
 
 , drawMap
-, drawObject
-, drawObjects
 , drawPlayer
 , drawAim
 , drawHud
@@ -42,11 +40,13 @@ import Data.Maybe (fromMaybe)
 import Data.Bool (bool)
 
 import UI.NCurses.Class
-import qualified UI.NCurses  as Curses
-import qualified Data.Map    as Map
-import qualified Data.Vector as Vec
+import qualified UI.NCurses  as C
+import qualified Data.Map    as M
+import qualified Data.Vector as V
 
-import qualified Dreamnet.TileMap as TMap
+import Dreamnet.CoordVector
+import Dreamnet.Utils
+import Dreamnet.WorldMap
 import Dreamnet.World
 import Dreamnet.Character
 import Dreamnet.ScrollModel
@@ -55,21 +55,21 @@ import Dreamnet.ChoiceModel
 --------------------------------------------------------------------------------
 
 data Styles = Styles {
-      _s_materials ∷ Map.Map String [Curses.Attribute]
-    , _s_unknown   ∷ [Curses.Attribute]
-    , _s_playerAim ∷ [Curses.Attribute]
+      _s_materials ∷ M.Map String [C.Attribute]
+    , _s_unknown   ∷ [C.Attribute]
+    , _s_playerAim ∷ [C.Attribute]
 
-    , _s_visibilityUnknown ∷ [Curses.Attribute]
-    , _s_visibilityKnown   ∷ [Curses.Attribute]
-    , _s_visibilityVisible ∷ [Curses.Attribute]
+    , _s_visibilityUnknown ∷ [C.Attribute]
+    , _s_visibilityKnown   ∷ [C.Attribute]
+    , _s_visibilityVisible ∷ [C.Attribute]
 
-    , _s_colorRed     ∷ Curses.ColorID
-    , _s_colorGreen   ∷ Curses.ColorID
-    , _s_colorYellow  ∷ Curses.ColorID
-    , _s_colorBlue    ∷ Curses.ColorID
-    , _s_colorMagenta ∷ Curses.ColorID
-    , _s_colorCyan    ∷ Curses.ColorID
-    , _s_colorWhite   ∷ Curses.ColorID
+    , _s_colorRed     ∷ C.ColorID
+    , _s_colorGreen   ∷ C.ColorID
+    , _s_colorYellow  ∷ C.ColorID
+    , _s_colorBlue    ∷ C.ColorID
+    , _s_colorMagenta ∷ C.ColorID
+    , _s_colorCyan    ∷ C.ColorID
+    , _s_colorWhite   ∷ C.ColorID
     }
 
 makeLenses ''Styles
@@ -80,13 +80,13 @@ data RendererEnvironment = RendererEnvironment {
     , _rd_scrollModel ∷ ScrollModel
     , _rd_choiceModel ∷ ChoiceModel
 
-    , _rd_mainWindow          ∷ Curses.Window
-    , _rd_hudWindow           ∷ Curses.Window
-    , _rd_examineWindow       ∷ Curses.Window
-    , _rd_interactionWindow   ∷ Curses.Window
-    , _rd_choiceWindow        ∷ Curses.Window
-    , _rd_conversationWindow0 ∷ Curses.Window
-    , _rd_conversationWindow1 ∷ Curses.Window
+    , _rd_mainWindow          ∷ C.Window
+    , _rd_hudWindow           ∷ C.Window
+    , _rd_examineWindow       ∷ C.Window
+    , _rd_interactionWindow   ∷ C.Window
+    , _rd_choiceWindow        ∷ C.Window
+    , _rd_conversationWindow0 ∷ C.Window
+    , _rd_conversationWindow1 ∷ C.Window
     }
 
 makeLenses ''RendererEnvironment
@@ -94,36 +94,36 @@ makeLenses ''RendererEnvironment
 --------------------------------------------------------------------------------
 
 class (MonadState RendererEnvironment r, MonadReader World r) ⇒ MonadRender r where
-    updateWindow ∷ Curses.Window → Curses.Update () → r ()
+    updateWindow ∷ C.Window → C.Update () → r ()
     swap         ∷ r ()
     
 
 -- SOME stuff should be just reader, some stuff state
-newtype RendererF a = RendererF { runRendererF ∷ ReaderT World (StateT RendererEnvironment Curses.Curses) a }
+newtype RendererF a = RendererF { runRendererF ∷ ReaderT World (StateT RendererEnvironment C.Curses) a }
                     deriving (Functor, Applicative, Monad, MonadReader World, MonadState RendererEnvironment, MonadCurses)
 
 
-instance MonadCurses (ReaderT World (StateT RendererEnvironment Curses.Curses)) where
+instance MonadCurses (ReaderT World (StateT RendererEnvironment C.Curses)) where
     liftCurses = lift . lift
 
 
 instance MonadRender RendererF where
-    updateWindow w = liftCurses . Curses.updateWindow w
-    swap = liftCurses Curses.render
+    updateWindow w = liftCurses . C.updateWindow w
+    swap = liftCurses C.render
 
 
-initRenderer ∷ Curses.Curses RendererEnvironment
+initRenderer ∷ C.Curses RendererEnvironment
 initRenderer = do
     -- TODO respond to resize events and resize all the windows!
     --      this should happen automatically and be inacessible by API
-    (rows, columns) ← Curses.screenSize
+    (rows, columns) ← C.screenSize
 
     let hudWidth   = columns
         hudHeight  = 8
         mainWidth  = columns
         mainHeight = rows - hudHeight
-    mainWin ← Curses.newWindow mainHeight mainWidth 0 0
-    hudWin  ← Curses.newWindow hudHeight hudWidth mainHeight 0
+    mainWin ← C.newWindow mainHeight mainWidth 0 0
+    hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
 
 
 
@@ -147,19 +147,19 @@ initRenderer = do
         interactX = 2
         interactY = 2
 
-    examineWin       ← Curses.newWindow examineH examineW examineY examineX
-    choiceWin        ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
-    interactionWin   ← Curses.newWindow interactH interactW interactY interactX
-    conversationWin0 ← Curses.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
-    conversationWin1 ← Curses.newWindow topRightH topRightW topRightY topRightX
+    examineWin       ← C.newWindow examineH examineW examineY examineX
+    choiceWin        ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
+    interactionWin   ← C.newWindow interactH interactW interactY interactX
+    conversationWin0 ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
+    conversationWin1 ← C.newWindow topRightH topRightW topRightY topRightX
 
-    styles ← Curses.maxColor >>= createStyles 
+    styles ← C.maxColor >>= createStyles 
     let scrollW = fromIntegral $ examineW - 6 -- border, padding, arrow widgets
         scrollH = fromIntegral $ examineH - 2
 
     return $ RendererEnvironment styles
                  (createScrollModel scrollW scrollH)
-                 (ChoiceModel Vec.empty 0)
+                 (ChoiceModel V.empty 0)
                  mainWin hudWin examineWin interactionWin choiceWin
                  conversationWin0 conversationWin1
         where
@@ -169,30 +169,30 @@ initRenderer = do
                 | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
                 | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
             createStyles8Colors = do 
-                cRed     ←  Curses.newColorID  Curses.ColorRed      Curses.ColorBlack  1
-                cGreen   ←  Curses.newColorID  Curses.ColorGreen    Curses.ColorBlack  2
-                cYellow  ←  Curses.newColorID  Curses.ColorYellow   Curses.ColorBlack  3
-                cBlue    ←  Curses.newColorID  Curses.ColorBlue     Curses.ColorBlack  4
-                cMagenta ←  Curses.newColorID  Curses.ColorMagenta  Curses.ColorBlack  5
-                cCyan    ←  Curses.newColorID  Curses.ColorCyan     Curses.ColorBlack  6
-                cWhite   ←  Curses.newColorID  Curses.ColorWhite    Curses.ColorBlack  7
+                cRed     ←  C.newColorID  C.ColorRed      C.ColorBlack  1
+                cGreen   ←  C.newColorID  C.ColorGreen    C.ColorBlack  2
+                cYellow  ←  C.newColorID  C.ColorYellow   C.ColorBlack  3
+                cBlue    ←  C.newColorID  C.ColorBlue     C.ColorBlack  4
+                cMagenta ←  C.newColorID  C.ColorMagenta  C.ColorBlack  5
+                cCyan    ←  C.newColorID  C.ColorCyan     C.ColorBlack  6
+                cWhite   ←  C.newColorID  C.ColorWhite    C.ColorBlack  7
 
-                let materials = Map.fromList
-                        [ ("wood"          , [ Curses.AttributeColor cYellow, Curses.AttributeDim  ])
-                        , ("metal"         , [ Curses.AttributeColor cCyan,   Curses.AttributeBold ])
-                        , ("blue plastic"  , [ Curses.AttributeColor cCyan,   Curses.AttributeDim  ])
-                        , ("red plastic"   , [ Curses.AttributeColor cRed,    Curses.AttributeDim  ])
-                        , ("ceramics"      , [ Curses.AttributeColor cWhite,  Curses.AttributeDim  ])
+                let materials = M.fromList
+                        [ ("wood"          , [ C.AttributeColor cYellow, C.AttributeDim  ])
+                        , ("metal"         , [ C.AttributeColor cCyan,   C.AttributeBold ])
+                        , ("blue plastic"  , [ C.AttributeColor cCyan,   C.AttributeDim  ])
+                        , ("red plastic"   , [ C.AttributeColor cRed,    C.AttributeDim  ])
+                        , ("ceramics"      , [ C.AttributeColor cWhite,  C.AttributeDim  ])
                         ]
-                    matUnknown = [ Curses.AttributeColor cMagenta, Curses.AttributeBold, Curses.AttributeBlink ]
+                    matUnknown = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                 return Styles {
                          _s_materials = materials
                        , _s_unknown   = matUnknown
-                       , _s_playerAim = [ Curses.AttributeColor cGreen, Curses.AttributeBold]
+                       , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
                        , _s_visibilityUnknown = []
-                       , _s_visibilityKnown   = [ Curses.AttributeColor cBlue,  Curses.AttributeDim ]
-                       , _s_visibilityVisible = [ Curses.AttributeColor cWhite, Curses.AttributeDim ]
+                       , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
+                       , _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        , _s_colorRed     = cRed    
                        , _s_colorGreen   = cGreen  
@@ -204,74 +204,82 @@ initRenderer = do
                        }
 
 
-runRenderer ∷ RendererEnvironment → World → RendererF a → Curses.Curses (a, RendererEnvironment)
+runRenderer ∷ RendererEnvironment → World → RendererF a → C.Curses (a, RendererEnvironment)
 runRenderer rd w f = runStateT (runReaderT (runRendererF f) w) rd
     
 --------------------------------------------------------------------------------
 
-drawCharAt ∷ (Integral a) ⇒ V2 a → Char → [Curses.Attribute] → Curses.Update ()
+drawCharAt ∷ (Integral a) ⇒ V2 a → Char → [C.Attribute] → C.Update ()
 drawCharAt (V2 x y) c s = do
-    Curses.moveCursor (fromIntegral y) (fromIntegral x)
-    Curses.drawGlyph (Curses.Glyph c s)
+    C.moveCursor (fromIntegral y) (fromIntegral x)
+    C.drawGlyph (C.Glyph c s)
 
 
 drawMap ∷ (MonadRender r) ⇒ r ()
 drawMap = do
     w   ← use rd_mainWindow
     m   ← view w_map
-    vis ← view w_visible
+    vis ← view (w_map.wm_visible)
 
     unknown ← use (rd_styles.s_visibilityUnknown)
     known   ← use (rd_styles.s_visibilityKnown)
     visible ← use (rd_styles.s_visibilityVisible)
+    let drawTile m i (o, v) = uncurry (drawCharAt $ coordLin m i) $
+                                case v of
+                                    Unknown → (' ', unknown)
+                                    Known   → (objectToChar o,     known)
+                                    Visible → (objectToChar o,     visible)
     updateWindow w $
-        Vec.imapM_ (drawTile unknown known visible m) $ Vec.zip (m^.TMap.m_data) vis
-    where
-        drawTile us ks vs m i (c, v) = uncurry (drawCharAt $ TMap.coordLin m i) $
-            case v of
-                Unknown → (' ', us)
-                Known   → (c,   ks)
-                Visible → (c,   vs)
+        V.imapM_ (drawTile m) $ V.zip (m^.wm_data) vis
 
 
-
-drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
-drawObject v o = do
-    m   ← view w_map
-    vis ← view w_visible
-
-    mats   ← use (rd_styles.s_materials)
-    matu   ← use (rd_styles.s_unknown)
-    items  ← views (w_items) (maybe [] (const [Curses.AttributeReverse]) . Map.lookup v)
-    known  ← use (rd_styles.s_visibilityKnown)
-
-    w  ← use (rd_mainWindow)
-    case isVisible vis m of
-        Unknown → return ()
-        Known   → updateWindow w $ drawCharAt v (objectChar o) known
-        Visible → updateWindow w $ drawCharAt v (objectChar o) (objectMat matu mats o)
-    where
-        isVisible vis m = vis Vec.! TMap.linCoord m v
-        objectChar Computer         = '&'
-        objectChar (Person n)       = '@'
-        objectChar (Door o)         = bool '+' '\'' o
-        objectChar (Stairs u)       = bool '<' '>' u
-        objectChar (Prop _ _ _ c _) = c
-        objectMat matu mats Computer   = fromMaybe matu $ Map.lookup "metal" mats
-        objectMat matu mats (Person _) = [] -- If ally, green. Also use red shades to communicate suspicion when sneaking
-        objectMat matu mats (Door _)   = fromMaybe matu $ Map.lookup "wood" mats
-        objectMat matu mats (Stairs _) = fromMaybe matu $ Map.lookup "wood" mats
-        objectMat matu mats (Prop _ _ _ _ m) = fromMaybe matu $ Map.lookup m mats
+objectToChar ∷ Object → Char
+objectToChar Wall         = '#'
+objectToChar Floor        = '.'
+objectToChar (Door o)     = bool '+' '\'' o
+objectToChar (Stairs u)   = bool '<' '>' u
+objectToChar Prop         = '%'
+objectToChar Container    = '&'
+objectToChar Person       = '@'
+objectToChar (Union o o2) = objectToChar o2
 
 
-drawObjects ∷ (MonadRender r) ⇒ r ()
-drawObjects = view (w_objects) >>= Map.foldWithKey (\k v p → p >> drawObject k v) (return ())
+--drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
+--drawObject v o = do
+--    m   ← view w_map
+--    vis ← view w_visible
+--
+--    mats   ← use (rd_styles.s_materials)
+--    matu   ← use (rd_styles.s_unknown)
+--    items  ← views (w_items) (maybe [] (const [C.AttributeReverse]) . M.lookup v)
+--    known  ← use (rd_styles.s_visibilityKnown)
+--
+--    w  ← use (rd_mainWindow)
+--    case isVisible vis m of
+--        Unknown → return ()
+--        Known   → updateWindow w $ drawCharAt v (objectChar o) known
+--        Visible → updateWindow w $ drawCharAt v (objectChar o) (objectMat matu mats o)
+--    where
+--        isVisible vis m = vis V.! linCoord m v
+--        objectChar (Person n)       = '@'
+--        objectChar (Door o)         = bool '+' '\'' o
+--        objectChar (Stairs u)       = bool '<' '>' u
+--        objectChar (Prop _ _ _ c _) = c
+--        objectMat matu mats Computer   = fromMaybe matu $ M.lookup "metal" mats
+--        objectMat matu mats (Person _) = [] -- If ally, green. Also use red shades to communicate suspicion when sneaking
+--        objectMat matu mats (Door _)   = fromMaybe matu $ M.lookup "wood" mats
+--        objectMat matu mats (Stairs _) = fromMaybe matu $ M.lookup "wood" mats
+--        objectMat matu mats (Prop _ _ _ _ m) = fromMaybe matu $ M.lookup m mats
+
+
+--drawObjects ∷ (MonadRender r) ⇒ r ()
+--drawObjects = view (w_objects) >>= M.foldWithKey (\k v p → p >> drawObject k v) (return ())
 
 
 drawPlayer ∷ (MonadRender r) ⇒ r ()
 drawPlayer = do
     w ← use rd_mainWindow
-    s ← uses (rd_styles.s_colorMagenta) Curses.AttributeColor
+    s ← uses (rd_styles.s_colorMagenta) C.AttributeColor
     v ← view w_playerPos
     updateWindow w $ drawCharAt v '@' [s]
 
@@ -291,15 +299,15 @@ drawHud = do
     w ← use rd_hudWindow
     s ← view w_status
     updateWindow w $ do
-        Curses.drawBorder (Just $ Curses.Glyph '│' [])
-                          (Just $ Curses.Glyph '│' [])
-                          (Just $ Curses.Glyph '─' [])
-                          (Just $ Curses.Glyph '─' [])
-                          (Just $ Curses.Glyph '╭' [])
-                          (Just $ Curses.Glyph '╮' [])
-                          (Just $ Curses.Glyph '╰' [])
-                          (Just $ Curses.Glyph '╯' [])
+        C.drawBorder (Just $ C.Glyph '│' [])
+                          (Just $ C.Glyph '│' [])
+                          (Just $ C.Glyph '─' [])
+                          (Just $ C.Glyph '─' [])
+                          (Just $ C.Glyph '╭' [])
+                          (Just $ C.Glyph '╮' [])
+                          (Just $ C.Glyph '╰' [])
+                          (Just $ C.Glyph '╯' [])
 
-        Curses.moveCursor 2 2
-        Curses.drawString $ "Status: " ++ s
+        C.moveCursor 2 2
+        C.drawString $ "Status: " ++ s
 
