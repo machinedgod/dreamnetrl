@@ -3,12 +3,8 @@
 
 module Dreamnet.TileData
 ( ttype
-, doorPassable
-, stairsUp
-, itemName
-, personName
-, propPassable
-, propSeeThrough
+, readBoolProperty
+, readStringProperty
 ) where
 
 import Prelude hiding (read, head)
@@ -23,6 +19,14 @@ import Dreamnet.TileMap
 ttype ∷ Tile → String
 ttype = V.head . view t_data
 {-# INLINE ttype #-}
+
+
+readBoolProperty ∷ Int → Tile → Bool
+readBoolProperty i = readNote "Failed to read Bool property " . (V.! i) . view t_data
+
+
+readStringProperty ∷ Int → Tile → String
+readStringProperty i = (V.! i) . view t_data
 
 
 doorPassable ∷ Tile → Bool

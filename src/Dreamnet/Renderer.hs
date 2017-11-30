@@ -224,24 +224,32 @@ drawMap = do
     unknown ← use (rd_styles.s_visibilityUnknown)
     known   ← use (rd_styles.s_visibilityKnown)
     visible ← use (rd_styles.s_visibilityVisible)
+    mats    ← use (rd_styles.s_materials)
     let drawTile m i (o, v) = uncurry (drawCharAt $ coordLin m i) $
                                 case v of
                                     Unknown → (' ', unknown)
-                                    Known   → (objectToChar o,     known)
-                                    Visible → (objectToChar o,     visible)
+                                    Known   → (objectToChar o, known)
+                                    Visible → (objectToChar o, fromMaybe visible (objectToMat mats o))
     updateWindow w $
         V.imapM_ (drawTile m) $ V.zip (m^.wm_data) vis
 
 
 objectToChar ∷ Object → Char
-objectToChar Wall         = '#'
-objectToChar Floor        = '.'
-objectToChar (Door o)     = bool '+' '\'' o
-objectToChar (Stairs u)   = bool '<' '>' u
-objectToChar Prop         = '%'
-objectToChar Container    = '&'
-objectToChar Person       = '@'
-objectToChar (Union o o2) = objectToChar o2
+objectToChar (Base c _ _)     = c
+objectToChar (Door o)         = bool '+' '\'' o
+objectToChar (Stairs u)       = bool '<' '>' u
+objectToChar (Prop c _ _ _ _) = c
+objectToChar (Person _)       = '@' -- TODO if ally, color green
+objectToChar (Union o o2)     = objectToChar o2
+
+
+objectToMat ∷ M.Map String [C.Attribute] → Object → Maybe [C.Attribute]
+objectToMat _    (Base _ _ _)     = Nothing
+objectToMat mats (Door _)         = "wood" `M.lookup` mats
+objectToMat mats (Stairs _)       = "wood" `M.lookup` mats
+objectToMat mats (Prop _ _ m _ _) = m `M.lookup` mats
+objectToMat _    (Person _)       = Nothing
+objectToMat mats (Union o o2)     = objectToMat mats o2
 
 
 --drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()

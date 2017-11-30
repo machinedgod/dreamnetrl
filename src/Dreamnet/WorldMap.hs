@@ -41,50 +41,46 @@ import Dreamnet.TileData
 
 --------------------------------------------------------------------------------
 
-data Object = Wall
-            | Floor
-            | Door       Bool       -- <-- Is opened?
-            | Stairs     Bool       -- <-- Going up?
-            | Prop
-            | Container
-            | Person
+-- TODO Container should be a flag on prop or something?
+-- TODO eventually, all objects will be squashed into the general
+--      object that cojoins all their different properties
+--      Basically, a Prop with all the interaction features out-coded
+data Object = Base       Char Bool Bool               -- <-- Passable, seeThrough
+            | Door       Bool                         -- <-- Is opened?
+            | Stairs     Bool                         -- <-- Going up?
+            | Prop       Char String String Bool Bool -- <-- Name, Material, passable, see through
+            | Person     String
             | Union Object Object
             deriving (Show)
 
 
 isPassable ∷ Object → Bool
-isPassable Wall          = False
-isPassable Floor         = True
-isPassable (Door o)      = o
-isPassable (Stairs _)    = True
-isPassable Prop          = False -- TODO depends on stats!
-isPassable Container     = False -- TODO depends on stats!
-isPassable Person        = False -- TODO depends on alliance!
-isPassable (Union o1 o2) = isPassable o1 && isPassable o2
+isPassable (Base _ p _)     = p
+isPassable (Door o)         = o
+isPassable (Stairs _)       = True
+isPassable (Prop _ _ _ p _) = p
+isPassable (Person n)       = False -- TODO Check if allied
+isPassable (Union o1 o2)    = isPassable o1 && isPassable o2
 {-# INLINE isPassable #-}
 
 
 isSeeThrough ∷ Object → Bool
-isSeeThrough Wall          = False
-isSeeThrough Floor         = True
-isSeeThrough (Door o)      = o
-isSeeThrough (Stairs _)    = True
-isSeeThrough Prop          = True -- TODO depends on stats!
-isSeeThrough Container     = True -- TODO depends on stats!
-isSeeThrough Person        = True -- TODO depends on alliance!
-isSeeThrough (Union o1 o2) = isSeeThrough o1 && isSeeThrough o2
+isSeeThrough (Base _ _ s)     = s
+isSeeThrough (Door o)         = o
+isSeeThrough (Stairs _)       = True
+isSeeThrough (Prop _ _ _ _ s) = s
+isSeeThrough (Person n)       = True -- TODO depends on alliance!
+isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
 {-# INLINE isSeeThrough #-}
 
 
 objectDescription ∷ Object → String
-objectDescription Wall          = "A wall."
-objectDescription Floor         = "A floor."
-objectDescription (Door o)      = "Just a common door. They're " ++ bool "closed." "opened." o
-objectDescription (Stairs t)    = "If map changing would've been coded in, you would use these to go " ++ bool "down." "up." t
-objectDescription Prop          = "A prop"
-objectDescription Container     = "A container"
-objectDescription Person        = "A person"
-objectDescription (Union o1 o2) = objectDescription o1 ++ " and " ++ objectDescription o2
+objectDescription (Base _ _ _)     = "A base object. You really shouldn't be able to examine this."
+objectDescription (Door o)         = "Just a common door. They're " ++ bool "closed." "opened." o
+objectDescription (Stairs t)       = "If map changing would've been coded in, you would use these to go " ++ bool "down." "up." t
+objectDescription (Prop _ n _ _ _) = "A " ++ n ++ "."
+objectDescription (Person n)       = "Its " ++ n ++ "."
+objectDescription (Union o1 o2)    = objectDescription o1 ++ " and " ++ objectDescription o2
 {-# INLINE objectDescription #-}
 
 --------------------------------------------------------------------------------
@@ -130,15 +126,15 @@ layerToObject ∷ TileLayer → V.Vector Object
 layerToObject tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
     where
         charToObject ts c = let maybeTile = c `M.lookup` ts
-                            in  maybe Floor objectFromTile maybeTile
-        objectFromTile (ttype → "Floor")       = Floor
-        objectFromTile (ttype → "Wall")        = Wall
-        objectFromTile t@(ttype → "Door")      = Door   (doorPassable t)
-        objectFromTile t@(ttype → "Stairs")    = Stairs (stairsUp t)
-        objectFromTile t@(ttype → "Prop")      = Prop      -- TODO pickup other stuff here
-        objectFromTile t@(ttype → "Container") = Container -- TODO pickup other stuff here
-        objectFromTile t@(ttype → "Person")    = Person    -- TODO pickup other stuff here
-        objectFromTile _                       = error "Unknown object type" -- TODO cast as prop!
+                                err       = error ("Char " ++ [c] ++ " doesn't exist in the tileset!")
+                            in  maybe err objectFromTile maybeTile
+        objectFromTile t@(ttype → "Base")   = Base (t^.t_char) (1 `readBoolProperty` t)  (2 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Door")   = Door (1 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Stairs") = Stairs (1 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty` t) (4 `readStringProperty` t) (2 `readBoolProperty` t)  (3 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Person") = Person (1 `readStringProperty` t)
+        objectFromTile t@(ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+        objectFromTile t                    = error $ "Can't convert Tile type into Object: " ++ show t
 
 
 mergeLayers ∷ V.Vector (V.Vector Object) → V.Vector Object
@@ -176,9 +172,8 @@ interestingObjects v r m =
     where
         collectObjects x l = let o = objectAt x m
                              in  case o of
-                                    Wall  → l
-                                    Floor → l
-                                    _     → x : l
+                                    (Base _ _ _) → l
+                                    _            → x : l
 
 
 --removeFromWorldPile ∷ (MonadWorld w) ⇒ V2 Int → Item → w ()

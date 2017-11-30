@@ -100,9 +100,6 @@ makeLenses ''TileMap
 instance CoordVector TileMap where
     width = view m_width
 
-
--- TODO convert to V2 Word
-
 --------------------------------------------------------------------------------
 
 makeFilename ∷ FilePath → String → FilePath
