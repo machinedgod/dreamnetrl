@@ -67,11 +67,6 @@ class (MonadState World u) ⇒ MonadWorld u
 
 --------------------------------------------------------------------------------
  
--- TODO fuck maps - use layers. Vectors provide direct access!
--- TODO unless this is a list and I have some stacking support, I won't be able to have eg. a computer sitting atop a table, or a PERSON walking through a DOOR (person would overwrite the door object!)
--- TODO having list of Objects is not a good solution! I need to implement height layers! Then different objects can sit in different layers, and take certain amount of height
--- TODO players should also probably be on a special layer, and height must change to allow passing through (doors)
---, _w_objects ∷ M.Map (V2 Int) Object
 data World = World {
       _w_playerPos       ∷ V2 Int
     , _w_playerCharacter ∷ Character
@@ -149,16 +144,16 @@ interactOrElse f e = fromMaybe e <=< runMaybeT $ do
 
 
 examine ∷ (MonadWorld w) ⇒ w String
-examine = return "Examine needs to be repaired."
---examine = interactOrElse examineText (use (w_map.wm_desc))
---    where
---        examineText v o    = (objectDescription o ++) <$> itemsText v
---        itemsText v        = maybe "" itemsDescription <$> uses w_items (M.lookup v)
---        itemsDescription []  = ""
---        itemsDescription [i] = "\nThere's a " ++ (toLower <$> i^.i_name) ++ " here."
---        itemsDescription l   = "\nThere are " ++ itemListToText l ++ " here."
---        itemListToText l     = let sl = fmap toLower . view i_name <$> l
---                               in  intercalate ", " (take (length sl - 1) sl) ++ " and " ++ last sl
+examine = interactOrElse examineText (use (w_map.wm_desc))
+    where
+        examineText v = return . fromMaybe "<no description>" . objectDescription
+        --examineText v o    = (objectDescription o ++) <$> itemsText v
+        --itemsText v        = maybe "" itemsDescription <$> uses w_items (M.lookup v)
+        --itemsDescription []  = ""
+        --itemsDescription [i] = "\nThere's a " ++ (toLower <$> i^.i_name) ++ " here."
+        --itemsDescription l   = "\nThere are " ++ itemListToText l ++ " here."
+        --itemListToText l     = let sl = fmap toLower . view i_name <$> l
+        --                       in  intercalate ", " (take (length sl - 1) sl) ++ " and " ++ last sl
 
 
 get ∷ (MonadWorld w) ⇒ w (Maybe Item)
@@ -184,7 +179,7 @@ updateVisible = do
         los       = concat $ (fmap fst . visibleAndOneExtra . coordVisible m pp) <$> points
         linPoints = S.fromList $ linCoord m <$> los
 
-    -- TODO resolving 'x' causes problems
+    -- TODO resolving 'x' causes lag
     w_map.wm_visible %= V.imap (\i x → if i `S.member` linPoints
                                     then Visible
                                     else case x of
@@ -204,6 +199,9 @@ coordVisible m o d = let seeThrough = isSeeThrough . (`objectAt` m)
 --------------------------------------------------------------------------------
 
 objectInteraction ∷ (MonadWorld u) ⇒ V2 Int → Object → u GameState
-objectInteraction v (Door o) = changeObject_ v (Door (not o)) >> return Normal
-objectInteraction _ _        = return Normal
+objectInteraction v (Door o)     = changeObject_ v (Door (not o)) >> return Normal
+objectInteraction _ Computer     = return Interaction 
+objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)
+objectInteraction v (Union o o2) = objectInteraction v o2
+objectInteraction _ _            = return Normal
 

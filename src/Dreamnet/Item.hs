@@ -29,7 +29,7 @@ data SlotType = Hand
 newtype Slot (t ∷ SlotType) = Slot {
       _s_item ∷ Maybe Item
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 makeLenses ''Slot
 

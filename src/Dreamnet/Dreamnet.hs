@@ -23,6 +23,7 @@ import Linear
 import qualified UI.NCurses  as Curses
 import qualified Config.Dyre as Dyre
 
+import Dreamnet.DesignData
 import Dreamnet.GameState
 import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
@@ -32,22 +33,13 @@ import Dreamnet.Conversation
 
 import Dreamnet.ScrollModel
 import Dreamnet.ChoiceModel
+import Dreamnet.ComputerModel
 import Dreamnet.Renderer
 import Dreamnet.UI.ChoiceBox
 import Dreamnet.UI.ConversationView
 import Dreamnet.UI.InformationWindow
 
 --------------------------------------------------------------------------------
-
-data DesignData = DesignData {
-      something ∷ Int
-    , somethingElse ∷ String
-    }
-
-
-defaultDesignData ∷ DesignData
-defaultDesignData = DesignData 5 "Hi"
-
 
 launchDreamnet ∷ DesignData → IO ()
 launchDreamnet = Dyre.wrapMain Dyre.defaultParams {
@@ -93,8 +85,9 @@ loopTheLoop = do
             InventoryUI → let (UIEv uie) = e in updateScroll uie
             CharacterUI → let (UIEv uie) = e in updateScroll uie
 
-            _ → return () -- We have no other updates coded in ATM
+            Interaction → let (PassThrough c) = e in updateComputer c
 
+            _ → return () -- We have no other updates coded in ATM
 
         s' ← gameState
         doRender $ do
@@ -102,6 +95,7 @@ loopTheLoop = do
                 Normal            → renderNormal
                 Examination _     → drawCenteredWindow
                 Conversation n cn → renderConversation n cn
+                Interaction       → renderComputerScreen
                 InventoryUI       → drawCenteredWindow
                 CharacterUI       → drawCenteredWindow
                 _                 → return ()
@@ -151,6 +145,10 @@ updateConversationChoice SelectChoice = selection >>= doConversation . pick
 updateConversationChoice Back = return ()
 
 
+updateComputer ∷ (MonadGame g) ⇒ Char → g ()
+updateComputer c = return ()
+
+
 renderNormal ∷ RendererF ()
 renderNormal = do
     drawMap
@@ -165,4 +163,13 @@ renderConversation n (TalkNode s _)    = clearConversationWindow 1 >> drawConver
 renderConversation n (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 n s
 renderConversation n (ChoiceNode ls _) = clearConversationWindow 1 >> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
 renderConversation n _                 = return () -- We'll never end up here
+
+
+renderComputerScreen ∷ (MonadRender r) ⇒ r ()
+renderComputerScreen = use rd_interactionWindow >>= \w → updateWindow w $ do
+    Curses.clear        
+    Curses.moveCursor 1 1
+    Curses.drawString "Ready."
+    Curses.moveCursor 2 1
+    Curses.drawString "> "
 

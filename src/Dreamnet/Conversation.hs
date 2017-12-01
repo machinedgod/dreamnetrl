@@ -35,7 +35,7 @@ instance Conversation ConversationM where
     pick i = get >>= \case
         TalkNode   _ n   → put n >> get
         ListenNode _ n   → put n >> get
-        ChoiceNode ls ns → put (TalkNode (ls !! fromIntegral i) (ns !! fromIntegral i)) >> get
+        ChoiceNode ls ns → put (ns !! fromIntegral i) >> get
     advance (ChoiceNode _ _) = pick 0
     advance (TalkNode _ n)   = put n >> get
     advance (ListenNode _ n) = put n >> get

@@ -31,6 +31,7 @@ import Dreamnet.Conversation
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
 
+import Dreamnet.ComputerModel
 import Dreamnet.ScrollModel          (setText, setLines)
 import Dreamnet.UI.ConversationView  (clearConversationWindow)
 import Dreamnet.UI.InformationWindow (clearCenteredWindow)
@@ -57,6 +58,9 @@ data Game = Game {
     , _g_gameState ∷ GameState
     , _g_keepRunning ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
+
+    -- TODO take this out, eventually
+    --, _g_carlasComputer ∷ ComputerM ()
     }
 
 makeLenses ''Game
@@ -65,7 +69,8 @@ makeLenses ''Game
 newGame ∷ Curses.Curses Game
 newGame = do
     rdf ← initRenderer
-    m   ← loadTileMap "res/apartment0"
+    --m   ← loadTileMap "res/apartment0"
+    m   ← loadTileMap "res/bar"
     return $ Game (newWorld (fromTileMap m)) Normal True rdf
 
 --------------------------------------------------------------------------------

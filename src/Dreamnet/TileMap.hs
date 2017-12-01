@@ -161,7 +161,7 @@ readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
                            x   = readNote err (V.head v)
                            y   = readNote err (V.head $ V.drop 1 v)
                        in  V2 x y
-        tile v = Tile (charForType $ V.head $ V.drop 2 v) (V.drop 3 v)
+        tile v = Tile (charForType $ V.head $ V.drop 2 v) (V.drop 2 v)
         charForType "Person" = '@'
         charForType "Item"   = '['
 

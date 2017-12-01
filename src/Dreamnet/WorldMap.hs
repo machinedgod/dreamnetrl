@@ -27,17 +27,20 @@ module Dreamnet.WorldMap
 ) where
 
 import Control.Lens
-import Data.Bool (bool)
+import Data.Bool  (bool)
+import Data.Maybe (fromMaybe)
 import Linear
 
 import qualified Data.Vector as V
 import qualified Data.Map    as M
 
 
+import Dreamnet.DesignData
 import Dreamnet.CoordVector
 import Dreamnet.Utils
 import Dreamnet.TileMap
 import Dreamnet.TileData
+import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
@@ -45,13 +48,14 @@ import Dreamnet.TileData
 -- TODO eventually, all objects will be squashed into the general
 --      object that cojoins all their different properties
 --      Basically, a Prop with all the interaction features out-coded
-data Object = Base       Char Bool Bool               -- <-- Passable, seeThrough
-            | Door       Bool                         -- <-- Is opened?
-            | Stairs     Bool                         -- <-- Going up?
-            | Prop       Char String String Bool Bool -- <-- Name, Material, passable, see through
-            | Person     String
+data Object = Base      Char Bool Bool               -- <-- Passable, seeThrough
+            | Door      Bool                         -- <-- Is opened?
+            | Stairs    Bool                         -- <-- Going up?
+            | Prop      Char String String Bool Bool -- <-- Name, Material, passable, see through
+            | Person    Character
+            | Computer
             | Union Object Object
-            deriving (Show)
+            deriving (Eq)
 
 
 isPassable ∷ Object → Bool
@@ -60,6 +64,7 @@ isPassable (Door o)         = o
 isPassable (Stairs _)       = True
 isPassable (Prop _ _ _ p _) = p
 isPassable (Person n)       = False -- TODO Check if allied
+isPassable Computer         = False
 isPassable (Union o1 o2)    = isPassable o1 && isPassable o2
 {-# INLINE isPassable #-}
 
@@ -69,19 +74,24 @@ isSeeThrough (Base _ _ s)     = s
 isSeeThrough (Door o)         = o
 isSeeThrough (Stairs _)       = True
 isSeeThrough (Prop _ _ _ _ s) = s
-isSeeThrough (Person n)       = True -- TODO depends on alliance!
+isSeeThrough (Person n)       = True
+isSeeThrough Computer         = True
 isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
 {-# INLINE isSeeThrough #-}
 
 
-objectDescription ∷ Object → String
-objectDescription (Base _ _ _)     = "A base object. You really shouldn't be able to examine this."
-objectDescription (Door o)         = "Just a common door. They're " ++ bool "closed." "opened." o
-objectDescription (Stairs t)       = "If map changing would've been coded in, you would use these to go " ++ bool "down." "up." t
-objectDescription (Prop _ n _ _ _) = "A " ++ n ++ "."
-objectDescription (Person n)       = "Its " ++ n ++ "."
-objectDescription (Union o1 o2)    = objectDescription o1 ++ " and " ++ objectDescription o2
+objectDescription ∷ Object → Maybe String
+objectDescription (Base _ _ _)     = Nothing
+objectDescription (Door o)         = Just $ "Just a common door. They're " ++ bool "closed." "opened." o
+objectDescription (Stairs t)       = Just $ "If map changing would've been coded in, you would use these to go " ++ bool "down." "up." t
+objectDescription (Prop _ n _ _ _) = Just $ "A " ++ n ++ "."
+objectDescription (Person c)       = Just $ "Its " ++ (c^.ch_name) ++ "."
+objectDescription Computer         = Just $ "Your machine. You wonder if Devin mailed you about the job."
+objectDescription (Union o1 o2)    = let md  = objectDescription o1
+                                         md2 = objectDescription o2
+                                     in  md `mappend` Just ", " `mappend` md2
 {-# INLINE objectDescription #-}
+
 
 --------------------------------------------------------------------------------
 
@@ -113,7 +123,13 @@ fromTileMap tm =
     WorldMap {
       _wm_width   = tm^.m_width
     , _wm_height  = tm^.m_height
-    , _wm_data    = mergeLayers $ V.map layerToObject (tm^.m_layers)
+    , _wm_data    = let layerData         = mergeLayers $ V.map layerToObject (tm^.m_layers)
+                        maybeObjects i    = M.lookup (coordLin tm i) (tm^.m_positioned)
+                        mergeTiles []     = error "Positioned tile list empty, instead of not being added at all! :-O"
+                        mergeTiles [t]    = objectFromTile t
+                        mergeTiles l      = foldr1 Union $ fmap objectFromTile l
+                        addPositioned i o = maybe o (Union o . mergeTiles) (maybeObjects i)
+                    in  V.imap addPositioned layerData
     , _wm_visible = V.replicate squareSize Unknown 
     , _wm_desc    = tm^.m_desc
     , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
@@ -128,28 +144,40 @@ layerToObject tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
         charToObject ts c = let maybeTile = c `M.lookup` ts
                                 err       = error ("Char " ++ [c] ++ " doesn't exist in the tileset!")
                             in  maybe err objectFromTile maybeTile
-        objectFromTile t@(ttype → "Base")   = Base (t^.t_char) (1 `readBoolProperty` t)  (2 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Door")   = Door (1 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Stairs") = Stairs (1 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty` t) (4 `readStringProperty` t) (2 `readBoolProperty` t)  (3 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Person") = Person (1 `readStringProperty` t)
-        objectFromTile t@(ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-        objectFromTile t                    = error $ "Can't convert Tile type into Object: " ++ show t
+
+
+objectFromTile ∷ Tile → Object
+objectFromTile t@(ttype → "Base")   = Base (t^.t_char) (1 `readBoolProperty` t)  (2 `readBoolProperty` t)
+objectFromTile t@(ttype → "Door")   = Door (1 `readBoolProperty` t)
+objectFromTile t@(ttype → "Stairs") = Stairs (1 `readBoolProperty` t)
+objectFromTile t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty` t) (4 `readStringProperty` t) (2 `readBoolProperty` t)  (3 `readBoolProperty` t)
+-- TODO DO NOT USE DEFAULT DESIGN DATA! Use the one passed by Dyre!
+objectFromTile t@(ttype → "Person") = let name      = 1 `readStringProperty` t
+                                          maybeChar = M.lookup name (defaultDesignData^.dd_characters)
+                                      in  Person (fromMaybe (defaultDesignData^.dd_defaultRedshirt) maybeChar)
+objectFromTile t@(ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile t@(ttype → "Computer") = Prop 'c' "Computer" "metal" False False -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile t                    = error $ "Can't convert Tile type into Object: " ++ show t
 
 
 mergeLayers ∷ V.Vector (V.Vector Object) → V.Vector Object
 mergeLayers   (V.length → 0) = error "No layers to merge!"
 mergeLayers i@(V.length → 1) = V.head i
-mergeLayers i@(V.length → 2) = uncurry Union <$> V.zip  (i V.! 0) (i V.! 1)
+mergeLayers i@(V.length → 2) = merge2 <$> V.zip  (i V.! 0) (i V.! 1)
 mergeLayers i@(V.length → 3) = merge3 <$> V.zip3 (i V.! 0) (i V.! 1) (i V.! 2)
 mergeLayers i@(V.length → 4) = merge4 <$> V.zip4 (i V.! 0) (i V.! 1) (i V.! 2) (i V.! 3)
 mergeLayers i                = merge4 <$> V.zip4 (i V.! 0) (i V.! 1) (i V.! 2) (i V.! 3)
 
+merge2 ∷ (Object, Object) → Object
+merge2 (o1, o2) = bool o1 (Union o1 o2) (o1 /= o2)
+
 merge3 ∷ (Object, Object, Object) → Object
-merge3 (o1, o2, o3) = Union o1 (Union o2 o3)
+merge3 (o1, o2, o3) = let oTop = merge2 (o2, o3) 
+                      in  bool o1 (Union o1 oTop) (o1 /= oTop)
 
 merge4 ∷ (Object, Object, Object, Object) → Object
-merge4 (o1, o2, o3, o4) = Union o1 (merge3 (o2, o3, o4))
+merge4 (o1, o2, o3, o4) = let oTop = merge3 (o2, o3, o4)
+                          in  bool o1 (Union o1 oTop) (o1 /= oTop)
 
 
 outOfBounds ∷ WorldMap → V2 Int → Bool
