@@ -36,7 +36,7 @@ module Dreamnet.World
 
 ) where
 
-import Prelude hiding (interact)
+import Prelude hiding (interact, rem)
 import Safe
 
 import Control.Lens
@@ -44,18 +44,14 @@ import Control.Monad.State hiding (get)
 import Control.Monad.Trans.Maybe
 import Linear
 import Data.Bool
-import Data.Maybe (isJust, fromMaybe)
-import Data.List  (intercalate, unfoldr)
-import Data.Char  (toLower)
+import Data.Maybe (fromMaybe)
 
-import qualified Data.Map    as M
 import qualified Data.Set    as S
 import qualified Data.Vector as V
 
 import Dreamnet.Utils
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
-import Dreamnet.Input
 import Dreamnet.Item
 import Dreamnet.Character
 import Dreamnet.GameState
@@ -64,6 +60,7 @@ import Dreamnet.Conversation
 --------------------------------------------------------------------------------
 
 class (MonadState World u) ⇒ MonadWorld u
+-- TODO add functions that establish pipelines input->update->render
 
 --------------------------------------------------------------------------------
  
@@ -144,9 +141,9 @@ interactOrElse f e = fromMaybe e <=< runMaybeT $ do
 
 
 examine ∷ (MonadWorld w) ⇒ w String
-examine = interactOrElse examineText (use (w_map.wm_desc))
+examine = interactOrElse (const examineText) (use (w_map.wm_desc))
     where
-        examineText v = return . fromMaybe "<no description>" . objectDescription
+        examineText = return . fromMaybe "<no description>" . objectDescription
         --examineText v o    = (objectDescription o ++) <$> itemsText v
         --itemsText v        = maybe "" itemsDescription <$> uses w_items (M.lookup v)
         --itemsDescription []  = ""
@@ -202,6 +199,6 @@ objectInteraction ∷ (MonadWorld u) ⇒ V2 Int → Object → u GameState
 objectInteraction v (Door o)     = changeObject_ v (Door (not o)) >> return Normal
 objectInteraction _ Computer     = return Interaction 
 objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)
-objectInteraction v (Union o o2) = objectInteraction v o2
-objectInteraction _ _            = return Normal
+objectInteraction v (Union _ o2) = objectInteraction v o2
+objectInteraction _ o            = w_status .= ("Tried interaction with: " ++ show o) >> return Normal
 

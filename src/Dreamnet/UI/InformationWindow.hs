@@ -5,8 +5,9 @@ module Dreamnet.UI.InformationWindow
 , clearCenteredWindow
 ) where
 
-import Prelude hiding (head)
-import Safe
+
+import Control.Lens
+import Control.Monad.State
 import qualified Data.Vector as Vec
 
 import Dreamnet.ScrollModel
@@ -37,14 +38,14 @@ drawCenteredWindow = do
                           (Just $ Curses.Glyph '╯' [])
         (r, c) ← Curses.windowSize
         Vec.imapM_ drawLine $ visibleLines sm
-        unless (isAtTop sm) $ drawUpWidget r c
+        unless (isAtTop sm) $ drawUpWidget c
         when (hasMoreLines sm) $ drawDownWidget r c
     where
         drawLine ∷ Int → String → Curses.Update ()
         drawLine i s = do
             Curses.moveCursor (fromIntegral i + 1) 2
             Curses.drawString s
-        drawUpWidget rows cols = do
+        drawUpWidget cols = do
             Curses.moveCursor 1 (cols - 3)
             Curses.drawGlyph (Curses.Glyph '▲' [])
         drawDownWidget rows cols = do

@@ -54,8 +54,9 @@ data Object = Base      Char Bool Bool               -- <-- Passable, seeThrough
             | Prop      Char String String Bool Bool -- <-- Name, Material, passable, see through
             | Person    Character
             | Computer
+            | ItemO     String
             | Union Object Object
-            deriving (Eq)
+            deriving (Eq, Show)
 
 
 isPassable ∷ Object → Bool
@@ -63,8 +64,9 @@ isPassable (Base _ p _)     = p
 isPassable (Door o)         = o
 isPassable (Stairs _)       = True
 isPassable (Prop _ _ _ p _) = p
-isPassable (Person n)       = False -- TODO Check if allied
+isPassable (Person _)       = False -- TODO Check if allied
 isPassable Computer         = False
+isPassable (ItemO _)        = True
 isPassable (Union o1 o2)    = isPassable o1 && isPassable o2
 {-# INLINE isPassable #-}
 
@@ -74,8 +76,9 @@ isSeeThrough (Base _ _ s)     = s
 isSeeThrough (Door o)         = o
 isSeeThrough (Stairs _)       = True
 isSeeThrough (Prop _ _ _ _ s) = s
-isSeeThrough (Person n)       = True
+isSeeThrough (Person _)       = True
 isSeeThrough Computer         = True
+isSeeThrough (ItemO _)        = True
 isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
 {-# INLINE isSeeThrough #-}
 
@@ -87,6 +90,7 @@ objectDescription (Stairs t)       = Just $ "If map changing would've been coded
 objectDescription (Prop _ n _ _ _) = Just $ "A " ++ n ++ "."
 objectDescription (Person c)       = Just $ "Its " ++ (c^.ch_name) ++ "."
 objectDescription Computer         = Just $ "Your machine. You wonder if Devin mailed you about the job."
+objectDescription (ItemO n)        = Just $ "A " ++ n ++ "."
 objectDescription (Union o1 o2)    = let md  = objectDescription o1
                                          md2 = objectDescription o2
                                      in  md `mappend` Just ", " `mappend` md2
@@ -155,8 +159,9 @@ objectFromTile t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty`
 objectFromTile t@(ttype → "Person") = let name      = 1 `readStringProperty` t
                                           maybeChar = M.lookup name (defaultDesignData^.dd_characters)
                                       in  Person (fromMaybe (defaultDesignData^.dd_defaultRedshirt) maybeChar)
-objectFromTile t@(ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-objectFromTile t@(ttype → "Computer") = Prop 'c' "Computer" "metal" False False -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile   (ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile   (ttype → "Computer") = Computer
+objectFromTile t@(ttype → "Item")   = ItemO (1 `readStringProperty` t)
 objectFromTile t                    = error $ "Can't convert Tile type into Object: " ++ show t
 
 

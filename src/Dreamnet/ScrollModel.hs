@@ -18,7 +18,6 @@ import Prelude hiding (head)
 import Safe
 import Control.Lens
 import Control.Monad.State
-import Data.Bool (bool)
 
 import qualified Data.Vector as Vec
 
@@ -105,16 +104,16 @@ totalLineCount sd = views sd_lines length sd
 --      I *do* understand how folds work, but I'm too tired now to focus on it
 --      enough to get it right
 lineList ∷ Int → String → [String]
-lineList w s = dropWhile (=="") $ reverse $ foldl (concatLines w) [] (lines s)
+lineList w s = dropWhile (=="") $ reverse $ foldl concatLines [] (lines s)
     where
-        concatLines ∷ Int → [String] → String → [String]
-        concatLines w newLines l = let bls = foldl (breakLine w) [] (words l)
-                                   in  bls ++ newLines ++ [""]
+        concatLines ∷ [String] → String → [String]
+        concatLines newLines l = let bls = foldl breakLine [] (words l)
+                                 in  bls ++ newLines ++ [""]
 
-        breakLine ∷ Int → [String] → String → [String]
-        breakLine w lines word = let topLine = headDef (replicate w ' ') lines
-                                     modLine = topLine ++ ' ' : word
-                                 in  if length modLine > w
-                                         then word : lines
-                                         else modLine : drop 1 lines
+        breakLine ∷ [String] → String → [String]
+        breakLine lns word = let topLine = headDef (replicate w ' ') lns
+                                 modLine = topLine ++ ' ' : word
+                             in  if length modLine > w
+                                     then word : lns
+                                     else modLine : drop 1 lns
 

@@ -69,14 +69,14 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
 
             mapM_ (\x → do
                         _2 %= S.insert x
-                        _1 %= S.filter ((&&) . inRange r o <*> not . (`S.member` closedSet)) . S.union (neighbors x)
+                        _1 %= S.filter ((&&) . inRange r <*> not . (`S.member` closedSet)) . S.union (neighbors x)
                 ) openSet
             unless (S.null openSet)
                 nearestNeighbor
 
-        inRange ∷ Word → V2 Int → V2 Int → Bool
-        inRange d o x = let tfv = fmap fromIntegral
-                        in  abs (distance (tfv o) (tfv x)) < fromIntegral d
+        inRange ∷ Word → V2 Int → Bool
+        inRange d x = let tfv = fmap fromIntegral
+                      in  abs (distance (tfv o) (tfv x)) < fromIntegral d
 
         neighbors ∷ V2 Int → S.Set (V2 Int)
         neighbors p = S.map (+p) $ S.fromList [ V2 -1 -1

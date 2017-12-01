@@ -12,13 +12,14 @@ module Dreamnet.Game
 , g_rendererData
 , newGame
 , runGame
+
+, g_carlasComputer
+, g_carlasFramebuffer
 ) where
 
 import Prelude hiding (interact)
 import Control.Monad.State
-import Control.Lens
-
-import qualified Data.Vector as Vec
+import Control.Lens hiding (re)
 
 import Dreamnet.GameState
 import Dreamnet.TileMap
@@ -31,10 +32,9 @@ import Dreamnet.Conversation
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
 
-import Dreamnet.ComputerModel
 import Dreamnet.ScrollModel          (setText, setLines)
 import Dreamnet.UI.ConversationView  (clearConversationWindow)
-import Dreamnet.UI.InformationWindow (clearCenteredWindow)
+import Dreamnet.ComputerModel
 
 --------------------------------------------------------------------------------
 
@@ -60,7 +60,8 @@ data Game = Game {
     , _g_rendererData ∷ RendererEnvironment
 
     -- TODO take this out, eventually
-    --, _g_carlasComputer ∷ ComputerM ()
+    , _g_carlasComputer ∷ ComputerM ()
+    , _g_carlasFramebuffer ∷ String
     }
 
 makeLenses ''Game
@@ -69,9 +70,9 @@ makeLenses ''Game
 newGame ∷ Curses.Curses Game
 newGame = do
     rdf ← initRenderer
-    --m   ← loadTileMap "res/apartment0"
-    m   ← loadTileMap "res/bar"
-    return $ Game (newWorld (fromTileMap m)) Normal True rdf
+    m   ← loadTileMap "res/apartment0"
+    --m   ← loadTileMap "res/bar"
+    return $ Game (newWorld (fromTileMap m)) Normal True rdf newComputer "Ready."
 
 --------------------------------------------------------------------------------
 
@@ -97,9 +98,7 @@ instance MonadGame GameM where
         ps ← gameState
         runInput (nextEvent ps)
     doUpdate um = do
-        ogs ← gameState
-        w   ← use g_world
-        let (gs, w') = runWorld um w
+        (gs, w') ← uses g_world (runWorld um)
         switchGameState gs
         g_world .= w'
     doRender r = do

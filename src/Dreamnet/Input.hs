@@ -3,8 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Input
-( module Linear
-, Event(..)
+( Event(..)
 , WorldEvent(..)
 , UIEvent(..)
 
@@ -13,7 +12,6 @@ module Dreamnet.Input
 , runInput
 ) where
 
-import Control.Monad.Trans
 import Linear
 
 import UI.NCurses.Class
@@ -65,10 +63,10 @@ instance MonadInput InputF where
             _        → nextEvent cst
         where
             keepAskingUntilDelivered w = do
-                e ← Curses.getEvent w Nothing 
-                case e of
-                    Just e  → return e
-                    _       → keepAskingUntilDelivered w
+                me ← Curses.getEvent w Nothing 
+                case me of
+                    Just e → return e
+                    _      → keepAskingUntilDelivered w
         
 
 
@@ -85,6 +83,7 @@ cursesToEvent (Conversation _ _) (Curses.EventCharacter   c) = UIEv <$> uiEvent 
 cursesToEvent InventoryUI        (Curses.EventCharacter   c) = UIEv <$> uiEvent c
 cursesToEvent CharacterUI        (Curses.EventCharacter   c) = UIEv <$> uiEvent c
 cursesToEvent Interaction        (Curses.EventCharacter   c) = Just (PassThrough c)
+cursesToEvent Interaction        (Curses.EventSpecialKey  Curses.KeyBackspace) = Just (PassThrough '\b')
 cursesToEvent _ _                                            = Nothing
 
 --normalStateEvent 'q'  = Just $ Quit

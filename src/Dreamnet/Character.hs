@@ -82,7 +82,7 @@ data CombatSkills = CombatSkills {
     , _cs_plasma    ∷ Word
     , _cs_lasers    ∷ Word
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 makeLenses ''CombatSkills
 
@@ -94,7 +94,7 @@ data ElectronicsSkills = ElectronicsSkills {
     , _es_modify  ∷ Word
     , _es_analyze ∷ Word
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 makeLenses ''ElectronicsSkills
 
@@ -109,7 +109,7 @@ data CommunicationSkills = CommunicationSkills {
     , _ss_interrogation       ∷ Word
     , _ss_charm               ∷ Word
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 makeLenses ''CommunicationSkills
 
@@ -138,7 +138,7 @@ data Character = Character {
     , _ch_electronics ∷ ElectronicsSkills
     , _ch_social      ∷ CommunicationSkills
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 makeLenses ''Character
 

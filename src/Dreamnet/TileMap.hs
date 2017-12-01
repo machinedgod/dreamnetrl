@@ -32,7 +32,7 @@ import Safe
 import Control.Monad.IO.Class 
 import Control.Lens 
 import Data.Maybe (fromMaybe)
-import Data.List (elemIndex, intercalate)
+import Data.List (elemIndex)
 import Data.Bool (bool)
 import Linear 
 
@@ -153,8 +153,8 @@ readLayer fp i = do
 readPositioned ∷ (MonadIO m) ⇒ FilePath → m (M.Map (V2 Int) [Tile])
 readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
     where
-        makeTable    = either err vectorsToMap . CSV.decode CSV.NoHeader
-        err e        = error $ "CSV decoding error in '" ++ fp ++ "': " ++ e
+        makeTable    = either decodeErr vectorsToMap . CSV.decode CSV.NoHeader
+        decodeErr e  = error $ "CSV decoding error in '" ++ fp ++ "': " ++ e
         vectorsToMap = V.foldr insertTile M.empty
         insertTile v = M.insert (pos v) [(tile v)]
         pos v        = let err = "Invalid coord when specifying positioned tile in '" ++ fp ++ "'"
@@ -164,4 +164,5 @@ readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
         tile v = Tile (charForType $ V.head $ V.drop 2 v) (V.drop 2 v)
         charForType "Person" = '@'
         charForType "Item"   = '['
+        charForType _        = '?'
 

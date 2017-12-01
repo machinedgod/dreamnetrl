@@ -5,6 +5,7 @@ module Dreamnet.UI.ConversationView
 , drawConversationWindow
 ) where
 
+import Control.Lens
 import Dreamnet.Renderer
 import qualified UI.NCurses as Curses
 
@@ -27,24 +28,23 @@ drawConversationWindow i n s = do
         1 → rd_conversationWindow1
         _ → rd_conversationWindow0
 
-    updateWindow w (drawWindow n s)
+    updateWindow w $ do
+        Curses.drawBorder (Just $ Curses.Glyph '│' [])
+                          (Just $ Curses.Glyph '│' [])
+                          (Just $ Curses.Glyph '─' [])
+                          (Just $ Curses.Glyph '─' [])
+                          (Just $ Curses.Glyph '╭' [])
+                          (Just $ Curses.Glyph '╮' [])
+                          (Just $ Curses.Glyph '╰' [])
+                          (Just $ Curses.Glyph '╯' [])
+
+        (rows, columns) ← Curses.windowSize
+
+        drawNameBox columns
+        drawText
+        drawWidgets rows columns
     where
-        drawWindow n s = do
-            Curses.drawBorder (Just $ Curses.Glyph '│' [])
-                              (Just $ Curses.Glyph '│' [])
-                              (Just $ Curses.Glyph '─' [])
-                              (Just $ Curses.Glyph '─' [])
-                              (Just $ Curses.Glyph '╭' [])
-                              (Just $ Curses.Glyph '╮' [])
-                              (Just $ Curses.Glyph '╰' [])
-                              (Just $ Curses.Glyph '╯' [])
-
-            (rows, columns) ← Curses.windowSize
-
-            drawNameBox columns n
-            drawText s
-            drawWidgets rows columns
-        drawNameBox cols n = do
+        drawNameBox cols = do
             let trimmedName  = take (fromIntegral cols - 7) n
             Curses.moveCursor 2 0
             Curses.drawGlyph (Curses.Glyph '├' [])
@@ -58,7 +58,7 @@ drawConversationWindow i n s = do
             Curses.drawLineH (Just $ Curses.Glyph '─' []) (fromIntegral (length trimmedName) + 2)
             Curses.moveCursor 1 (fromIntegral (length trimmedName) + 3)
             Curses.drawGlyph (Curses.Glyph '│' [])
-        drawText s = do
+        drawText = do
             Curses.moveCursor 3 2
             Curses.drawString s
         drawWidgets rows cols = do

@@ -5,10 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Renderer
-( module Control.Lens
-, module Control.Monad.Reader
-
-, MonadRender(..)
+( MonadRender(..)
 , RendererF
 
 , RendererEnvironment
@@ -45,10 +42,8 @@ import qualified Data.Map    as M
 import qualified Data.Vector as V
 
 import Dreamnet.CoordVector
-import Dreamnet.Utils
 import Dreamnet.WorldMap
 import Dreamnet.World
-import Dreamnet.Character
 import Dreamnet.ScrollModel
 import Dreamnet.ChoiceModel
 
@@ -225,13 +220,13 @@ drawMap = do
     known   ← use (rd_styles.s_visibilityKnown)
     visible ← use (rd_styles.s_visibilityVisible)
     mats    ← use (rd_styles.s_materials)
-    let drawTile m i (o, v) = uncurry (drawCharAt $ coordLin m i) $
-                                case v of
-                                    Unknown → (' ', unknown)
-                                    Known   → (objectToChar o, known)
-                                    Visible → (objectToChar o, fromMaybe visible (objectToMat mats o))
+    let drawTile i (o, v) = uncurry (drawCharAt $ coordLin m i) $
+                              case v of
+                                  Unknown → (' ', unknown)
+                                  Known   → (objectToChar o, known)
+                                  Visible → (objectToChar o, fromMaybe visible (objectToMat mats o))
     updateWindow w $
-        V.imapM_ (drawTile m) $ V.zip (m^.wm_data) vis
+        V.imapM_ drawTile $ V.zip (m^.wm_data) vis
 
 
 objectToChar ∷ Object → Char
@@ -240,7 +235,9 @@ objectToChar (Door o)         = bool '+' '\'' o
 objectToChar (Stairs u)       = bool '<' '>' u
 objectToChar (Prop c _ _ _ _) = c
 objectToChar (Person _)       = '@' -- TODO if ally, color green
-objectToChar (Union o o2)     = objectToChar o2
+objectToChar Computer         = '$'
+objectToChar (ItemO _)        = '['
+objectToChar (Union _ o2)     = objectToChar o2
 
 
 objectToMat ∷ M.Map String [C.Attribute] → Object → Maybe [C.Attribute]
@@ -249,7 +246,9 @@ objectToMat mats (Door _)         = "wood" `M.lookup` mats
 objectToMat mats (Stairs _)       = "wood" `M.lookup` mats
 objectToMat mats (Prop _ _ m _ _) = m `M.lookup` mats
 objectToMat _    (Person _)       = Nothing
-objectToMat mats (Union o o2)     = objectToMat mats o2
+objectToMat mats  Computer        = "metal" `M.lookup` mats
+objectToMat mats (ItemO _)        = "blue plastic" `M.lookup` mats
+objectToMat mats (Union _ o2)     = objectToMat mats o2
 
 
 --drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()

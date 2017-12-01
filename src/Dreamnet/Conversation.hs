@@ -9,7 +9,6 @@ module Dreamnet.Conversation
 ) where
 
 
-import Control.Lens
 import Control.Monad.State
 
 --------------------------------------------------------------------------------
@@ -24,7 +23,7 @@ data ConversationNode = TalkNode   String   ConversationNode
                       | ListenNode String   ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | End
-                      deriving (Eq)
+                      deriving (Eq, Show)
 
 
 newtype ConversationM a = ConversationM { runConversationM ∷ State ConversationNode a }
@@ -33,9 +32,10 @@ newtype ConversationM a = ConversationM { runConversationM ∷ State Conversatio
 
 instance Conversation ConversationM where
     pick i = get >>= \case
-        TalkNode   _ n   → put n >> get
-        ListenNode _ n   → put n >> get
-        ChoiceNode ls ns → put (ns !! fromIntegral i) >> get
+        TalkNode   _ n  → put n >> get
+        ListenNode _ n  → put n >> get
+        ChoiceNode _ ns → put (ns !! fromIntegral i) >> get
+        End             → get
     advance (ChoiceNode _ _) = pick 0
     advance (TalkNode _ n)   = put n >> get
     advance (ListenNode _ n) = put n >> get

@@ -5,27 +5,16 @@ module Dreamnet.Dreamnet
 where
 
 import Prelude hiding (interact, take)
-import Control.Monad.IO.Class
 import Control.Lens
 import Control.Monad.State hiding (get)
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Class
 
-import Data.Bool  (bool)
-import Data.Char  (ord)
-import Data.List  (elemIndex, nub, unfoldr, intersperse)
-import Data.Maybe (fromMaybe)
-import qualified Data.Set    as Set
 import qualified Data.Vector as Vec
-import qualified Data.Map    as Map
-import Linear
 
 import qualified UI.NCurses  as Curses
 import qualified Config.Dyre as Dyre
 
 import Dreamnet.DesignData
 import Dreamnet.GameState
-import qualified Dreamnet.TileMap as TMap
 import Dreamnet.Input
 import Dreamnet.World
 import Dreamnet.Game
@@ -56,7 +45,7 @@ dreamnet d = Curses.runCurses $ do
     Curses.setRaw     True
     Curses.setEcho    False
     Curses.defaultWindow >>= (`Curses.setKeypad` True)
-    Curses.setCursorMode Curses.CursorInvisible
+    void $ Curses.setCursorMode Curses.CursorInvisible
     g ← newGame
     runGame g $ do
         doUpdate $ updateVisible >> return Normal
@@ -77,28 +66,27 @@ loopTheLoop = do
         case s of
             Normal → doUpdate (let (WorldEv we) = e in updateWorld we)
 
-            Conversation _ (ChoiceNode s _) → let (UIEv uie) = e in updateConversationChoice uie
+            Conversation _ (ChoiceNode _ _) → let (UIEv uie) = e in updateConversationChoice uie
             Conversation _ cs → doConversation (advance cs)
 
-            Examination s → let (UIEv uie) = e in updateScroll uie
+            Examination _ → let (UIEv uie) = e in updateScroll uie
 
             InventoryUI → let (UIEv uie) = e in updateScroll uie
             CharacterUI → let (UIEv uie) = e in updateScroll uie
 
             Interaction → let (PassThrough c) = e in updateComputer c
 
-            _ → return () -- We have no other updates coded in ATM
-
         s' ← gameState
+        comp ← use g_carlasComputer
+        fbr  ← use g_carlasFramebuffer
         doRender $ do
             case s' of
                 Normal            → renderNormal
                 Examination _     → drawCenteredWindow
                 Conversation n cn → renderConversation n cn
-                Interaction       → renderComputerScreen
+                Interaction       → renderComputer fbr (computerData comp) 
                 InventoryUI       → drawCenteredWindow
                 CharacterUI       → drawCenteredWindow
-                _                 → return ()
             swap
         loopTheLoop 
 
@@ -146,30 +134,36 @@ updateConversationChoice Back = return ()
 
 
 updateComputer ∷ (MonadGame g) ⇒ Char → g ()
-updateComputer c = return ()
+updateComputer '\n' = do
+    o ← uses g_carlasComputer (>> commitInput)
+    g_carlasFramebuffer .= computerOutput o
+    g_carlasComputer %= (\l → l >> commitInput >> return ())
+updateComputer '\b' = g_carlasComputer %= (>> backspace)
+updateComputer c    = g_carlasComputer %= (>> input c)
 
 
 renderNormal ∷ RendererF ()
 renderNormal = do
     drawMap
-    --drawObjects
     drawPlayer
     drawAim
     drawHud
 
 
 renderConversation ∷ (MonadRender r) ⇒ String → ConversationNode → r ()
-renderConversation n (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
+renderConversation _ (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
 renderConversation n (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 n s
-renderConversation n (ChoiceNode ls _) = clearConversationWindow 1 >> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
-renderConversation n _                 = return () -- We'll never end up here
+renderConversation _ (ChoiceNode ls _) = clearConversationWindow 1 >> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
+renderConversation _ _                 = return () -- We'll never end up here
 
 
-renderComputerScreen ∷ (MonadRender r) ⇒ r ()
-renderComputerScreen = use rd_interactionWindow >>= \w → updateWindow w $ do
-    Curses.clear        
-    Curses.moveCursor 1 1
-    Curses.drawString "Ready."
-    Curses.moveCursor 2 1
-    Curses.drawString "> "
+renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
+renderComputer a cd  = use rd_interactionWindow >>= \w → updateWindow w $ do
+    drawAnswer
+    drawPrompt
 
+    Curses.moveCursor 2 3
+    Curses.drawString (view cd_input cd ++ "                                                          ") 
+    where
+        drawAnswer  = Curses.moveCursor 1 1 >> Curses.drawString (a ++ "                                        ")
+        drawPrompt  = Curses.moveCursor 2 1 >> Curses.drawString "> "
