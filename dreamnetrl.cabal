@@ -72,7 +72,8 @@ executable dreamnetrl
                        linear,
                        ncurses,
                        bytestring,
-                       cassava
+                       cassava,
+                       split
   
   -- Directories containing source files.
   hs-source-dirs:      src

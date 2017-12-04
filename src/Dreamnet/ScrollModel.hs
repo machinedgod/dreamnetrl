@@ -10,16 +10,16 @@ module Dreamnet.ScrollModel
 , visibleLines
 , isAtTop
 , hasMoreLines
-
-, lineList
 ) where
 
 import Prelude hiding (head)
-import Safe
+
 import Control.Lens
 import Control.Monad.State
+import Data.Monoid
 
 import qualified Data.Vector as Vec
+
 
 --------------------------------------------------------------------------------
 
@@ -81,7 +81,7 @@ instance ScrollModelAPI (State ScrollData) where
     setText s      = do
         w ← use sd_lineWidth
         sd_text      .= s
-        sd_lines     .= lineList w s
+        sd_lines     .= lines' w length " " (words s)
         sd_startLine .= 0
     setLines l     = sd_lines     .= l
     setLineWidth w = sd_lineWidth .= fromIntegral w
@@ -99,21 +99,59 @@ totalLineCount ∷ ScrollData → Int
 totalLineCount sd = views sd_lines length sd
 
 
+
+lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
+lines' l lf sep xs = let (ln, r) = line'' l lf sep xs
+                     in  if null r
+                           then ln : []
+                           else ln : lines' l lf sep r
+
+
+line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
+line'' l lf sep = foldl (\(f, b) x → if b /= mempty
+                                       then (f, b ++ [x])
+                                       else if lf (f <> sep <> x) < l
+                                         then (f <> sep <> x, b)
+                                         else (f, [x])) (mempty, [])
+
+{-
 -- TODO sometime in the future, fix this without hackish folds and reverses and
 --      trimming of empty lines
 --      I *do* understand how folds work, but I'm too tired now to focus on it
 --      enough to get it right
-lineList ∷ Int → String → [String]
-lineList w s = dropWhile (=="") $ reverse $ foldl concatLines [] (lines s)
+--      Additonally, this is one ugly fucking type
+lineList ∷ (Eq a) ⇒ [a] → ([a] → Int) → Int → [[a]] → [[a]]
+lineList sep len w = dropWhile (==mempty) . reverse . foldl (\l → concatLines sep len l . splitOn sep) []
     where
-        concatLines ∷ [String] → String → [String]
-        concatLines newLines l = let bls = foldl breakLine [] (words l)
-                                 in  bls ++ newLines ++ [""]
+        concatLines ∷ (Monoid a) ⇒ a → (a → Int) → [a] → [a] → [a]
+        concatLines sep len newLines ls = let bls = foldl (joinLine sep len) [] ls
+                                          in  bls <> newLines <> mempty
 
-        breakLine ∷ [String] → String → [String]
-        breakLine lns word = let topLine = headDef (replicate w ' ') lns
-                                 modLine = topLine ++ ' ' : word
-                             in  if length modLine > w
-                                     then word : lns
-                                     else modLine : drop 1 lns
+        -- Before adding more polymorphism, consider 'headMay' and (:)
+        joinLine ∷ (Monoid a) ⇒ a → (a → Int) → [a] → a → [a]
+        joinLine sep len lns word = let hedM    = foldr (const . Just) Nothing
+                                        topLine = fromMaybe mempty $ hedM lns
+                                        modLine = topLine <> sep <> word
+                                    in  if len modLine > w
+                                                then word : lns
+                                                else modLine : drop 1 lns
+-}
+ 
+{-
+-- Eventually use this one...
+line ∷ (Monoid a) ⇒ (a → Int) → Int → a → [a] → a   -- <-- Last parameters: this is a fold :-O
+line _   _ _   []    = mempty
+line len w sep (x:xs)
+    | w >= len x + len sep = x <> sep <> line len (w - (len x + len sep)) sep xs
+    | w >= len x           = x
+    | otherwise            = mempty
 
+
+-- Rewriten as fold, rather than recursion
+line' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, a)
+line' l lf sep = foldl (\(f, b) x → if b /= mempty
+                                      then (f, b <> sep <> x)
+                                      else if lf (f <> sep <> x) < l
+                                        then (f <> sep <> x, b)
+                                        else (f, x)) (mempty, mempty)
+-}
