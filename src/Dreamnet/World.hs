@@ -44,6 +44,7 @@ import Control.Monad.State hiding (get)
 import Control.Monad.Trans.Maybe
 import Linear
 import Data.Bool
+import Data.Semigroup
 import Data.Maybe (fromMaybe)
 
 import qualified Data.Set    as S
@@ -144,13 +145,13 @@ examine ∷ (MonadWorld w) ⇒ w String
 examine = interactOrElse (const examineText) (use (w_map.wm_desc))
     where
         examineText = return . fromMaybe "<no description>" . objectDescription
-        --examineText v o    = (objectDescription o ++) <$> itemsText v
+        --examineText v o    = (objectDescription o <>) <$> itemsText v
         --itemsText v        = maybe "" itemsDescription <$> uses w_items (M.lookup v)
         --itemsDescription []  = ""
-        --itemsDescription [i] = "\nThere's a " ++ (toLower <$> i^.i_name) ++ " here."
-        --itemsDescription l   = "\nThere are " ++ itemListToText l ++ " here."
+        --itemsDescription [i] = "\nThere's a " <> (toLower <$> i^.i_name) <> " here."
+        --itemsDescription l   = "\nThere are " <> itemListToText l <> " here."
         --itemListToText l     = let sl = fmap toLower . view i_name <$> l
-        --                       in  intercalate ", " (take (length sl - 1) sl) ++ " and " ++ last sl
+        --                       in  intercalate ", " (take (length sl - 1) sl) <> " and " <> last sl
 
 
 get ∷ (MonadWorld w) ⇒ w (Maybe Item)
@@ -196,9 +197,9 @@ coordVisible m o d = let seeThrough = isSeeThrough . (`objectAt` m)
 --------------------------------------------------------------------------------
 
 objectInteraction ∷ (MonadWorld u) ⇒ V2 Int → Object → u GameState
-objectInteraction v (Door o)     = changeObject_ v (Door (not o)) >> return Normal
+objectInteraction v (Door o)     = changeObject_ v (Door (not o)) *> return Normal
 objectInteraction _ Computer     = return Interaction 
 objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)
 objectInteraction v (Union _ o2) = objectInteraction v o2
-objectInteraction _ o            = w_status .= ("Tried interaction with: " ++ show o) >> return Normal
+objectInteraction _ o            = (w_status .= ("Tried interaction with: " <> show o)) *> pure Normal
 

@@ -7,6 +7,7 @@ where
 import Prelude hiding (interact, take)
 import Control.Lens
 import Control.Monad.State hiding (get)
+import Data.Semigroup
 
 import qualified Data.Vector as Vec
 
@@ -48,8 +49,8 @@ dreamnet d = Curses.runCurses $ do
     void $ Curses.setCursorMode Curses.CursorInvisible
     g ← newGame
     runGame g $ do
-        doUpdate $ updateVisible >> return Normal
-        doRender $ renderNormal >> swap
+        doUpdate $ updateVisible *> return Normal
+        doRender $ renderNormal *> swap
         loopTheLoop
 
 
@@ -97,7 +98,7 @@ updateWorld (Move v) = do
     switchAim
     updateVisible
     return Normal
-updateWorld NextAim = switchAim >> return Normal
+updateWorld NextAim = switchAim *> return Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
@@ -106,7 +107,7 @@ updateWorld Interact = do
     return s
 updateWorld Get = get >>= \case
         Just i → do
-            w_status .= "Picked up " ++ (i^.i_name)
+            w_status .= "Picked up " <> (i^.i_name)
             w_aim .= Nothing
             return Normal
         Nothing → do
@@ -119,9 +120,9 @@ updateWorld CharacterSheet = return CharacterUI
 
 -- Returned bool: close window?
 updateScroll ∷ (MonadGame g) ⇒ UIEvent → g ()
-updateScroll MoveUp   = g_rendererData.rd_scrollModel %= (>> scrollUp)
-updateScroll MoveDown = g_rendererData.rd_scrollModel %= (>> scrollDown)
-updateScroll _        = switchGameState Normal >> doRender clearCenteredWindow
+updateScroll MoveUp   = g_rendererData.rd_scrollModel %= (*> scrollUp)
+updateScroll MoveDown = g_rendererData.rd_scrollModel %= (*> scrollDown)
+updateScroll _        = switchGameState Normal *> doRender clearCenteredWindow
 
 
 updateConversationChoice ∷ (MonadGame g) ⇒ UIEvent → g ()
@@ -135,11 +136,11 @@ updateConversationChoice Back = return ()
 
 updateComputer ∷ (MonadGame g) ⇒ Char → g ()
 updateComputer '\n' = do
-    o ← uses g_carlasComputer (>> commitInput)
+    o ← uses g_carlasComputer (*> commitInput)
     g_carlasFramebuffer .= computerOutput o
-    g_carlasComputer %= (\l → l >> commitInput >> return ())
-updateComputer '\b' = g_carlasComputer %= (>> backspace)
-updateComputer c    = g_carlasComputer %= (>> input c)
+    g_carlasComputer %= (\l → l *> commitInput *> return ())
+updateComputer '\b' = g_carlasComputer %= (*> backspace)
+updateComputer c    = g_carlasComputer %= (*> input c)
 
 
 renderNormal ∷ RendererF ()
@@ -151,9 +152,9 @@ renderNormal = do
 
 
 renderConversation ∷ (MonadRender r) ⇒ String → ConversationNode → r ()
-renderConversation _ (TalkNode s _)    = clearConversationWindow 1 >> drawConversationWindow 0 "Carla" s
-renderConversation n (ListenNode s _)  = clearConversationWindow 0 >> drawConversationWindow 1 n s
-renderConversation _ (ChoiceNode ls _) = clearConversationWindow 1 >> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
+renderConversation _ (TalkNode s _)    = clearConversationWindow 1 *> drawConversationWindow 0 "Carla" s
+renderConversation n (ListenNode s _)  = clearConversationWindow 0 *> drawConversationWindow 1 n s
+renderConversation _ (ChoiceNode ls _) = clearConversationWindow 1 *> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (Vec.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
 renderConversation _ _                 = return () -- We'll never end up here
 
 
@@ -163,7 +164,7 @@ renderComputer a cd  = use rd_interactionWindow >>= \w → updateWindow w $ do
     drawPrompt
 
     Curses.moveCursor 2 3
-    Curses.drawString (view cd_input cd ++ "                                                          ") 
+    Curses.drawString (view cd_input cd <> "                                                          ") 
     where
-        drawAnswer  = Curses.moveCursor 1 1 >> Curses.drawString (a ++ "                                        ")
-        drawPrompt  = Curses.moveCursor 2 1 >> Curses.drawString "> "
+        drawAnswer  = Curses.moveCursor 1 1 *> Curses.drawString (a <> "                                        ")
+        drawPrompt  = Curses.moveCursor 2 1 *> Curses.drawString "> "

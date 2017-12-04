@@ -29,6 +29,7 @@ module Dreamnet.WorldMap
 import Control.Lens
 import Data.Bool  (bool)
 import Data.Maybe (fromMaybe)
+import Data.Semigroup
 import Linear
 
 import qualified Data.Vector as V
@@ -85,12 +86,12 @@ isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
 
 objectDescription ∷ Object → Maybe String
 objectDescription (Base _ _ _)     = Nothing
-objectDescription (Door o)         = Just $ "Just a common door. They're " ++ bool "closed." "opened." o
-objectDescription (Stairs t)       = Just $ "If map changing would've been coded in, you would use these to go " ++ bool "down." "up." t
-objectDescription (Prop _ n _ _ _) = Just $ "A " ++ n ++ "."
-objectDescription (Person c)       = Just $ "Its " ++ (c^.ch_name) ++ "."
+objectDescription (Door o)         = Just $ "Just a common door. They're " <> bool "closed." "opened." o
+objectDescription (Stairs t)       = Just $ "If map changing would've been coded in, you would use these to go " <> bool "down." "up." t
+objectDescription (Prop _ n _ _ _) = Just $ "A " <> n <> "."
+objectDescription (Person c)       = Just $ "Its " <> (c^.ch_name) <> "."
 objectDescription Computer         = Just $ "Your machine. You wonder if Devin mailed you about the job."
-objectDescription (ItemO n)        = Just $ "A " ++ n ++ "."
+objectDescription (ItemO n)        = Just $ "A " <> n <> "."
 objectDescription (Union o1 o2)    = let md  = objectDescription o1
                                          md2 = objectDescription o2
                                      in  md `mappend` Just ", " `mappend` md2
@@ -146,7 +147,7 @@ layerToObject ∷ TileLayer → V.Vector Object
 layerToObject tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
     where
         charToObject ts c = let maybeTile = c `M.lookup` ts
-                                err       = error ("Char " ++ [c] ++ " doesn't exist in the tileset!")
+                                err       = error ("Char " <> [c] <> " doesn't exist in the tileset!")
                             in  maybe err objectFromTile maybeTile
 
 
@@ -162,7 +163,7 @@ objectFromTile t@(ttype → "Person") = let name      = 1 `readStringProperty` t
 objectFromTile   (ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
 objectFromTile   (ttype → "Computer") = Computer
 objectFromTile t@(ttype → "Item")   = ItemO (1 `readStringProperty` t)
-objectFromTile t                    = error $ "Can't convert Tile type into Object: " ++ show t
+objectFromTile t                    = error $ "Can't convert Tile type into Object: " <> show t
 
 
 mergeLayers ∷ V.Vector (V.Vector Object) → V.Vector Object

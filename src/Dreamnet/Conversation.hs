@@ -32,13 +32,13 @@ newtype ConversationM a = ConversationM { runConversationM ∷ State Conversatio
 
 instance Conversation ConversationM where
     pick i = get >>= \case
-        TalkNode   _ n  → put n >> get
-        ListenNode _ n  → put n >> get
-        ChoiceNode _ ns → put (ns !! fromIntegral i) >> get
+        TalkNode   _ n  → put n *> get
+        ListenNode _ n  → put n *> get
+        ChoiceNode _ ns → put (ns !! fromIntegral i) *> get
         End             → get
     advance (ChoiceNode _ _) = pick 0
-    advance (TalkNode _ n)   = put n >> get
-    advance (ListenNode _ n) = put n >> get
+    advance (TalkNode _ n)   = put n *> get
+    advance (ListenNode _ n) = put n *> get
     advance End              = return End
 
 

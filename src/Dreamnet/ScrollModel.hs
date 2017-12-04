@@ -109,7 +109,7 @@ lines' l lf sep xs = let (ln, r) = line'' l lf sep xs
 
 line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
 line'' l lf sep = foldl (\(f, b) x → if b /= mempty
-                                       then (f, b ++ [x])
+                                       then (f, b <> [x])
                                        else if lf (f <> sep <> x) < l
                                          then (f <> sep <> x, b)
                                          else (f, [x])) (mempty, [])

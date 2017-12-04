@@ -33,6 +33,7 @@ import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.State
 import Linear
+import Data.Semigroup
 import Data.Maybe (fromMaybe)
 import Data.Bool (bool)
 
@@ -280,7 +281,7 @@ objectToMat mats (Union _ o2)     = objectToMat mats o2
 
 
 --drawObjects ∷ (MonadRender r) ⇒ r ()
---drawObjects = view (w_objects) >>= M.foldWithKey (\k v p → p >> drawObject k v) (return ())
+--drawObjects = view (w_objects) >>= M.foldWithKey (\k v p → p *> drawObject k v) (return ())
 
 
 drawPlayer ∷ (MonadRender r) ⇒ r ()
@@ -316,5 +317,5 @@ drawHud = do
                           (Just $ C.Glyph '╯' [])
 
         C.moveCursor 2 2
-        C.drawString $ "Status: " ++ s
+        C.drawString $ "Status: " <> s
 

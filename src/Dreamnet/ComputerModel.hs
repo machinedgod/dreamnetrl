@@ -22,6 +22,7 @@ import Prelude hiding (read)
 import Control.Lens hiding (List)
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
+import Data.Semigroup
 import Data.Char  (toLower)
 import Data.List  (intercalate)
 import Data.Maybe (fromMaybe)
@@ -57,7 +58,7 @@ computerData cm = runComputerM cm `execState` bootData
 
 
 instance ComputerAPI ComputerM where
-    input c = cd_input %= (++[toLower c])
+    input c = cd_input %= (<>[toLower c])
     backspace = cd_input %= (take <$> subtract 1 . length <*> id)
     commitInput = do
         o ← fmap (fromMaybe "Syntax error.") $ runMaybeT $ do
@@ -108,11 +109,11 @@ processCommand (Help mp) = return $ maybe generalHelp specificHelp mp
         specificHelp "run"   = "Run currently loaded program."
         specificHelp "poke"  = "Change contents of a register or a memory address."
         specificHelp "peek"  = "Print contents of a register or a memory address."
-        specificHelp c       = "No help for: " ++ c
+        specificHelp c       = "No help for: " <> c
 processCommand (Login mp) = return $ maybe err login mp
     where
         err     = "Command error."
-        login l = "Successful login: " ++ l
+        login l = "Successful login: " <> l
 processCommand (List mp) = return $ maybe listRoot listDir mp 
     where
         listRoot            = intercalate ", " ["news", "mail", "bank", "cartridge"]
@@ -120,7 +121,7 @@ processCommand (List mp) = return $ maybe listRoot listDir mp
         listDir "mail"      = intercalate ", " ["S70rm: 'Hey!'", "<SPAM>: 'Grieving?'", "BuildingBot: 'Rent due'"]
         listDir "bank"      = intercalate ", " ["balance", "credit"]
         listDir "cartridge" = "segmentation fault: 0x7473 <no cartridge hardware installed>"
-        listDir d           = "List error: No directory: " ++ d
+        listDir d           = "List error: No directory: " <> d
 processCommand (Read mp) = return $ maybe err read mp
     where
         err                = "Read error: need a name."
@@ -154,7 +155,7 @@ processCommand (Read mp) = return $ maybe err read mp
                                               ]
         read "balance"     = "You have 900c."
         read "credit"      = "You have no credit."
-        read f             = "No such file: " ++ f
+        read f             = "No such file: " <> f
 processCommand (Load _) = return $ "segmentation fault: 0x7473 <no cartridge hardware installed>"
 processCommand Run      = return $ "Crack-boot segment empty."
 processCommand (Poke _) = return $ "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."

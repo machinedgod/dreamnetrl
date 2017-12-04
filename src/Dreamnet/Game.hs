@@ -113,17 +113,17 @@ instance MonadGame GameM where
             case nc of
                 End → do
                     switchGameState Normal
-                    doRender $ clearConversationWindow 0 >> clearConversationWindow 1
+                    doRender $ clearConversationWindow 0 *> clearConversationWindow 1
                 _   → switchGameState (Conversation ch nc)
         _ → return ()
 
 
 onStateSwitch ∷ (MonadGame g) ⇒ GameState → GameState → g ()
-onStateSwitch Normal (Examination s) = g_rendererData.rd_scrollModel %= (>>setText s)
+onStateSwitch Normal (Examination s) = g_rendererData.rd_scrollModel %= (*>setText s)
 onStateSwitch Normal InventoryUI     = do
     is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap (view i_name))
-    g_rendererData.rd_scrollModel %= (>>setLines is)
-onStateSwitch Normal CharacterUI     = g_rendererData.rd_scrollModel %= (>>setText "Character sheet")
+    g_rendererData.rd_scrollModel %= (*>setLines is)
+onStateSwitch Normal CharacterUI     = g_rendererData.rd_scrollModel %= (*>setText "Character sheet")
 onStateSwitch _ _ = return ()
 
 

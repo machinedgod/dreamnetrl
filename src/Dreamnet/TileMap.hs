@@ -31,6 +31,7 @@ import Safe
 
 import Control.Monad.IO.Class 
 import Control.Lens 
+import Data.Semigroup
 import Data.Maybe (fromMaybe)
 import Data.List (elemIndex)
 import Data.Bool (bool)
@@ -72,7 +73,7 @@ instance CoordVector TileLayer where
 tileAt ∷ TileLayer → V2 Int → Tile
 tileAt tl v = let char      = (tl^.l_data) V.! linCoord tl v
                   maybeTile = char `M.lookup` (tl^.l_tileset)
-                  err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " ++ [char]
+                  err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " <> [char]
               in  fromMaybe err maybeTile
 
 
@@ -103,11 +104,11 @@ instance CoordVector TileMap where
 --------------------------------------------------------------------------------
 
 makeFilename ∷ FilePath → String → FilePath
-makeFilename fp s = fp ++ "." ++ s
+makeFilename fp s = fp <> "." <> s
 
 
 makeFilename' ∷ FilePath → String → Word → FilePath
-makeFilename' fp s i = fp ++ "." ++ s ++ show i
+makeFilename' fp s i = fp <> "." <> s <> show i
 
 
 loadTileMap ∷ (MonadIO m) ⇒ FilePath → m TileMap
@@ -141,7 +142,7 @@ readLayer fp i = do
         findHeight    = fromIntegral . length . filter (=='\n')
         cleanNewlines = V.fromList . filter (/='\n')
         createTable   = either err makeMap . CSV.decode CSV.NoHeader
-        err e         = error $ "Can't parse " ++ makeFilename' fp "set" i ++ ": " ++ e
+        err e         = error $ "Can't parse " <> makeFilename' fp "set" i <> ": " <> e
         makeMap       = V.foldr' insertTile M.empty
         insertTile v  = let t = createTile v
                         in  M.insert (t^.t_char) t
@@ -154,10 +155,10 @@ readPositioned ∷ (MonadIO m) ⇒ FilePath → m (M.Map (V2 Int) [Tile])
 readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
     where
         makeTable    = either decodeErr vectorsToMap . CSV.decode CSV.NoHeader
-        decodeErr e  = error $ "CSV decoding error in '" ++ fp ++ "': " ++ e
+        decodeErr e  = error $ "CSV decoding error in '" <> fp <> "': " <> e
         vectorsToMap = V.foldr insertTile M.empty
         insertTile v = M.insert (pos v) [(tile v)]
-        pos v        = let err = "Invalid coord when specifying positioned tile in '" ++ fp ++ "'"
+        pos v        = let err = "Invalid coord when specifying positioned tile in '" <> fp <> "'"
                            x   = readNote err (V.head v)
                            y   = readNote err (V.head $ V.drop 1 v)
                        in  V2 x y
