@@ -68,7 +68,13 @@ loopTheLoop = do
             Normal → doUpdate (let (WorldEv we) = e in updateWorld we)
 
             Conversation _ (ChoiceNode _ _) → let (UIEv uie) = e in updateConversationChoice uie
-            Conversation _ cs → doConversation (advance cs)
+            Conversation ch cs →
+                let nc = advance cs
+                in  case nc of
+                      End → do
+                            switchGameState Normal
+                            doRender $ clearConversationWindow 0 *> clearConversationWindow 1
+                      _   → switchGameState (Conversation ch nc)
 
             Examination _ → let (UIEv uie) = e in updateScroll uie
 
@@ -128,9 +134,10 @@ updateScroll _        = switchGameState Normal *> doRender clearCenteredWindow
 updateConversationChoice ∷ (MonadGame g) ⇒ UIEvent → g ()
 updateConversationChoice MoveUp       = g_rendererData.rd_choiceModel.cm_currentSelection -= 1
 updateConversationChoice MoveDown     = g_rendererData.rd_choiceModel.cm_currentSelection += 1
-updateConversationChoice SelectChoice = selection >>= doConversation . pick
-    where
-        selection = use (g_rendererData.rd_choiceModel.cm_currentSelection)
+updateConversationChoice SelectChoice = do
+    s ← use (g_rendererData.rd_choiceModel.cm_currentSelection)
+    (Conversation ch cs) ← gameState
+    switchGameState (Conversation ch (pick s cs))
 updateConversationChoice Back = return ()
 
 

@@ -27,13 +27,11 @@ import Dreamnet.WorldMap
 import Dreamnet.World
 import Dreamnet.Renderer
 import Dreamnet.Input
-import Dreamnet.Conversation
 
 import UI.NCurses.Class
 import qualified UI.NCurses as Curses
 
 import Dreamnet.ScrollModel          (setText, setLines)
-import Dreamnet.UI.ConversationView  (clearConversationWindow)
 import Dreamnet.ComputerModel
 
 --------------------------------------------------------------------------------
@@ -49,8 +47,6 @@ class (MonadState Game m) ⇒ MonadGame m where
     doInput  ∷ m Event
     doUpdate ∷ WorldM GameState → m ()
     doRender ∷ RendererF a → m a
-    -- Too specific?
-    doConversation ∷ ConversationM ConversationNode → m ()
 
 
 data Game = Game {
@@ -70,8 +66,8 @@ makeLenses ''Game
 newGame ∷ Curses.Curses Game
 newGame = do
     rdf ← initRenderer
-    m   ← loadTileMap "res/apartment0"
-    --m   ← loadTileMap "res/bar"
+    --m   ← loadTileMap "res/apartment0"
+    m   ← loadTileMap "res/bar"
     return $ Game (newWorld (fromTileMap m)) Normal True rdf newComputer "Ready."
 
 --------------------------------------------------------------------------------
@@ -107,15 +103,6 @@ instance MonadGame GameM where
         (x, re') ← liftCurses (runRenderer re w r)
         g_rendererData .= re'
         return x
-    doConversation cm = gameState >>= \case
-        Conversation ch c → do
-            let nc = c `runConversation` cm
-            case nc of
-                End → do
-                    switchGameState Normal
-                    doRender $ clearConversationWindow 0 *> clearConversationWindow 1
-                _   → switchGameState (Conversation ch nc)
-        _ → return ()
 
 
 onStateSwitch ∷ (MonadGame g) ⇒ GameState → GameState → g ()

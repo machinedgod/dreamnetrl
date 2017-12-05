@@ -9,6 +9,7 @@ where
 
 
 import Pipes
+import Data.Monoid
 import Linear
 
 
@@ -26,6 +27,7 @@ data Event = Quit
            | Move (V2 Int)
            deriving (Show)
 
+
 testMaybeEvent ∷ (Monad m) ⇒ Consumer Char m (Maybe Event)
 testMaybeEvent = do
     c ← await
@@ -41,7 +43,7 @@ testMaybeEvent = do
         charToEvent 'u' = Just $ Move (V2  1 -1)
         charToEvent 'b' = Just $ Move (V2 -1  1)
         charToEvent 'n' = Just $ Move (V2  1  1)
-        charToEvent _   = Nothing -- ?
+        charToEvent _   = Nothing
 
 
 testRetryIfNothingEvent ∷ (Monad m) ⇒ Consumer (Maybe Event) m Event
@@ -59,3 +61,6 @@ testUpdate = do
         Quit     → lift $ putStrLn "Quit command"
         Interact → lift $ putStrLn "Interact command"
         Move v   → lift $ putStrLn $ "Moving " <> show v
+
+--------------------------------------------------------------------------------
+
