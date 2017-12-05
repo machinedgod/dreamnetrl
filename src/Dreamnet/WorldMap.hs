@@ -123,16 +123,16 @@ instance CoordVector WorldMap where
     width = view wm_width
 
 
-fromTileMap ∷ TileMap → WorldMap 
-fromTileMap tm = 
+fromTileMap ∷ DesignData → TileMap → WorldMap 
+fromTileMap dd tm = 
     WorldMap {
       _wm_width   = tm^.m_width
     , _wm_height  = tm^.m_height
-    , _wm_data    = let layerData         = mergeLayers $ V.map layerToObject (tm^.m_layers)
+    , _wm_data    = let layerData         = mergeLayers $ V.map (layerToObject dd) (tm^.m_layers)
                         maybeObjects i    = M.lookup (coordLin tm i) (tm^.m_positioned)
                         mergeTiles []     = error "Positioned tile list empty, instead of not being added at all! :-O"
-                        mergeTiles [t]    = objectFromTile t
-                        mergeTiles l      = foldr1 Union $ fmap objectFromTile l
+                        mergeTiles [t]    = objectFromTile dd t
+                        mergeTiles l      = foldr1 Union $ fmap (objectFromTile dd) l
                         addPositioned i o = maybe o (Union o . mergeTiles) (maybeObjects i)
                     in  V.imap addPositioned layerData
     , _wm_visible = V.replicate squareSize Unknown 
@@ -143,27 +143,26 @@ fromTileMap tm =
         squareSize   = fromIntegral (tm^.m_width * tm^.m_height)
 
 
-layerToObject ∷ TileLayer → V.Vector Object
-layerToObject tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
+layerToObject ∷ DesignData → TileLayer → V.Vector Object
+layerToObject dd tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
     where
         charToObject ts c = let maybeTile = c `M.lookup` ts
                                 err       = error ("Char " <> [c] <> " doesn't exist in the tileset!")
-                            in  maybe err objectFromTile maybeTile
+                            in  maybe err (objectFromTile dd) maybeTile
 
 
-objectFromTile ∷ Tile → Object
-objectFromTile t@(ttype → "Base")   = Base (t^.t_char) (1 `readBoolProperty` t)  (2 `readBoolProperty` t)
-objectFromTile t@(ttype → "Door")   = Door (1 `readBoolProperty` t)
-objectFromTile t@(ttype → "Stairs") = Stairs (1 `readBoolProperty` t)
-objectFromTile t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty` t) (4 `readStringProperty` t) (2 `readBoolProperty` t)  (3 `readBoolProperty` t)
--- TODO DO NOT USE DEFAULT DESIGN DATA! Use the one passed by Dyre!
-objectFromTile t@(ttype → "Person") = let name      = 1 `readStringProperty` t
-                                          maybeChar = M.lookup name (defaultDesignData^.dd_characters)
-                                      in  Person (fromMaybe (defaultDesignData^.dd_defaultRedshirt) maybeChar)
-objectFromTile   (ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-objectFromTile   (ttype → "Computer") = Computer
-objectFromTile t@(ttype → "Item")   = ItemO (1 `readStringProperty` t)
-objectFromTile t                    = error $ "Can't convert Tile type into Object: " <> show t
+objectFromTile ∷ DesignData → Tile → Object
+objectFromTile _  t@(ttype → "Base")   = Base (t^.t_char) (1 `readBoolProperty` t)  (2 `readBoolProperty` t)
+objectFromTile _  t@(ttype → "Door")   = Door (1 `readBoolProperty` t)
+objectFromTile _  t@(ttype → "Stairs") = Stairs (1 `readBoolProperty` t)
+objectFromTile _  t@(ttype → "Prop")   = Prop (t^.t_char) (1 `readStringProperty` t) (4 `readStringProperty` t) (2 `readBoolProperty` t)  (3 `readBoolProperty` t)
+objectFromTile dd t@(ttype → "Person") = let name      = 1 `readStringProperty` t
+                                             maybeChar = M.lookup name (dd^.dd_characters)
+                                         in  Person (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
+objectFromTile _    (ttype → "Spawn")  = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile _    (ttype → "Computer") = Computer
+objectFromTile _  t@(ttype → "Item")   = ItemO (1 `readStringProperty` t)
+objectFromTile _  t                    = error $ "Can't convert Tile type into Object: " <> show t
 
 
 mergeLayers ∷ V.Vector (V.Vector Object) → V.Vector Object

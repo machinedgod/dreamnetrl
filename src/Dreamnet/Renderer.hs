@@ -10,11 +10,9 @@ module Dreamnet.Renderer
 
 , RendererEnvironment
 , rd_styles
-, rd_scrollModel
 , rd_choiceModel
 , rd_mainWindow
 , rd_hudWindow
-, rd_examineWindow
 , rd_interactionWindow
 , rd_choiceWindow
 , rd_conversationWindow0
@@ -44,8 +42,6 @@ import qualified Data.Vector as V
 
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
-import Dreamnet.World
-import Dreamnet.ScrollModel
 import Dreamnet.ChoiceModel
 
 --------------------------------------------------------------------------------
@@ -59,13 +55,13 @@ data Styles = Styles {
     , _s_visibilityKnown   ∷ [C.Attribute]
     , _s_visibilityVisible ∷ [C.Attribute]
 
-    , _s_colorRed     ∷ C.ColorID
-    , _s_colorGreen   ∷ C.ColorID
-    , _s_colorYellow  ∷ C.ColorID
-    , _s_colorBlue    ∷ C.ColorID
+    --, _s_colorRed     ∷ C.ColorID
+    --, _s_colorGreen   ∷ C.ColorID
+    --, _s_colorYellow  ∷ C.ColorID
+    --, _s_colorBlue    ∷ C.ColorID
     , _s_colorMagenta ∷ C.ColorID
-    , _s_colorCyan    ∷ C.ColorID
-    , _s_colorWhite   ∷ C.ColorID
+    --, _s_colorCyan    ∷ C.ColorID
+    --, _s_colorWhite   ∷ C.ColorID
     }
 
 makeLenses ''Styles
@@ -73,12 +69,10 @@ makeLenses ''Styles
 data RendererEnvironment = RendererEnvironment {
       _rd_styles              ∷ Styles
 
-    , _rd_scrollModel ∷ ScrollModel
-    , _rd_choiceModel ∷ ChoiceModel
+    , _rd_choiceModel ∷ ChoiceModel -- Move this out and make RenderEnvironment a Reader again
 
     , _rd_mainWindow          ∷ C.Window
     , _rd_hudWindow           ∷ C.Window
-    , _rd_examineWindow       ∷ C.Window
     , _rd_interactionWindow   ∷ C.Window
     , _rd_choiceWindow        ∷ C.Window
     , _rd_conversationWindow0 ∷ C.Window
@@ -89,23 +83,21 @@ makeLenses ''RendererEnvironment
 
 --------------------------------------------------------------------------------
 
-class (MonadState RendererEnvironment r, MonadReader World r) ⇒ MonadRender r where
+class (MonadState RendererEnvironment r) ⇒ MonadRender r where
     updateWindow ∷ C.Window → C.Update () → r ()
-    swap         ∷ r ()
     
 
 -- SOME stuff should be just reader, some stuff state
-newtype RendererF a = RendererF { runRendererF ∷ ReaderT World (StateT RendererEnvironment C.Curses) a }
-                    deriving (Functor, Applicative, Monad, MonadReader World, MonadState RendererEnvironment, MonadCurses)
+newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.Curses a }
+                    deriving (Functor, Applicative, Monad, MonadState RendererEnvironment, MonadCurses)
 
 
-instance MonadCurses (ReaderT World (StateT RendererEnvironment C.Curses)) where
-    liftCurses = lift . lift
+instance MonadCurses (StateT RendererEnvironment C.Curses) where
+    liftCurses = lift
 
 
 instance MonadRender RendererF where
     updateWindow w = liftCurses . C.updateWindow w
-    swap = liftCurses C.render
 
 
 initRenderer ∷ C.Curses RendererEnvironment
@@ -121,8 +113,6 @@ initRenderer = do
     mainWin ← C.newWindow mainHeight mainWidth 0 0
     hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
 
-
-
     let lowLeftW = mainWidth `div` 3
         lowLeftH = mainHeight `div` 3
         lowLeftX = 0
@@ -133,30 +123,21 @@ initRenderer = do
         topRightX = mainWidth `div` 3 * 2
         topRightY = 0
 
-        examineW = 50
-        examineH = 10
-        examineX = (mainWidth - examineW) `div` 2
-        examineY = (mainHeight - examineH) `div` 2
-
         interactW = (columns - 4)
         interactH = (rows - 4)
         interactX = 2
         interactY = 2
 
-    examineWin       ← C.newWindow examineH examineW examineY examineX
     choiceWin        ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     interactionWin   ← C.newWindow interactH interactW interactY interactX
     conversationWin0 ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     conversationWin1 ← C.newWindow topRightH topRightW topRightY topRightX
 
     styles ← C.maxColor >>= createStyles 
-    let scrollW = fromIntegral $ examineW - 6 -- border, padding, arrow widgets
-        scrollH = fromIntegral $ examineH - 2
 
     return $ RendererEnvironment styles
-                 (createScrollModel scrollW scrollH)
                  (ChoiceModel V.empty 0)
-                 mainWin hudWin examineWin interactionWin choiceWin
+                 mainWin hudWin interactionWin choiceWin
                  conversationWin0 conversationWin1
         where
             createStyles mc
@@ -190,18 +171,18 @@ initRenderer = do
                        , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
                        , _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
-                       , _s_colorRed     = cRed    
-                       , _s_colorGreen   = cGreen  
-                       , _s_colorYellow  = cYellow 
-                       , _s_colorBlue    = cBlue   
+                       --, _s_colorRed     = cRed    
+                       --, _s_colorGreen   = cGreen  
+                       --, _s_colorYellow  = cYellow 
+                       --, _s_colorBlue    = cBlue   
                        , _s_colorMagenta = cMagenta
-                       , _s_colorCyan    = cCyan   
-                       , _s_colorWhite   = cWhite  
+                       --, _s_colorCyan    = cCyan   
+                       --, _s_colorWhite   = cWhite  
                        }
 
 
-runRenderer ∷ RendererEnvironment → World → RendererF a → C.Curses (a, RendererEnvironment)
-runRenderer rd w f = runStateT (runReaderT (runRendererF f) w) rd
+runRenderer ∷ RendererEnvironment → RendererF a → C.Curses (a, RendererEnvironment)
+runRenderer rd f = runStateT (runRendererF f) rd
     
 --------------------------------------------------------------------------------
 
@@ -211,11 +192,10 @@ drawCharAt (V2 x y) c s = do
     C.drawGlyph (C.Glyph c s)
 
 
-drawMap ∷ (MonadRender r) ⇒ r ()
-drawMap = do
+drawMap ∷ (MonadRender r) ⇒ WorldMap → r ()
+drawMap m = do
     w   ← use rd_mainWindow
-    m   ← view w_map
-    vis ← view (w_map.wm_visible)
+    let vis = view wm_visible m
 
     unknown ← use (rd_styles.s_visibilityUnknown)
     known   ← use (rd_styles.s_visibilityKnown)
@@ -284,28 +264,23 @@ objectToMat mats (Union _ o2)     = objectToMat mats o2
 --drawObjects = view (w_objects) >>= M.foldWithKey (\k v p → p *> drawObject k v) (return ())
 
 
-drawPlayer ∷ (MonadRender r) ⇒ r ()
-drawPlayer = do
+drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r ()
+drawPlayer v = do
     w ← use rd_mainWindow
     s ← uses (rd_styles.s_colorMagenta) C.AttributeColor
-    v ← view w_playerPos
     updateWindow w $ drawCharAt v '@' [s]
 
 
-drawAim ∷ (MonadRender r) ⇒ r ()
-drawAim = do
+drawAim ∷ (MonadRender r) ⇒ V2 Int → r ()
+drawAim v = do
     w  ← use rd_mainWindow
     s  ← use (rd_styles.s_playerAim)
-    ma ← view w_aim
-    case ma of
-        Just v → updateWindow w $ drawCharAt v '×' s
-        _      → return ()
+    updateWindow w $ drawCharAt v '×' s
          
 
-drawHud ∷ (MonadRender r) ⇒ r ()
-drawHud = do
+drawHud ∷ (MonadRender r) ⇒ String → r ()
+drawHud s = do
     w ← use rd_hudWindow
-    s ← view w_status
     updateWindow w $ do
         C.drawBorder (Just $ C.Glyph '│' [])
                           (Just $ C.Glyph '│' [])
