@@ -10,8 +10,6 @@ import Control.Lens hiding (re)
 import Control.Monad.State hiding (get)
 import Data.Semigroup
 
-import qualified Data.Vector as V
-
 import UI.NCurses.Class
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre
@@ -25,10 +23,9 @@ import Dreamnet.Conversation
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.ScrollWindow
-import Dreamnet.ChoiceModel
+import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
-import Dreamnet.UI.ChoiceBox
 import Dreamnet.UI.ConversationView
 
 --------------------------------------------------------------------------------
@@ -42,6 +39,7 @@ data Game = Game {
     -- This is a correct place to put it for now,
     -- because later on there'll be multiple 'update' places
     , _g_scrollWindow ∷ ScrollData
+    , _g_choiceWindow ∷ ChoiceData
 
     -- TODO take this out, eventually
     , _g_carlasComputer ∷ ComputerM ()
@@ -57,6 +55,7 @@ newGame dd = do
     --m   ← loadTileMap "res/apartment0"
     m   ← loadTileMap "res/bar"
     sw  ← createScrollWindow
+    cw  ← createChoiceWindow
     return $ Game {
         _g_world        = (newWorld (fromTileMap dd m))
       , _g_gameState    = Normal 
@@ -64,6 +63,7 @@ newGame dd = do
       , _g_rendererData = rdf
 
       , _g_scrollWindow = sw
+      , _g_choiceWindow = cw
 
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
@@ -127,7 +127,7 @@ onStateSwitch (Examination _) Normal = do
     renderNormal
 
 onStateSwitch Normal (Conversation ch cn) = do
-    doRender (renderConversation ch cn)
+    renderConversation ch cn
     renderNormal
 onStateSwitch (Conversation _ _) Normal = do
     doRender $ clearConversationWindow 0 *> clearConversationWindow 1
@@ -182,17 +182,23 @@ loopTheLoop = do
                 when (gs == Normal) $
                     renderNormal
 
-            Conversation _ (ChoiceNode _ _) → do
+            Conversation _ (ChoiceNode l _) → do
                 let (UIEv uie) = e
+                g_choiceWindow %= updateChoiceWindow (setOptions l)
                 updateConversationChoice uie
                 (Conversation n nc) ← use g_gameState
-                doRender (renderConversation n nc)
+                renderConversation n nc
             Conversation ch cs → do
+                let (UIEv uie) = e
                 let nc = advance cs
-                switchGameState $ case nc of
-                    End → Normal
-                    _   → Conversation ch nc
-                doRender (renderConversation ch nc)
+                case nc of
+                    End → switchGameState Normal
+                    ChoiceNode l _ → do
+                        g_choiceWindow %= updateChoiceWindow (setOptions l)
+                        updateConversationChoice uie
+                        switchGameState $ Conversation ch nc
+                    _   → switchGameState $ Conversation ch nc
+                renderConversation ch nc
 
             Examination _ → do
                 let (UIEv uie) = e
@@ -272,14 +278,14 @@ updateWorld CharacterSheet = return CharacterUI
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
-updateConversationChoice MoveUp       = g_rendererData.rd_choiceModel.cm_currentSelection -= 1
-updateConversationChoice MoveDown     = g_rendererData.rd_choiceModel.cm_currentSelection += 1
+updateConversationChoice MoveUp       = g_choiceWindow %= updateChoiceWindow selectPrevious
+updateConversationChoice MoveDown     = g_choiceWindow %= updateChoiceWindow selectNext
 updateConversationChoice SelectChoice = do
-    s ← use (g_rendererData.rd_choiceModel.cm_currentSelection)
+    i ← uses g_choiceWindow commit
     (Conversation ch cs) ← use g_gameState
-    let nc = pick s cs
+    let nc = pick i cs
     switchGameState (Conversation ch nc)
-    doRender (renderConversation ch nc) -- <FUUUGLY!!!!!
+    renderConversation ch nc -- <FUUUGLY!!!!!
 updateConversationChoice Back = return ()
 
 
@@ -305,11 +311,14 @@ renderNormal = do
         maybe (return ()) drawAim ma
 
 
-renderConversation ∷ (MonadRender r) ⇒ String → ConversationNode → r ()
-renderConversation _ (TalkNode s _)    = clearConversationWindow 1 *> drawConversationWindow 0 "Carla" s
-renderConversation n (ListenNode s _)  = clearConversationWindow 0 *> drawConversationWindow 1 n s
-renderConversation _ (ChoiceNode ls _) = clearConversationWindow 1 *> use (rd_choiceModel.cm_currentSelection) >>= (`drawChoice` (V.fromList ls))   -- TODO MOVE this to Actual choice node, to use the fucking model!
-renderConversation _ _                 = return () -- We'll never end up here
+renderConversation ∷ String → ConversationNode → StateT Game C.Curses ()
+renderConversation _ (TalkNode s _) = doRender $ clearConversationWindow 1 *> drawConversationWindow 0 "Carla" s
+renderConversation n (ListenNode s _) = doRender $ clearConversationWindow 0 *> drawConversationWindow 1 n s
+renderConversation _ (ChoiceNode _ _) = do
+    cw ← use g_choiceWindow
+    doRender $ clearConversationWindow 1
+    liftCurses $ drawChoiceWindow cw   -- TODO MOVE this to Actual choice node, to use the fucking model!
+renderConversation _ _ = return () -- We'll never end up here
 
 
 renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()

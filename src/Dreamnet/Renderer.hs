@@ -10,11 +10,9 @@ module Dreamnet.Renderer
 
 , RendererEnvironment
 , rd_styles
-, rd_choiceModel
 , rd_mainWindow
 , rd_hudWindow
 , rd_interactionWindow
-, rd_choiceWindow
 , rd_conversationWindow0
 , rd_conversationWindow1
 
@@ -42,7 +40,6 @@ import qualified Data.Vector as V
 
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
-import Dreamnet.ChoiceModel
 
 --------------------------------------------------------------------------------
 
@@ -69,12 +66,9 @@ makeLenses ''Styles
 data RendererEnvironment = RendererEnvironment {
       _rd_styles              ∷ Styles
 
-    , _rd_choiceModel ∷ ChoiceModel -- Move this out and make RenderEnvironment a Reader again
-
     , _rd_mainWindow          ∷ C.Window
     , _rd_hudWindow           ∷ C.Window
     , _rd_interactionWindow   ∷ C.Window
-    , _rd_choiceWindow        ∷ C.Window
     , _rd_conversationWindow0 ∷ C.Window
     , _rd_conversationWindow1 ∷ C.Window
     }
@@ -87,7 +81,6 @@ class (MonadState RendererEnvironment r) ⇒ MonadRender r where
     updateWindow ∷ C.Window → C.Update () → r ()
     
 
--- SOME stuff should be just reader, some stuff state
 newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.Curses a }
                     deriving (Functor, Applicative, Monad, MonadState RendererEnvironment, MonadCurses)
 
@@ -128,7 +121,6 @@ initRenderer = do
         interactX = 2
         interactY = 2
 
-    choiceWin        ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     interactionWin   ← C.newWindow interactH interactW interactY interactX
     conversationWin0 ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     conversationWin1 ← C.newWindow topRightH topRightW topRightY topRightX
@@ -136,8 +128,7 @@ initRenderer = do
     styles ← C.maxColor >>= createStyles 
 
     return $ RendererEnvironment styles
-                 (ChoiceModel V.empty 0)
-                 mainWin hudWin interactionWin choiceWin
+                 mainWin hudWin interactionWin
                  conversationWin0 conversationWin1
         where
             createStyles mc
