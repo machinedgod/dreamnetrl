@@ -50,4 +50,4 @@ T,Prop,Night table,False,True,wood
 b,Prop,Bed,False,True,red plastic
 C,Prop,Crate,False,True,wood
 S,Prop,Shelf,False,False,wood
-c,Computer,False,False,metal
+&,Computer,False,False,metal

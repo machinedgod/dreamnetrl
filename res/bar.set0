@@ -43,4 +43,5 @@ c,Prop,Bar shelf,False,False,wood
 t,Prop,Toilet,False,True,ceramics
 s,Prop,Sink,False,True,ceramics
 h,Prop,Shelf,False,True,metal
+&,Computer,False,False,metal
 

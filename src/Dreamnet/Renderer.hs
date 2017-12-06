@@ -13,8 +13,6 @@ module Dreamnet.Renderer
 , rd_mainWindow
 , rd_hudWindow
 , rd_interactionWindow
-, rd_conversationWindow0
-, rd_conversationWindow1
 
 , initRenderer
 , runRenderer
@@ -69,8 +67,6 @@ data RendererEnvironment = RendererEnvironment {
     , _rd_mainWindow          ∷ C.Window
     , _rd_hudWindow           ∷ C.Window
     , _rd_interactionWindow   ∷ C.Window
-    , _rd_conversationWindow0 ∷ C.Window
-    , _rd_conversationWindow1 ∷ C.Window
     }
 
 makeLenses ''RendererEnvironment
@@ -106,30 +102,16 @@ initRenderer = do
     mainWin ← C.newWindow mainHeight mainWidth 0 0
     hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
 
-    let lowLeftW = mainWidth `div` 3
-        lowLeftH = mainHeight `div` 3
-        lowLeftX = 0
-        lowLeftY = mainHeight `div` 3 * 2
-
-        topRightW = mainWidth `div` 3
-        topRightH = mainHeight `div` 3
-        topRightX = mainWidth `div` 3 * 2
-        topRightY = 0
-
-        interactW = (columns - 4)
+    let interactW = (columns - 4)
         interactH = (rows - 4)
         interactX = 2
         interactY = 2
 
     interactionWin   ← C.newWindow interactH interactW interactY interactX
-    conversationWin0 ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
-    conversationWin1 ← C.newWindow topRightH topRightW topRightY topRightX
 
     styles ← C.maxColor >>= createStyles 
 
-    return $ RendererEnvironment styles
-                 mainWin hudWin interactionWin
-                 conversationWin0 conversationWin1
+    return $ RendererEnvironment styles mainWin hudWin interactionWin
         where
             createStyles mc
                 | mc > 0 && mc <= 8    = createStyles8Colors    -- (And disable lighting)

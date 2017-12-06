@@ -26,7 +26,6 @@ import Dreamnet.ScrollWindow
 import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
-import Dreamnet.UI.ConversationView
 
 --------------------------------------------------------------------------------
 
@@ -38,6 +37,7 @@ data Game = Game {
 
     -- This is a correct place to put it for now,
     -- because later on there'll be multiple 'update' places
+    , _g_conversationWindow ∷ C.Window
     , _g_scrollWindow ∷ ScrollData
     , _g_choiceWindow ∷ ChoiceData
 
@@ -54,6 +54,7 @@ newGame dd = do
     rdf ← initRenderer
     --m   ← loadTileMap "res/apartment0"
     m   ← loadTileMap "res/bar"
+    cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
     return $ Game {
@@ -62,14 +63,16 @@ newGame dd = do
       , _g_keepRunning  = True
       , _g_rendererData = rdf
 
-      , _g_scrollWindow = sw
-      , _g_choiceWindow = cw
+      , _g_conversationWindow = cvw
+      , _g_scrollWindow       = sw
+      , _g_choiceWindow       = cw
 
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
     }
 
 
+-- TODO if I do the newtype back again, I don't have to lift everywhere to run curses code
 instance MonadCurses (StateT Game C.Curses) where
     liftCurses = lift
 
@@ -83,7 +86,6 @@ launchDreamnet = Dyre.wrapMain Dyre.defaultParams {
                                }
 
 --------------------------------------------------------------------------------
-
 
 switchGameState ∷ GameState → StateT Game C.Curses ()
 switchGameState gs = do
@@ -130,10 +132,10 @@ onStateSwitch Normal (Conversation ch cn) = do
     renderConversation ch cn
     renderNormal
 onStateSwitch (Conversation _ _) Normal = do
-    doRender $ clearConversationWindow 0 *> clearConversationWindow 1
+    w ← use g_conversationWindow
+    lift $ clearConversationWindow w
     renderNormal
 onStateSwitch _ _ = return ()
-
 
 --------------------------------------------------------------------------------
 
@@ -312,12 +314,22 @@ renderNormal = do
 
 
 renderConversation ∷ String → ConversationNode → StateT Game C.Curses ()
-renderConversation _ (TalkNode s _) = doRender $ clearConversationWindow 1 *> drawConversationWindow 0 "Carla" s
-renderConversation n (ListenNode s _) = doRender $ clearConversationWindow 0 *> drawConversationWindow 1 n s
+renderConversation _ (TalkNode s _)   = do
+    w ← use g_conversationWindow
+    lift $ do
+        clearConversationWindow w 
+        drawConversationWindow 0 "Carla" s w
+renderConversation n (ListenNode s _) = do
+    w ← use g_conversationWindow
+    lift $ do
+        clearConversationWindow w
+        drawConversationWindow 1 n s w
 renderConversation _ (ChoiceNode _ _) = do
+    w ← use g_conversationWindow
     cw ← use g_choiceWindow
-    doRender $ clearConversationWindow 1
-    liftCurses $ drawChoiceWindow cw   -- TODO MOVE this to Actual choice node, to use the fucking model!
+    lift $ do
+        clearConversationWindow w
+        drawChoiceWindow cw   -- TODO MOVE this to Actual choice node, to use the fucking model!
 renderConversation _ _ = return () -- We'll never end up here
 
 
