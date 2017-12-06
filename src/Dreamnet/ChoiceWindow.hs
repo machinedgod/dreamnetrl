@@ -3,27 +3,20 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Dreamnet.ChoiceWindow
-( ChoiceWindowAPI(..)
-, ChoiceData
+( ChoiceData
+, setOptions
+, selectNext
+, selectPrevious
 , commit
-, createChoiceWindow
-, updateChoiceWindow
+, createChoiceData
 , drawChoiceWindow
 ) where
 
 import Control.Lens
-import Control.Monad.State
 import qualified Data.Vector as V
 
 import qualified UI.NCurses as C
 
---------------------------------------------------------------------------------
-
-class ChoiceWindowAPI c where
-    setOptions ∷ [String] → c ()
-    selectNext ∷ c ()
-    selectPrevious ∷ c ()
-    
 --------------------------------------------------------------------------------
 
 data ChoiceData = ChoiceData {
@@ -37,29 +30,8 @@ data ChoiceData = ChoiceData {
 makeLenses ''ChoiceData
 
 
-newtype ChoiceWindowM a = ChoiceWindowM { runChoiceWindowM ∷ State ChoiceData a }
-                        deriving (Functor, Applicative, Monad, MonadState ChoiceData)
-
-
-instance ChoiceWindowAPI ChoiceWindowM where
-    setOptions ls = cd_options .= V.fromList ls
-    selectNext = do
-        maxI ← uses cd_options (subtract 1 . V.length)
-        cd_currentSelection %= min maxI  . (+1)
-    selectPrevious = cd_currentSelection %= max 0 . subtract 1
-    
-
-updateChoiceWindow ∷ ChoiceWindowM () → ChoiceData → ChoiceData
-updateChoiceWindow cu cd = execState (runChoiceWindowM cu) cd
-
-
-commit ∷ ChoiceData → Word
-commit = views cd_currentSelection fromIntegral
-
---------------------------------------------------------------------------------
-
-createChoiceWindow ∷ C.Curses ChoiceData
-createChoiceWindow = do
+createChoiceData ∷ C.Curses ChoiceData
+createChoiceData = do
     (rows, columns) ← C.screenSize
     let mainWidth  = columns
         mainHeight = rows - 8 -- Hud
@@ -71,6 +43,24 @@ createChoiceWindow = do
 
     w ← C.newWindow lowLeftH lowLeftW lowLeftY lowLeftX
     return $ ChoiceData V.empty 0 w
+
+--------------------------------------------------------------------------------
+
+setOptions ∷ [String] → ChoiceData → ChoiceData
+setOptions ls = cd_options .~ V.fromList ls
+
+
+selectNext ∷ ChoiceData → ChoiceData
+selectNext cd = let maxI = views cd_options (subtract 1 . V.length) cd
+                in  cd_currentSelection %~ min maxI  . (+1) $ cd
+
+
+selectPrevious ∷ ChoiceData → ChoiceData
+selectPrevious = cd_currentSelection %~ max 0 . subtract 1
+    
+
+commit ∷ ChoiceData → Word
+commit = views cd_currentSelection fromIntegral
 
 --------------------------------------------------------------------------------
 

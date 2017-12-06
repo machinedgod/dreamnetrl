@@ -54,8 +54,8 @@ newGame dd = do
     rdf ← initRenderer
     --m   ← loadTileMap "res/apartment0"
     m   ← loadTileMap "res/bar"
-    sw  ← createScrollWindow
-    cw  ← createChoiceWindow
+    sw  ← createScrollData
+    cw  ← createChoiceData
     return $ Game {
         _g_world        = (newWorld (fromTileMap dd m))
       , _g_gameState    = Normal 
@@ -103,20 +103,20 @@ doRender r = do
 
 onStateSwitch ∷ GameState → GameState → StateT Game C.Curses ()
 onStateSwitch Normal (Examination s) = do
-    g_scrollWindow %= updateScrollWindow (setText s)
+    g_scrollWindow %= setText s
     sw ← use g_scrollWindow
     lift $ do
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
     is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap (view i_name))
-    g_scrollWindow %= updateScrollWindow (setLines is)
+    g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
     lift $ do
         renderScrollWindow sw
 
 onStateSwitch Normal CharacterUI = do
-    g_scrollWindow %= updateScrollWindow (setText "Character sheet")
+    g_scrollWindow %= setText "Character sheet"
     sw ← use g_scrollWindow
     lift $ do
         renderScrollWindow sw
@@ -184,7 +184,7 @@ loopTheLoop = do
 
             Conversation _ (ChoiceNode l _) → do
                 let (UIEv uie) = e
-                g_choiceWindow %= updateChoiceWindow (setOptions l)
+                g_choiceWindow %= setOptions l
                 updateConversationChoice uie
                 (Conversation n nc) ← use g_gameState
                 renderConversation n nc
@@ -194,7 +194,7 @@ loopTheLoop = do
                 case nc of
                     End → switchGameState Normal
                     ChoiceNode l _ → do
-                        g_choiceWindow %= updateChoiceWindow (setOptions l)
+                        g_choiceWindow %= setOptions l
                         updateConversationChoice uie
                         switchGameState $ Conversation ch nc
                     _   → switchGameState $ Conversation ch nc
@@ -204,11 +204,11 @@ loopTheLoop = do
                 let (UIEv uie) = e
                 case uie of
                     MoveUp → do
-                        g_scrollWindow %= updateScrollWindow scrollUp
+                        g_scrollWindow %= scrollUp
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     MoveDown → do
-                        g_scrollWindow %= updateScrollWindow scrollDown
+                        g_scrollWindow %= scrollDown
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     _ → switchGameState Normal
@@ -217,11 +217,11 @@ loopTheLoop = do
                 let (UIEv uie) = e 
                 case uie of
                     MoveUp → do
-                        g_scrollWindow %= updateScrollWindow scrollUp
+                        g_scrollWindow %= scrollUp
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     MoveDown → do
-                        g_scrollWindow %= updateScrollWindow scrollDown
+                        g_scrollWindow %= scrollDown
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     _ → switchGameState Normal
@@ -230,11 +230,11 @@ loopTheLoop = do
                 let (UIEv uie) = e 
                 case uie of
                     MoveUp → do
-                        g_scrollWindow %= updateScrollWindow scrollUp
+                        g_scrollWindow %= scrollUp
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     MoveDown → do
-                        g_scrollWindow %= updateScrollWindow scrollDown
+                        g_scrollWindow %= scrollDown
                         sw ← use g_scrollWindow
                         lift (renderScrollWindow sw)
                     _ → switchGameState Normal
@@ -278,8 +278,8 @@ updateWorld CharacterSheet = return CharacterUI
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
-updateConversationChoice MoveUp       = g_choiceWindow %= updateChoiceWindow selectPrevious
-updateConversationChoice MoveDown     = g_choiceWindow %= updateChoiceWindow selectNext
+updateConversationChoice MoveUp       = g_choiceWindow %= selectPrevious
+updateConversationChoice MoveDown     = g_choiceWindow %= selectNext
 updateConversationChoice SelectChoice = do
     i ← uses g_choiceWindow commit
     (Conversation ch cs) ← use g_gameState

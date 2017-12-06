@@ -4,11 +4,13 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.ScrollWindow
-( ScrollWindowAPI(..)
-, ScrollData
+( ScrollData
 
-, createScrollWindow
-, updateScrollWindow
+, createScrollData
+, setText
+, setLines
+, scrollUp
+, scrollDown
 
 , clearScrollWindow
 , renderScrollWindow
@@ -25,12 +27,6 @@ import qualified Data.Vector as V
 import qualified UI.NCurses as C
 
 --------------------------------------------------------------------------------
-
-class ScrollWindowAPI m where
-    setText    ∷ String → m ()
-    setLines   ∷ [String] → m ()
-    scrollUp   ∷ m ()
-    scrollDown ∷ m ()
 
 --------------------------------------------------------------------------------
 
@@ -49,14 +45,14 @@ data ScrollData = ScrollData {
 makeLenses ''ScrollData
 
 
-createScrollWindow ∷ C.Curses ScrollData
-createScrollWindow = do
-    --(rows, columns) ← C.screenSize
-    --let mainWidth  = columns
-    --    mainHeight = rows
+createScrollData ∷ C.Curses ScrollData
+createScrollData = do
+    (rows, columns) ← C.screenSize
+    let mainWidth  = columns
+        mainHeight = rows
 
-    let examineW = 60
-        examineH = 20
+    let examineW = 40
+        examineH = 10
         --examineX = (mainWidth - examineW) `div` 2
         --examineY = (mainHeight - examineH) `div` 2
         examineX = 2
@@ -69,29 +65,26 @@ createScrollWindow = do
 
 --------------------------------------------------------------------------------
 
-newtype ScrollWindowM a = ScrollWindowM { runScrollWindowM ∷ State ScrollData a }
-                        deriving (Functor, Applicative, Monad, MonadState ScrollData)
+setText ∷ String → ScrollData → ScrollData
+setText s sd = let w = view sd_lineWidth sd
+               in  setLines (lines' w length " " (words s)) sd
 
 
-updateScrollWindow ∷ ScrollWindowM () → ScrollData → ScrollData
-updateScrollWindow sw sd = execState (runScrollWindowM sw) sd
+setLines ∷ [String] → ScrollData → ScrollData
+setLines ls = sd_lines .~ ls
 
 
-instance ScrollWindowAPI ScrollWindowM where
-    setText s = do
-        w ← use sd_lineWidth
-        setLines (lines' w length " " (words s))
+scrollUp ∷ ScrollData → ScrollData
+scrollUp = sd_startLine %~ (\i → max 0 (i - 1))
 
-    setLines ls = sd_lines .= ls
 
-    scrollUp = sd_startLine %= (\i → max 0 (i - 1))
-
-    scrollDown = do
-        nsl ← uses sd_startLine (+1)  -- <------ Where are these +1's coming from???
-        tlc ← uses sd_lines length
-        vlc ← use sd_maxLines
-        when (nsl <= tlc - vlc) $
-            sd_startLine += 1 
+scrollDown ∷ ScrollData → ScrollData
+scrollDown sd = let nsl = views sd_startLine (+1) sd -- <------ Where are these +1's coming from???
+                    tlc = views sd_lines length sd
+                    vlc = view sd_maxLines sd
+                in  if (nsl <= tlc - vlc)
+                        then sd_startLine +~ 1 $ sd
+                        else sd
 
 --------------------------------------------------------------------------------
 
