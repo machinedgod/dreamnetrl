@@ -6,9 +6,12 @@ module Dreamnet.Dreamnet
 where
 
 import Prelude hiding (interact, take)
-import Control.Lens hiding (re)
-import Control.Monad.State hiding (get)
-import Data.Semigroup
+
+import Control.Lens        (makeLenses, use, uses, view, (^.), (.=), (%=))
+import Control.Monad       (void, when)
+import Control.Monad.State (StateT, lift, execStateT)
+import Data.Semigroup      ((<>))
+import Linear              (V2)
 
 import UI.NCurses.Class
 import qualified UI.NCurses  as C
@@ -26,11 +29,13 @@ import Dreamnet.ScrollWindow
 import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
+import Dreamnet.MapObject
+import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world ∷ World
+      _g_world ∷ World Object Visibility
     , _g_gameState ∷ GameState
     , _g_keepRunning ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -58,7 +63,7 @@ newGame dd = do
     sw  ← createScrollData
     cw  ← createChoiceData
     return $ Game {
-        _g_world        = (newWorld (fromTileMap dd m))
+        _g_world        = newWorld (fromTileMap m (objectFromTile dd) Unknown)
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
@@ -253,13 +258,18 @@ loopTheLoop = do
         loopTheLoop 
 
 
-updateWorld ∷ (MonadWorld w) ⇒ WorldEvent → w GameState
+allButTheBase ∷ Object → Bool
+allButTheBase (Base _ _ _) = False
+allButTheBase _            = True
+
+
+updateWorld ∷ (MonadWorld Object Visibility w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     movePlayer v
-    switchAim
+    switchAim allButTheBase
     updateVisible
     return Normal
-updateWorld NextAim = switchAim *> return Normal
+updateWorld NextAim = switchAim allButTheBase *> pure Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
@@ -277,6 +287,14 @@ updateWorld Get = get >>= \case
             return Normal
 updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
+
+
+objectInteraction ∷ (MonadWorld Object b w) ⇒ V2 Int → Object → w GameState
+objectInteraction v (Door o)     = changeObject_ v (Door (not o)) *> return Normal
+objectInteraction _ Computer     = return Interaction 
+objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)
+objectInteraction v (Union _ o2) = objectInteraction v o2
+objectInteraction _ o            = (w_status .= ("Tried interaction with: " <> show o)) *> pure Normal
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
@@ -306,8 +324,11 @@ renderNormal = do
     p  ← use (g_world.w_playerPos)
     ma ← use (g_world.w_aim)
     s  ← use (g_world.w_status)
+    
+    mats ← use (g_rendererData.rd_styles.s_materials)
+    def  ← use (g_rendererData.rd_styles.s_visibilityVisible)
     doRender $ do
-        drawMap m
+        drawMap objectToChar (objectToMat mats def) m
         drawPlayer p
         drawHud s
         maybe (return ()) drawAim ma

@@ -8,6 +8,10 @@ module Dreamnet.Renderer
 ( MonadRender(..)
 , RendererF
 
+, Styles
+, s_materials
+, s_visibilityVisible
+
 , RendererEnvironment
 , rd_styles
 , rd_mainWindow
@@ -26,10 +30,8 @@ module Dreamnet.Renderer
 import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.State
-import Linear
-import Data.Semigroup
-import Data.Maybe (fromMaybe)
-import Data.Bool (bool)
+import Linear               (V2(V2))
+import Data.Semigroup       ((<>))
 
 import UI.NCurses.Class
 import qualified UI.NCurses  as C
@@ -38,6 +40,7 @@ import qualified Data.Vector as V
 
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
+import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
@@ -165,44 +168,21 @@ drawCharAt (V2 x y) c s = do
     C.drawGlyph (C.Glyph c s)
 
 
-drawMap ∷ (MonadRender r) ⇒ WorldMap → r ()
-drawMap m = do
-    w   ← use rd_mainWindow
-    let vis = view wm_visible m
-
-    unknown ← use (rd_styles.s_visibilityUnknown)
-    known   ← use (rd_styles.s_visibilityKnown)
-    visible ← use (rd_styles.s_visibilityVisible)
-    mats    ← use (rd_styles.s_materials)
-    let drawTile i (o, v) = uncurry (drawCharAt $ coordLin m i) $
-                              case v of
-                                  Unknown → (' ', unknown)
-                                  Known   → (objectToChar o, known)
-                                  Visible → (objectToChar o, fromMaybe visible (objectToMat mats o))
+drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → [C.Attribute]) → WorldMap a Visibility → r ()
+drawMap chf matf m = do
+    u ← use (rd_styles.s_visibilityUnknown)
+    k ← use (rd_styles.s_visibilityKnown)
+    w ← use rd_mainWindow 
     updateWindow w $
-        V.imapM_ drawTile $ V.zip (m^.wm_data) vis
-
-
-objectToChar ∷ Object → Char
-objectToChar (Base c _ _)     = c
-objectToChar (Door o)         = bool '+' '\'' o
-objectToChar (Stairs u)       = bool '<' '>' u
-objectToChar (Prop c _ _ _ _) = c
-objectToChar (Person _)       = '@' -- TODO if ally, color green
-objectToChar Computer         = '$'
-objectToChar (ItemO _)        = '['
-objectToChar (Union _ o2)     = objectToChar o2
-
-
-objectToMat ∷ M.Map String [C.Attribute] → Object → Maybe [C.Attribute]
-objectToMat _    (Base _ _ _)     = Nothing
-objectToMat mats (Door _)         = "wood" `M.lookup` mats
-objectToMat mats (Stairs _)       = "wood" `M.lookup` mats
-objectToMat mats (Prop _ _ m _ _) = m `M.lookup` mats
-objectToMat _    (Person _)       = Nothing
-objectToMat mats  Computer        = "metal" `M.lookup` mats
-objectToMat mats (ItemO _)        = "blue plastic" `M.lookup` mats
-objectToMat mats (Union _ o2)     = objectToMat mats o2
+        V.imapM_ (drawTile u k) $ V.zip (m^.wm_data) (m^.wm_visible)
+    where
+        -- TODO I wonder if I can somehow reimplement this without relying on
+        -- pattern matching the Visibility (using Ord, perhaps?)
+        drawTile u k i (o, v) = uncurry (drawCharAt $ coordLin m i) $
+                                    case v of
+                                        Unknown → (' ', u)
+                                        Known   → (chf o, k)
+                                        Visible → (chf o, matf o)
 
 
 --drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()

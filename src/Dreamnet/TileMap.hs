@@ -87,9 +87,13 @@ findAll ch tl = let foldCoord i c l = bool l (coordLin tl i : l) (c == ch)
 
 --------------------------------------------------------------------------------
 
+type Width  = Word
+type Height = Word
+
+
 data TileMap = TileMap {
-      _m_width      ∷ Word
-    , _m_height     ∷ Word
+      _m_width      ∷ Width
+    , _m_height     ∷ Height
     , _m_layers     ∷ V.Vector TileLayer
     , _m_positioned ∷ M.Map (V2 Int) [Tile]
     , _m_desc       ∷ String

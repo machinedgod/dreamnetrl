@@ -28,18 +28,16 @@ import qualified UI.NCurses as C
 
 --------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------
-
 -- In case I forget: Data types here are INT and not WORD because WORD
 -- wraps around instead of going into negative numbers or clipping.
 -- Bit me in the ass nicely...
 data ScrollData = ScrollData {
-      _sd_lines ∷ [String]
+      _sd_lines     ∷ [String]
     , _sd_lineWidth ∷ Int
-    , _sd_maxLines ∷ Int
+    , _sd_maxLines  ∷ Int
     , _sd_startLine ∷ Int
 
-    , _sd_window ∷ C.Window
+    , _sd_window    ∷ C.Window
     }
 
 makeLenses ''ScrollData
