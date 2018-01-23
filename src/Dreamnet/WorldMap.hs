@@ -40,6 +40,9 @@ type Range = Word
 type Width  = Word
 type Height = Word
 
+-- | Type variables
+--   a: gameplay data
+--   b: visibility data
 data WorldMap a b = WorldMap {
       _wm_width   ∷ Width
     , _wm_height  ∷ Height

@@ -2,7 +2,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Dreamnet.DesignData
-( DesignData
+( ItemType
+
+, DesignData
 , dd_characters
 , dd_defaultRedshirt
 
@@ -18,9 +20,14 @@ import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
+type ItemType = String
+
+--------------------------------------------------------------------------------
+
+
 data DesignData = DesignData {
-      _dd_characters      ∷ M.Map String Character
-    , _dd_defaultRedshirt ∷ Character
+      _dd_characters      ∷ M.Map String (Character ItemType ConversationNode) 
+    , _dd_defaultRedshirt ∷ Character ItemType ConversationNode
     }
 
 makeLenses ''DesignData
@@ -36,7 +43,7 @@ defaultDesignData =
         toNamedTuple = (,) <$> (view ch_name) <*> id
 
 
-characters ∷ [Character]
+characters ∷ [Character ItemType ConversationNode]
 characters =
     [ newCharacter "Moe"    moeConvo
     , newCharacter "Johnny" johnnyConvo

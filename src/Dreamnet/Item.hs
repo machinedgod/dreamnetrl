@@ -3,31 +3,20 @@
 {-# LANGUAGE DataKinds, KindSignatures #-}
 
 module Dreamnet.Item
-( Item(Item)
-, i_name
-, SlotType(..)
+( SlotType(..)
 , Slot(Slot)
 , s_item
 ) where
 
-import Control.Lens
-
---------------------------------------------------------------------------------
-
-newtype Item = Item {
-      _i_name ∷ String
-    }
-    deriving (Eq, Show)
-
-makeLenses ''Item
+import Control.Lens (makeLenses)
 
 --------------------------------------------------------------------------------
 
 data SlotType = Hand
               | Torso
 
-newtype Slot (t ∷ SlotType) = Slot {
-      _s_item ∷ Maybe Item
+newtype Slot (t ∷ SlotType) a = Slot {
+      _s_item ∷ Maybe a
     }
     deriving (Eq, Show)
 

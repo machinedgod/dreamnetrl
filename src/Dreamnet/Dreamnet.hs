@@ -7,7 +7,7 @@ where
 
 import Prelude hiding (interact, take)
 
-import Control.Lens        (makeLenses, use, uses, view, (^.), (.=), (%=))
+import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
@@ -31,11 +31,12 @@ import Dreamnet.ComputerModel
 import Dreamnet.Renderer
 import Dreamnet.MapObject
 import Dreamnet.Visibility
+import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world ∷ World Object Visibility
+      _g_world ∷ World Object Visibility (Character ItemType ConversationNode)
     , _g_gameState ∷ GameState
     , _g_keepRunning ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -63,7 +64,9 @@ newGame dd = do
     sw  ← createScrollData
     cw  ← createChoiceData
     return $ Game {
-        _g_world        = newWorld (fromTileMap m (objectFromTile dd) Unknown)
+        _g_world        = newWorld
+                              (fromTileMap m (objectFromTile dd) Unknown)
+                              (newCharacter "Carla" End)
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
@@ -116,7 +119,7 @@ onStateSwitch Normal (Examination s) = do
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
-    is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap (view i_name))
+    is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap show)
     g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
     lift $ do
@@ -263,7 +266,7 @@ allButTheBase (Base _ _ _) = False
 allButTheBase _            = True
 
 
-updateWorld ∷ (MonadWorld Object Visibility w) ⇒ WorldEvent → w GameState
+updateWorld ∷ (MonadWorld Object Visibility (Character String c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     movePlayer v
     switchAim allButTheBase
@@ -278,7 +281,7 @@ updateWorld Interact = do
     return s
 updateWorld Get = get >>= \case
         Just i → do
-            w_status .= "Picked up " <> (i^.i_name)
+            w_status .= "Picked up " <> i
             w_aim .= Nothing
             return Normal
         Nothing → do
@@ -289,7 +292,7 @@ updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
 
 
-objectInteraction ∷ (MonadWorld Object b w) ⇒ V2 Int → Object → w GameState
+objectInteraction ∷ (MonadWorld Object b c w) ⇒ V2 Int → Object → w GameState
 objectInteraction v (Door o)     = changeObject_ v (Door (not o)) *> return Normal
 objectInteraction _ Computer     = return Interaction 
 objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)

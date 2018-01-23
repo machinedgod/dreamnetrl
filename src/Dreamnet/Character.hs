@@ -53,10 +53,9 @@ module Dreamnet.Character
 , newCharacter
 ) where
 
-import Control.Lens
+import Control.Lens (makeLenses)
 
 import Dreamnet.Item
-import Dreamnet.Conversation
 
 --------------------------------------------------------------------------------
 
@@ -114,16 +113,16 @@ data CommunicationSkills = CommunicationSkills {
 makeLenses ''CommunicationSkills
 
 
-data Character = Character {
+data Character a b = Character {
       _ch_name      ∷ String
 
-    , _ch_leftHand  ∷ Slot 'Hand
-    , _ch_rightHand ∷ Slot 'Hand
-    , _ch_torso ∷ Slot 'Torso
+    , _ch_leftHand  ∷ Slot 'Hand a
+    , _ch_rightHand ∷ Slot 'Hand a
+    , _ch_torso     ∷ Slot 'Torso a
 
-    , _ch_conversation ∷ ConversationNode
+    , _ch_conversation ∷ b
 
-    , _ch_inventory ∷ [Item]
+    , _ch_inventory ∷ [a] -- TODO remove intrinsic inventory!
 
     -- Earned only through missions and combat,
     -- represents general experience
@@ -143,7 +142,7 @@ data Character = Character {
 makeLenses ''Character
 
 
-newCharacter ∷ String → ConversationNode → Character
+newCharacter ∷ String → b → Character a b
 newCharacter n cn = Character n empty empty empty cn inv 0 cs es ss
     where
         empty = Slot Nothing

@@ -21,6 +21,7 @@ import Data.Maybe     (fromMaybe)
 import qualified Data.Map as M  (Map, lookup)
 
 import Dreamnet.ObjectProperties
+import Dreamnet.Conversation     (ConversationNode)
 import Dreamnet.Character        (Character, ch_name)
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
 import Dreamnet.TileMap          (Tile, t_char)
@@ -44,7 +45,7 @@ data Object = Base      Char Passable SeeThrough
             | Door      Opened
             | Stairs    GoingUp
             | Prop      Char Name Material Passable SeeThrough
-            | Person    Character
+            | Person    (Character String ConversationNode)
             | Computer
             | ItemO     String
             | Union Object Object

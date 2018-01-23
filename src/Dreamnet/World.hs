@@ -7,8 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module Dreamnet.World
-( module Dreamnet.Character
-, MonadWorld
+( MonadWorld
 
 , World
 , w_playerPos
@@ -49,24 +48,25 @@ import Dreamnet.ObjectProperties
 import Dreamnet.Utils
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
-import Dreamnet.Item
-import Dreamnet.Character
 import Dreamnet.GameState
-import Dreamnet.Conversation
 import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
-class (MonadState (World a b) w) ⇒ MonadWorld a b w
+class (MonadState (World a b c) w) ⇒ MonadWorld a b c w
 
     
 -- TODO add functions that establish pipelines input->update->render
 
 --------------------------------------------------------------------------------
  
-data World a b = World {
+-- | Type variables
+--   a: gameplay data
+--   b: visibility data
+--   c: character data
+data World a b c = World {
       _w_playerPos       ∷ V2 Int
-    , _w_playerCharacter ∷ Character
+    , _w_playerCharacter ∷ c
     , _w_aim             ∷ Maybe (V2 Int)
     , _w_map             ∷ WorldMap a b
     , _w_status          ∷ String
@@ -75,11 +75,11 @@ data World a b = World {
 makeLenses ''World
 
 
-newWorld ∷ WorldMap a b → World a b
-newWorld m = 
+newWorld ∷ WorldMap a b → c → World a b c
+newWorld m ch = 
     World {
       _w_playerPos       = fromMaybe (error "Map is missing spawn points!") $ (m^.wm_spawns) V.!? 0
-    , _w_playerCharacter = newCharacter "Carla" End
+    , _w_playerCharacter = ch
     , _w_aim             = Nothing
     , _w_map             = m
     , _w_status          = ""
@@ -87,19 +87,19 @@ newWorld m =
 
 --------------------------------------------------------------------------------
 
-newtype WorldM a b c = WorldM { runWorldM ∷ State (World a b) c }
-                     deriving (Functor, Applicative, Monad, MonadState (World a b))
+newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
+                       deriving (Functor, Applicative, Monad, MonadState (World a b c))
 
 
-instance (IsPassable a, Describable a) ⇒ MonadWorld a Visibility (WorldM a Visibility)
+instance (IsPassable a, Describable a) ⇒ MonadWorld a Visibility b (WorldM a Visibility b)
 
 
-runWorld ∷ WorldM a b GameState → World a b → (GameState, World a b)
+runWorld ∷ WorldM a b c GameState → World a b c → (GameState, World a b c)
 runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
-changeObject ∷ (MonadWorld a b w) ⇒ V2 Int → a → w a
+changeObject ∷ (MonadWorld a b c w) ⇒ V2 Int → a → w a
 changeObject v o = do
     m        ← use w_map
     let oldo = objectAt v m
@@ -108,11 +108,11 @@ changeObject v o = do
     return oldo
 
 
-changeObject_ ∷ (MonadWorld a b w) ⇒ V2 Int → a → w ()
+changeObject_ ∷ (MonadWorld a b c w) ⇒ V2 Int → a → w ()
 changeObject_ v = void . changeObject v
 
 
-movePlayer ∷ (IsPassable a, MonadWorld a b w) ⇒ V2 Int → w ()
+movePlayer ∷ (IsPassable a, MonadWorld a b c w) ⇒ V2 Int → w ()
 movePlayer v = do
     npp ← uses w_playerPos (+v)
     obj ← uses w_map (objectAt npp)
@@ -120,7 +120,7 @@ movePlayer v = do
         w_playerPos += v
 
 
-switchAim ∷ (MonadWorld a b w) ⇒ (a → Bool) → w ()
+switchAim ∷ (MonadWorld a b c w) ⇒ (a → Bool) → w ()
 switchAim nof = do
     pp ← use w_playerPos
     os ← uses w_map (interestingObjects pp 2 nof)
@@ -130,18 +130,18 @@ switchAim nof = do
         _      → w_aim .= headMay os
 
 
-interact ∷ (MonadWorld a b w) ⇒ (V2 Int → a → w ()) → w ()
+interact ∷ (MonadWorld a b c w) ⇒ (V2 Int → a → w ()) → w ()
 interact f = interactOrElse f (return ())
 
 
-interactOrElse ∷ (MonadWorld a b w) ⇒ (V2 Int → a → w c) → w c → w c
+interactOrElse ∷ (MonadWorld a b c w) ⇒ (V2 Int → a → w d) → w d → w d
 interactOrElse f e = fromMaybe e <=< runMaybeT $ do
     v ← MaybeT (use w_aim)
     o ← uses w_map (objectAt v)
     return (f v o)
 
 
-examine ∷ (Describable a, MonadWorld a b w) ⇒ w String
+examine ∷ (Describable a, MonadWorld a b c w) ⇒ w String
 examine = interactOrElse (const examineText) (use (w_map.wm_desc))
     where
         examineText = pure . description
@@ -154,8 +154,8 @@ examine = interactOrElse (const examineText) (use (w_map.wm_desc))
         --                       in  intercalate ", " (take (length sl - 1) sl) <> " and " <> last sl
 
 
-get ∷ (MonadWorld a b w) ⇒ w (Maybe Item)
-get = return Nothing
+get ∷ (MonadWorld a b c w) ⇒ w (Maybe d)
+get = pure Nothing
 --get = interactOrElse getItem (return Nothing)
 --    where
 --        getItem v o = runMaybeT $ do
@@ -168,7 +168,7 @@ get = return Nothing
 --------------------------------------------------------------------------------
 
 -- TODO redo this, to be a function, and calculate on demand, not prefront
-updateVisible ∷ (IsSeeThrough a, MonadWorld a Visibility w) ⇒ w ()
+updateVisible ∷ (IsSeeThrough a, MonadWorld a Visibility c w) ⇒ w ()
 updateVisible = do
     pp ← use w_playerPos
     m  ← use w_map
