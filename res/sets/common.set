@@ -33,21 +33,3 @@
 +,Door,False
 >,Stairs,True
 <,Stairs,False
-▮,Prop,TV stand,False,True,wood
-□,Prop,Coffee table,False,True,wood
-#,Prop,Couch,False,True,red plastic
-o,Prop,Kitchen chair,False,True,red plastic
-0,Prop,Kitchen table,False,True,wood
-f,Prop,Fridge,False,True,metal
-█,Prop,Counter,False,True,wood
-%,Prop,Stove,False,True,metal
-t,Prop,Toilet,False,True,ceramics
-s,Prop,Sink,False,True,ceramics
-!,Prop,Shower,False,False,metal
-w,Prop,Washer,False,True,metal
-d,Prop,Wardrobe,False,False,wood
-T,Prop,Night table,False,True,wood
-b,Prop,Bed,False,True,red plastic
-C,Prop,Crate,False,True,wood
-S,Prop,Shelf,False,False,wood
-&,Computer,False,False,metal

@@ -59,7 +59,8 @@ newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
     --m   ← loadTileMap "res/apartment0"
-    m   ← loadTileMap "res/bar"
+    --m   ← loadTileMap "res/bar"
+    m   ← loadTileMap "res/job"
     cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
