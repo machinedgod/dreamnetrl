@@ -121,7 +121,6 @@ objectAt ∷ V2 Int → WorldMap a b → a
 objectAt v m = views wm_data (V.! linCoord m v) m
 
 
-
 interestingObjects ∷ V2 Int → Range → (a → Bool) → WorldMap a b → [V2 Int]
 interestingObjects v r ff m =
     let points = filter (not . outOfBounds m) (floodFillRange r v)

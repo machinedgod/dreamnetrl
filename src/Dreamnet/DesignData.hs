@@ -2,9 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Dreamnet.DesignData
-( ItemType
-
-, DesignData
+( DesignData
 , dd_characters
 , dd_defaultRedshirt
 
@@ -20,14 +18,9 @@ import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
-type ItemType = String
-
---------------------------------------------------------------------------------
-
-
 data DesignData = DesignData {
-      _dd_characters      ∷ M.Map String (Character ItemType ConversationNode) 
-    , _dd_defaultRedshirt ∷ Character ItemType ConversationNode
+      _dd_characters      ∷ M.Map String (Character Item ConversationNode) 
+    , _dd_defaultRedshirt ∷ Character Item ConversationNode
     }
 
 makeLenses ''DesignData
@@ -43,7 +36,7 @@ defaultDesignData =
         toNamedTuple = (,) <$> (view ch_name) <*> id
 
 
-characters ∷ [Character ItemType ConversationNode]
+characters ∷ [Character Item ConversationNode]
 characters =
     [ newCharacter "Moe"    moeConvo
     , newCharacter "Johnny" johnnyConvo
@@ -53,6 +46,7 @@ characters =
 --------------------------------------------------------------------------------
 -- Conversations
 -- TODO add some conversation builder monad, to make this easier to enter
+-- TODO do not really explain stuff. Let player figure it out by playing.
 
 redshirtConvo ∷ ConversationNode
 redshirtConvo = ListenNode "Beat it, lizzie!" End

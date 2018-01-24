@@ -4,6 +4,7 @@ TAGS
 cabal.sandbox.config
 dist/
 tags
+ctags
 *.aux
 *.hp
 *.prof

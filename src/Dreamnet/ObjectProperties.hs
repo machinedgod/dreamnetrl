@@ -4,6 +4,7 @@ module Dreamnet.ObjectProperties
 ( IsPassable(..)
 , IsSeeThrough(..)
 , Describable(..)
+, HasAi(..)
 ) where
 
 
@@ -16,3 +17,5 @@ class IsSeeThrough a where
 class Describable a where
     description ∷ a → String
 
+class HasAi a where
+    runAi ∷ a → a

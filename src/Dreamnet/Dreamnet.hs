@@ -36,7 +36,7 @@ import Dreamnet.Character
 --------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world ∷ World Object Visibility (Character ItemType ConversationNode)
+      _g_world ∷ World Object Visibility (Character Item ConversationNode)
     , _g_gameState ∷ GameState
     , _g_keepRunning ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -120,7 +120,7 @@ onStateSwitch Normal (Examination s) = do
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
-    is ← uses (g_world.w_playerCharacter.ch_inventory) (fmap show)
+    is ← uses (g_world.w_playerCharacter) (fmap show . equippedContainers)
     g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
     lift $ do
@@ -267,11 +267,12 @@ allButTheBase (Base _ _ _) = False
 allButTheBase _            = True
 
 
-updateWorld ∷ (MonadWorld Object Visibility (Character String c) w) ⇒ WorldEvent → w GameState
+updateWorld ∷ (MonadWorld Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     movePlayer v
     switchAim allButTheBase
     updateVisible
+    updateAi
     return Normal
 updateWorld NextAim = switchAim allButTheBase *> pure Normal
 updateWorld Examine = Examination <$> examine
@@ -279,16 +280,14 @@ updateWorld Interact = do
     s ← interactOrElse objectInteraction (return Normal)
     w_aim .= Nothing
     updateVisible
+    updateAi
     return s
-updateWorld Get = get >>= \case
-        Just i → do
-            w_status .= "Picked up " <> i
-            w_aim .= Nothing
-            return Normal
-        Nothing → do
-            w_status .= "There's nothing there."
-            w_aim .= Nothing
-            return Normal
+updateWorld Get = do
+    o ← get
+    w_status .= maybe  "There's nothing there." ("Picked up " <>) o 
+    w_aim    .= Nothing
+    updateAi
+    return Normal
 updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
 

@@ -22,7 +22,7 @@ import qualified Data.Map as M  (Map, lookup)
 
 import Dreamnet.ObjectProperties
 import Dreamnet.Conversation     (ConversationNode)
-import Dreamnet.Character        (Character, ch_name)
+import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
 import Dreamnet.TileMap          (Tile, t_char)
 import Dreamnet.TileData         (ttype, readBoolProperty, readStringProperty)
@@ -45,9 +45,9 @@ data Object = Base      Char Passable SeeThrough
             | Door      Opened
             | Stairs    GoingUp
             | Prop      Char Name Material Passable SeeThrough
-            | Person    (Character String ConversationNode)
+            | Person    (Character Item ConversationNode)
             | Computer
-            | ItemO     String
+            | ItemO     Item
             | Union Object Object
             deriving (Eq, Show)
 
@@ -73,7 +73,7 @@ instance Describable Object where
     description (Prop _ n _ _ _) = "A " <> n <> "."
     description (Person c)       = "Its " <> (c^.ch_name) <> "."
     description Computer         = "Your machine. You wonder if Devin mailed you about the job."
-    description (ItemO n)        = "A " <> n <> "."
+    description (ItemO (Item n)) = "A " <> n <> "."
     description (Union o1 o2)    = let md  = description o1
                                        md2 = description o2
                                    in  md `mappend` ", " `mappend` md2
@@ -90,6 +90,10 @@ instance IsSeeThrough Object where
     isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
     {-# INLINE isSeeThrough #-}
 
+instance HasAi Object where
+    runAi (Union o1 o2)    = Union (runAi o1) (runAi o2)
+    runAi x                = x
+
 
 
 objectFromTile ∷ DesignData → Tile → Object
@@ -102,7 +106,7 @@ objectFromTile dd t@(ttype → "Person")   = let name      = 1 `readStringProper
                                            in  Person (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
 objectFromTile _    (ttype → "Spawn")    = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
 objectFromTile _    (ttype → "Computer") = Computer
-objectFromTile _  t@(ttype → "Item")     = ItemO (1 `readStringProperty` t)
+objectFromTile _  t@(ttype → "Item")     = ItemO $ Item (1 `readStringProperty` t)
 objectFromTile _  t                      = error $ "Can't convert Tile type into Object: " <> show t
 {-# INLINE objectFromTile #-}
 

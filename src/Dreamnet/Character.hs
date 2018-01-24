@@ -1,9 +1,15 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification, StandaloneDeriving #-}
+{-# LANGUAGE DataKinds, KindSignatures #-}
 
 module Dreamnet.Character
-( module Dreamnet.Item
+( ItemTraits(..)
+, Item(..)
+
+, SlotType(..)
+, Slot(..)
+, SlotWrapper(..)
 
 , CombatSkills
 , cs_remainingPoints
@@ -45,17 +51,51 @@ module Dreamnet.Character
 , ch_rightHand
 , ch_torso
 , ch_conversation
-, ch_inventory
 , ch_experience
 , ch_combat
 , ch_electronics
 , ch_social
 , newCharacter
+
+, equipmentSlots
+, equippedSlots
+, equippedContainers
 ) where
 
-import Control.Lens (makeLenses)
 
-import Dreamnet.Item
+import Control.Lens (makeLenses, (^.))
+import Data.Maybe   (isJust, fromMaybe)
+
+--------------------------------------------------------------------------------
+
+class ItemTraits i where
+    isContainer ∷ i → Bool
+
+newtype Item = Item String
+             deriving (Eq, Show)
+
+instance ItemTraits Item where
+    isContainer = const False
+
+--------------------------------------------------------------------------------
+
+data SlotType = Hand
+              | Torso
+
+
+newtype Slot (t ∷ SlotType) a = Slot (Maybe a)
+
+deriving instance (Show a) ⇒ Show (Slot t a)
+deriving instance (Eq a) ⇒ Eq (Slot t a)
+
+
+-- Cannot use record syntax due to escaped type variables
+data SlotWrapper a = forall t. SlotWrapper (Slot t a)
+
+deriving instance (Show a) ⇒ Show (SlotWrapper a)
+
+instance (Eq a) ⇒ Eq (SlotWrapper a) where
+    (SlotWrapper (Slot i)) == (SlotWrapper (Slot i')) = i == i'
 
 --------------------------------------------------------------------------------
 
@@ -122,8 +162,6 @@ data Character a b = Character {
 
     , _ch_conversation ∷ b
 
-    , _ch_inventory ∷ [a] -- TODO remove intrinsic inventory!
-
     -- Earned only through missions and combat,
     -- represents general experience
     -- Used to earn skillpoints in each of the skill branches
@@ -143,11 +181,29 @@ makeLenses ''Character
 
 
 newCharacter ∷ String → b → Character a b
-newCharacter n cn = Character n empty empty empty cn inv 0 cs es ss
+newCharacter n cn = Character n empty empty empty cn 0 cs es ss
     where
         empty = Slot Nothing
-        inv   = []
         cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
         es    = ElectronicsSkills 0 0 0 0
         ss    = CommunicationSkills 0 0 0 0 0 0 0
+
+
+equipmentSlots ∷ Character a b → [SlotWrapper a]
+equipmentSlots ch = [ SlotWrapper (ch ^. ch_leftHand)
+                    , SlotWrapper (ch ^. ch_rightHand)
+                    , SlotWrapper (ch ^. ch_torso)
+                    ]
+
+
+equippedSlots ∷ Character a b → [SlotWrapper a]
+equippedSlots = filter hasItem . equipmentSlots
+    where
+        hasItem (SlotWrapper (Slot mi)) = isJust mi
+
+
+equippedContainers ∷ (ItemTraits a) ⇒ Character a b → [SlotWrapper a]
+equippedContainers = filter containers . equippedSlots
+    where
+        containers (SlotWrapper (Slot i)) = fromMaybe False (isContainer <$> i)
 

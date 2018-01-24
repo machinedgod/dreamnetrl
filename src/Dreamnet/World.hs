@@ -29,6 +29,7 @@ module Dreamnet.World
 , examine
 , get
 , updateVisible
+, updateAi
 ) where
 
 import Prelude hiding (interact, rem)
@@ -188,6 +189,10 @@ updateVisible = do
         visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l
                                    rem   = dropWhile ((==True) . snd) l
                                in  bool (head rem : front) front (null rem)
+
+
+updateAi ∷ (HasAi a, MonadWorld a b c w) ⇒ w ()
+updateAi = w_map.wm_data %= fmap runAi
 
 
 coordVisible ∷ (IsSeeThrough a) ⇒ WorldMap a b → V2 Int → V2 Int → [(V2 Int, Bool)]
