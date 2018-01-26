@@ -35,6 +35,7 @@ type Opened     = Bool
 type GoingUp    = Bool
 type Name       = String
 type Material   = String
+type Alarmed    = Bool
 
 
 -- TODO Container should be a flag on prop or something?
@@ -46,6 +47,7 @@ data Object = Base      Char Passable SeeThrough
             | Stairs    GoingUp
             | Prop      Char Name Material Passable SeeThrough
             | Person    (Character Item ConversationNode)
+            | Camera    Alarmed
             | Computer
             | ItemO     Item
             | Union Object Object
@@ -61,6 +63,7 @@ instance IsPassable Object where
     isPassable (Stairs _)       = True
     isPassable (Prop _ _ _ p _) = p
     isPassable (Person _)       = False -- TODO Check if allied
+    isPassable (Camera _)       = True
     isPassable Computer         = False
     isPassable (ItemO _)        = True
     isPassable (Union o1 o2)    = isPassable o1 && isPassable o2
@@ -72,6 +75,10 @@ instance Describable Object where
     description (Stairs t)       = "If map changing would've been coded in, you would use these to go " <> bool "down." "up." t
     description (Prop _ n _ _ _) = "A " <> n <> "."
     description (Person c)       = "Its " <> (c^.ch_name) <> "."
+    description (Camera a)       = bool
+                                       "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
+                                       "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
+                                       a
     description Computer         = "Your machine. You wonder if Devin mailed you about the job."
     description (ItemO (Item n)) = "A " <> n <> "."
     description (Union o1 o2)    = let md  = description o1
@@ -85,14 +92,21 @@ instance IsSeeThrough Object where
     isSeeThrough (Stairs _)       = True
     isSeeThrough (Prop _ _ _ _ s) = s
     isSeeThrough (Person _)       = True
+    isSeeThrough (Camera _)       = True
     isSeeThrough Computer         = True
     isSeeThrough (ItemO _)        = True
     isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
     {-# INLINE isSeeThrough #-}
 
+
+-- TODO I *really* need to think about how objects perceive and affect their
+-- environment. I assume this'll have to start from the player, and extract a
+-- whole lot of player code into something that can be controlled either by AI,
+-- or by keyboard
 instance HasAi Object where
-    runAi (Union o1 o2)    = Union (runAi o1) (runAi o2)
-    runAi x                = x
+    runAi (Camera a)    = Camera (not a) 
+    runAi (Union o1 o2) = Union (runAi o1) (runAi o2)
+    runAi x             = x
 
 
 
@@ -105,24 +119,28 @@ objectFromTile dd t@(ttype → "Person")   = let name      = 1 `readStringProper
                                                maybeChar = M.lookup name (dd^.dd_characters)
                                            in  Person (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
 objectFromTile _    (ttype → "Spawn")    = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+objectFromTile _    (ttype → "Camera")   = Camera False
 objectFromTile _    (ttype → "Computer") = Computer
 objectFromTile _  t@(ttype → "Item")     = ItemO $ Item (1 `readStringProperty` t)
 objectFromTile _  t                      = error $ "Can't convert Tile type into Object: " <> show t
 {-# INLINE objectFromTile #-}
 
 
+-- TODO Errrrrr, this should be done through the tileset???
 objectToChar ∷ Object → Char
 objectToChar (Base c _ _)     = c
 objectToChar (Door o)         = bool '+' '\'' o
 objectToChar (Stairs u)       = bool '<' '>' u
 objectToChar (Prop c _ _ _ _) = c
 objectToChar (Person _)       = '@' -- TODO if ally, color green
+objectToChar (Camera _)       = '*'
 objectToChar Computer         = '$'
 objectToChar (ItemO _)        = '['
 objectToChar (Union _ o2)     = objectToChar o2
 {-# INLINE objectToChar #-}
 
 
+-- TODO Errrrrr, this should be done through the tileset???
 objectToMat ∷ M.Map String a → a → Object → a
 --objectToMat ∷ M.Map String [C.Attribute] → Object → [C.Attribute] → [C.Attribute]
 objectToMat _    def (Base _ _ _)     = def
@@ -130,6 +148,10 @@ objectToMat mats def (Door _)         = fromMaybe def $ "wood" `M.lookup` mats
 objectToMat mats def (Stairs _)       = fromMaybe def $ "wood" `M.lookup` mats
 objectToMat mats def (Prop _ _ m _ _) = fromMaybe def $ m `M.lookup` mats
 objectToMat _    def (Person _)       = def
+objectToMat mats def (Camera a)       = fromMaybe def $ bool
+                                             ("metal" `M.lookup` mats)
+                                             ("red plastic" `M.lookup` mats)
+                                             a
 objectToMat mats def  Computer        = fromMaybe def $ "metal" `M.lookup` mats
 objectToMat mats def (ItemO _)        = fromMaybe def $ "blue plastic" `M.lookup` mats
 objectToMat mats def (Union _ o2)     = objectToMat mats def o2
