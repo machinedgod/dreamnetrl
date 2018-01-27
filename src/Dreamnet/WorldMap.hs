@@ -69,7 +69,7 @@ fromTileMap tm t2o dv =
                         mergeTiles []     = error "Positioned tile list empty, instead of not being added at all! :-O"
                         mergeTiles [t]    = t2o t
                         mergeTiles l      = foldr1 (<>) $ fmap t2o l
-                        addPositioned i o = maybe o ((<> o) . mergeTiles) (maybeObjects i)
+                        addPositioned i o = maybe o ((o <>) . mergeTiles) (maybeObjects i)
                     in  V.imap addPositioned layerData
     , _wm_visible = V.replicate squareSize dv
     , _wm_desc    = tm^.m_desc

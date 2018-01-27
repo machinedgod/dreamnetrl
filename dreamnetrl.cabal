@@ -55,7 +55,26 @@ executable dreamnetrl
   extra-libraries:     tinfo
 
   -- Modules included in this executable, other than Main.
-  -- other-modules:       
+  other-modules:       UI.NCurses.Class
+                       Dreamnet.Character
+                       Dreamnet.Utils
+                       Dreamnet.Input
+                       Dreamnet.WorldMap
+                       Dreamnet.ObjectProperties
+                       Dreamnet.TileData
+                       Dreamnet.Renderer
+                       Dreamnet.MapObject
+                       Dreamnet.ChoiceWindow
+                       Dreamnet.Visibility
+                       Dreamnet.GameState
+                       Dreamnet.TileMap
+                       Dreamnet.Dreamnet
+                       Dreamnet.ComputerModel
+                       Dreamnet.World
+                       Dreamnet.DesignData
+                       Dreamnet.Conversation
+                       Dreamnet.CoordVector
+                       Dreamnet.ScrollWindow
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    

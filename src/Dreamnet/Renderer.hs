@@ -80,6 +80,7 @@ class (MonadState RendererEnvironment r) ⇒ MonadRender r where
     updateWindow ∷ C.Window → C.Update () → r ()
     
 
+-- TODO double buffering
 newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.Curses a }
                     deriving (Functor, Applicative, Monad, MonadState RendererEnvironment, MonadCurses)
 
@@ -183,38 +184,6 @@ drawMap chf matf m = do
                                         Unknown → (' ', u)
                                         Known   → (chf o, k)
                                         Visible → (chf o, matf o)
-
-
---drawObject ∷ (MonadRender r) ⇒ V2 Int → Object → r ()
---drawObject v o = do
---    m   ← view w_map
---    vis ← view w_visible
---
---    mats   ← use (rd_styles.s_materials)
---    matu   ← use (rd_styles.s_unknown)
---    items  ← views (w_items) (maybe [] (const [C.AttributeReverse]) . M.lookup v)
---    known  ← use (rd_styles.s_visibilityKnown)
---
---    w  ← use (rd_mainWindow)
---    case isVisible vis m of
---        Unknown → return ()
---        Known   → updateWindow w $ drawCharAt v (objectChar o) known
---        Visible → updateWindow w $ drawCharAt v (objectChar o) (objectMat matu mats o)
---    where
---        isVisible vis m = vis V.! linCoord m v
---        objectChar (Person n)       = '@'
---        objectChar (Door o)         = bool '+' '\'' o
---        objectChar (Stairs u)       = bool '<' '>' u
---        objectChar (Prop _ _ _ c _) = c
---        objectMat matu mats Computer   = fromMaybe matu $ M.lookup "metal" mats
---        objectMat matu mats (Person _) = [] -- If ally, green. Also use red shades to communicate suspicion when sneaking
---        objectMat matu mats (Door _)   = fromMaybe matu $ M.lookup "wood" mats
---        objectMat matu mats (Stairs _) = fromMaybe matu $ M.lookup "wood" mats
---        objectMat matu mats (Prop _ _ _ _ m) = fromMaybe matu $ M.lookup m mats
-
-
---drawObjects ∷ (MonadRender r) ⇒ r ()
---drawObjects = view (w_objects) >>= M.foldWithKey (\k v p → p *> drawObject k v) (return ())
 
 
 drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r ()
