@@ -9,6 +9,10 @@ module Dreamnet.ObjectProperties
 ) where
 
 
+import Linear (V2)
+
+--------------------------------------------------------------------------------
+
 class IsPassable a where
     isPassable ∷ a → Bool
 
@@ -19,4 +23,4 @@ class Describable a where
     description ∷ a → String
 
 class HasAi m a where
-    runAi ∷ a → m a
+    runAi ∷ V2 Int → a → m a

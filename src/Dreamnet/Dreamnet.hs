@@ -5,7 +5,7 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
+import Control.Lens        (makeLenses, use, uses, view, views, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
@@ -58,8 +58,8 @@ newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
     --m   ← loadTileMap "res/apartment0"
-    m   ← loadTileMap "res/bar"
-    --m   ← loadTileMap "res/job"
+    --m   ← loadTileMap "res/bar"
+    m   ← loadTileMap "res/job"
     cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
@@ -268,27 +268,46 @@ allButTheBase _      = True
 
 updateWorld ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
+    setStatus ""
     movePlayer v
     switchAim (pure allButTheBase)
     updateVisible
-    updateAi
+    updateAi *> alarmStateCheck
     return Normal
 updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
+    setStatus ""
     s ← interactOrElse objectInteraction (pure Normal)
     switchAim Nothing
     updateVisible
-    updateAi
+    updateAi *> alarmStateCheck
     return s
 updateWorld Get = do
+    setStatus ""
     o ← get
     setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
     switchAim Nothing
-    updateAi
+    updateAi *> alarmStateCheck
+    return Normal
+updateWorld Wait = do
+    setStatus ""
+    updateVisible
+    updateAi *> alarmStateCheck
     return Normal
 updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
+
+
+alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
+alarmStateCheck = do
+    wm ← worldMap
+    let isAlarm = views wm_data (foldr cameraActivated False) wm
+    when isAlarm $ setStatus "***** ALARM *****"
+    where
+        cameraActivated (Camera x)    p = p || (x > 7)
+        cameraActivated (Union o1 o2) p = p || cameraActivated o1 p || cameraActivated o2 p
+        cameraActivated _             p = p || False
 
 
 objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState

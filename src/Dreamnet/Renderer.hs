@@ -132,11 +132,15 @@ initRenderer = do
                 cWhite   ←  C.newColorID  C.ColorWhite    C.ColorBlack  7
 
                 let materials = M.fromList
-                        [ ("wood"          , [ C.AttributeColor cYellow, C.AttributeDim  ])
-                        , ("metal"         , [ C.AttributeColor cCyan,   C.AttributeBold ])
-                        , ("blue plastic"  , [ C.AttributeColor cCyan,   C.AttributeDim  ])
-                        , ("red plastic"   , [ C.AttributeColor cRed,    C.AttributeDim  ])
-                        , ("ceramics"      , [ C.AttributeColor cWhite,  C.AttributeDim  ])
+                        [ ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
+                        , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
+                        , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
+                        , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
+                        , ("green plastic"  , [ C.AttributeColor cGreen,  C.AttributeDim  ])
+                        , ("ceramics"       , [ C.AttributeColor cWhite,  C.AttributeDim  ])
+                        , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
+                        , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
+                        , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
                         ]
                     matUnknown = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                 return Styles {
@@ -215,5 +219,6 @@ drawHud s = do
                           (Just $ C.Glyph '╯' [])
 
         C.moveCursor 2 2
-        C.drawString $ "Status: " <> s
+        let st = take 80 $ s <> repeat '.'
+        C.drawString $ "Status: " <> st
 

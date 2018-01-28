@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, OverloadedStrings, NegativeLiterals, TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -7,7 +7,9 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 
 module Dreamnet.World
-( WorldAPI(..)
+( WorldReadAPI(..)
+
+, WorldAPI(..)
 , changeObject_
 , interact
 
@@ -36,7 +38,7 @@ import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
 
 import qualified Data.Set    as S (fromList, member)
-import qualified Data.Vector as V ((!?), (//), imap)
+import qualified Data.Vector as V ((!?), (//), imap, imapM)
 
 import Dreamnet.ObjectProperties
 import Dreamnet.Utils
@@ -47,19 +49,22 @@ import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
--- TODO seriously refactor this into much better DSL
-class WorldAPI a b c w | w → a, w → b, w → c where
+class WorldReadAPI a b c w | w → a, w → b, w → c where
     worldMap ∷ w (WorldMap a b)
-    setStatus ∷ String → w ()
-    changeObject ∷ V2 Int → a → w a
     playerPos ∷ w (V2 Int)
+    castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
+
+-- TODO seriously refactor this into much better DSL
+class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
+    setStatus ∷ String → w ()
+    changeObject ∷ V2 Int → (a → w a) → w ()
     playerCharacter ∷ w c
     movePlayer ∷ (IsPassable a) ⇒ V2 Int → w ()
+    moveObject ∷ V2 Int → (a → Bool) → V2 Int → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
     interactOrElse ∷ (V2 Int → a → w d) → w d → w d
     examine ∷ (Describable a) ⇒ w String
     get ∷ w (Maybe d)
-    castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
     updateVisible ∷ (IsSeeThrough a) ⇒ w ()
     -- TODO redo this, to be a function, and calculate on demand, not prefront
     updateAi ∷ (HasAi w a) ⇒ w ()
@@ -98,22 +103,31 @@ newWorld m ch =
 newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
                        deriving (Functor, Applicative, Monad, MonadState (World a b c))
 
+instance WorldReadAPI a Visibility b (WorldM a Visibility b) where
+    worldMap = use w_map
+    playerPos = use w_playerPos
+    castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
 instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
-    worldMap = use w_map
     setStatus s = w_status .= s
-    changeObject v o = do
-        m        ← use w_map
-        let oldo = objectAt v m
+    changeObject v fo = do
+        m  ← use w_map
+        no ← fo (objectAt v m)
         -- Hackage says this is O(m + 1) for a single update :-(
-        w_map.wm_data %= (V.// [(linCoord m v, o)])
-        return oldo
+        w_map.wm_data %= (V.// [(linCoord m v, no)])
     movePlayer v = do
         npp ← uses w_playerPos (+v)
         obj ← uses w_map (objectAt npp)
         when (isPassable obj) $
             w_playerPos += v
-    playerPos = use w_playerPos
+    moveObject cp ff np = do
+        m  ← use w_map
+        md ← use (w_map.wm_data)
+        void $ runMaybeT $ do
+            os ← MaybeT (pure $ md V.!? linCoord m cp)
+            when (ff os) $ do
+                -- TODO ACTUALLY DO MOVE SHIT AROUND!
+                pure ()
     playerCharacter = use w_playerCharacter
     switchAim (Just nof) = do
         pp ← use w_playerPos
@@ -129,14 +143,6 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
         return (f v o)
     examine = interactOrElse (const (pure . description)) (use (w_map.wm_desc))
     get = pure Nothing
-    --get = interactOrElse getItem (return Nothing)
-    --    where
-    --        getItem v o = runMaybeT $ do
-    --            i ← MaybeT (uses w_items (M.lookup v >=> headMay))
-    --            addToCharacterInventory i
-    --            lift (removeFromWorldPile v i)
-    --            return i
-    --        addToCharacterInventory i = w_playerCharacter.ch_inventory %= (i:)
     updateVisible = do
         pp ← playerPos
         m  ← worldMap
@@ -154,8 +160,11 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
             visibleAndOneExtra l = let front = takeWhile ((==True) . snd) l
                                        rem   = dropWhile ((==True) . snd) l
                                    in  bool (head rem : front) front (null rem)
-    castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
-    updateAi = use (w_map.wm_data) >>= mapM runAi >>= (w_map.wm_data .=)
+    updateAi = do
+        m  ← use w_map
+        use (w_map.wm_data) >>=
+          V.imapM (\i → runAi (coordLin m i)) >>=
+          (w_map.wm_data .=)
 
 
 castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a b → V2 Int → V2 Int → [(V2 Int, Bool)]
@@ -170,8 +179,8 @@ runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
-changeObject_ ∷ (Functor w, WorldAPI a b c w) ⇒ V2 Int → a → w ()
-changeObject_ v = void . changeObject v
+changeObject_ ∷ (Applicative w, WorldAPI a b c w) ⇒ V2 Int → a → w ()
+changeObject_ v o = changeObject v (const (pure o))
 
 
 interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → a → w ()) → w ()

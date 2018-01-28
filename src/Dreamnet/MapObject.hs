@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.MapObject
@@ -19,6 +20,7 @@ import Control.Lens   ((^.))
 import Data.Semigroup (Semigroup, (<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
+import Data.Char      (intToDigit)
 
 import qualified Data.Map as M  (Map, lookup)
 
@@ -28,6 +30,7 @@ import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
 import Dreamnet.TileMap          (Tile, t_char)
 import Dreamnet.TileData         (ttype, readBoolProperty, readStringProperty)
+import Dreamnet.World            (WorldReadAPI(..))
 
 --------------------------------------------------------------------------------
 
@@ -37,7 +40,7 @@ type Opened     = Bool
 type GoingUp    = Bool
 type Name       = String
 type Material   = String
-type Alarmed    = Bool
+type AlarmLevel = Int
 
 
 -- TODO Container should be a flag on prop or something?
@@ -49,7 +52,7 @@ data Object = Base      Char Passable SeeThrough
             | Stairs    GoingUp
             | Prop      Char Name Material Passable SeeThrough
             | Person    (Character Item ConversationNode)
-            | Camera    Alarmed
+            | Camera    AlarmLevel
             | Computer
             | ItemO     Item
             | Union Object Object
@@ -80,7 +83,7 @@ instance Describable Object where
     description (Camera a)       = bool
                                        "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
                                        "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
-                                       a
+                                       (a > 5)
     description Computer         = "Your machine. You wonder if Devin mailed you about the job."
     description (ItemO (Item n)) = "A " <> n <> "."
     description (Union o1 o2)    = let md  = description o1
@@ -101,14 +104,20 @@ instance IsSeeThrough Object where
     {-# INLINE isSeeThrough #-}
 
 
+-- TODO the undecideable instance here is really scary :-(
 -- TODO I *really* need to think about how objects perceive and affect their
 -- environment. I assume this'll have to start from the player, and extract a
 -- whole lot of player code into something that can be controlled either by AI,
 -- or by keyboard
-instance (Monad m) ⇒ HasAi m Object where
-    runAi (Camera a)    = pure $ Camera (not a) 
-    runAi (Union o1 o2) = Union <$> runAi o1 <*> runAi o2
-    runAi x             = pure x
+instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
+    runAi v (Camera l) = do
+        pv         ← playerPos
+        seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
+        pure $ if seesPlayer
+                 then Camera (min 9 (l + 1))
+                 else Camera (max 0 (l - 1))
+    runAi v (Union o1 o2) = Union <$> runAi v o1 *> runAi v o2
+    runAi _ x             = pure x
 
 
 
@@ -121,7 +130,7 @@ objectFromTile dd t@(ttype → "Person")   = let name      = 1 `readStringProper
                                                maybeChar = M.lookup name (dd^.dd_characters)
                                            in  Person (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
 objectFromTile _    (ttype → "Spawn")    = Base '.' True True -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-objectFromTile _    (ttype → "Camera")   = Camera False
+objectFromTile _    (ttype → "Camera")   = Camera 0
 objectFromTile _    (ttype → "Computer") = Computer
 objectFromTile _  t@(ttype → "Item")     = ItemO $ Item (1 `readStringProperty` t)
 objectFromTile _  t                      = error $ "Can't convert Tile type into Object: " <> show t
@@ -135,7 +144,8 @@ objectToChar (Door o)         = bool '+' '\'' o
 objectToChar (Stairs u)       = bool '<' '>' u
 objectToChar (Prop c _ _ _ _) = c
 objectToChar (Person _)       = '@' -- TODO if ally, color green
-objectToChar (Camera _)       = '*'
+objectToChar (Camera l)       = intToDigit l
+--objectToChar (Camera _)       = '*'
 objectToChar Computer         = '$'
 objectToChar (ItemO _)        = '['
 objectToChar (Union _ o2)     = objectToChar o2
@@ -150,10 +160,10 @@ objectToMat mats def (Door _)         = fromMaybe def $ "wood" `M.lookup` mats
 objectToMat mats def (Stairs _)       = fromMaybe def $ "wood" `M.lookup` mats
 objectToMat mats def (Prop _ _ m _ _) = fromMaybe def $ m `M.lookup` mats
 objectToMat _    def (Person _)       = def
-objectToMat mats def (Camera a)       = fromMaybe def $ bool
-                                             ("metal" `M.lookup` mats)
-                                             ("red plastic" `M.lookup` mats)
-                                             a
+objectToMat mats def (Camera l)
+    | l > 2 && l <= 7 = fromMaybe def $ ("yellow light" `M.lookup` mats)
+    | l > 7           = fromMaybe def $ ("red light" `M.lookup` mats)
+    | otherwise       = fromMaybe def $ ("green light" `M.lookup` mats)
 objectToMat mats def  Computer        = fromMaybe def $ "metal" `M.lookup` mats
 objectToMat mats def (ItemO _)        = fromMaybe def $ "blue plastic" `M.lookup` mats
 objectToMat mats def (Union _ o2)     = objectToMat mats def o2

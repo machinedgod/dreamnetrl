@@ -26,6 +26,7 @@ data WorldEvent = Move (V2 Int)
                 | Examine
                 | Interact
                 | Get
+                | Wait
                 | InventorySheet
                 | CharacterSheet
                 deriving (Eq, Show)
@@ -101,6 +102,7 @@ worldEvent '\t' = Just   NextAim
 worldEvent 'e'  = Just   Examine
 worldEvent ' '  = Just   Interact
 worldEvent 'g'  = Just   Get
+worldEvent '.'  = Just   Wait
 worldEvent 'i'  = Just   InventorySheet
 worldEvent 'c'  = Just   CharacterSheet
 worldEvent _    = Nothing
