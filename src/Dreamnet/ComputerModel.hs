@@ -82,7 +82,7 @@ data Command = Help   (Maybe String)
 commandForString ∷ String → Maybe Command
 commandForString (words → [])  = Nothing
 commandForString (words → [c]) = command c Nothing
-commandForString (words → l)   = command (head l) (Just $ head $ drop 1 l)
+commandForString (words → l)   = command (head l) (Just $ l !! 1)
 
 
 command ∷ String → Maybe String → Maybe Command
@@ -156,10 +156,10 @@ processCommand (Read mp) = return $ maybe err read mp
         read "balance"     = "You have 900c."
         read "credit"      = "You have no credit."
         read f             = "No such file: " <> f
-processCommand (Load _) = return $ "segmentation fault: 0x7473 <no cartridge hardware installed>"
-processCommand Run      = return $ "Crack-boot segment empty."
-processCommand (Poke _) = return $ "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
-processCommand (Peek _) = return $ "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
+processCommand (Load _) = return "segmentation fault: 0x7473 <no cartridge hardware installed>"
+processCommand Run      = return "Crack-boot segment empty."
+processCommand (Poke _) = return "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
+processCommand (Peek _) = return "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
 
 --------------------------------------------------------------------------------
 

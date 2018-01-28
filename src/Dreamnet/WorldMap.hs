@@ -110,11 +110,11 @@ merge4 (o1, o2, o3, o4) = let oTop = merge3 (o2, o3, o4)
 
 outOfBounds ∷ WorldMap a b → V2 Int → Bool
 outOfBounds m (V2 x y)
-    | x < 0                                = True
-    | y < 0                                = True
-    | x >= (fromIntegral $ m ^. wm_width)  = True
-    | y >= (fromIntegral $ m ^. wm_height) = True
-    | otherwise                            = False
+    | x < 0                              = True
+    | y < 0                              = True
+    | x >= fromIntegral (m ^. wm_width)  = True
+    | y >= fromIntegral (m ^. wm_height) = True
+    | otherwise                          = False
 
 
 objectAt ∷ V2 Int → WorldMap a b → a

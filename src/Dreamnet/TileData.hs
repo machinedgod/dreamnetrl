@@ -1,5 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax #-}
 
 module Dreamnet.TileData
 ( ttype
@@ -7,7 +6,6 @@ module Dreamnet.TileData
 , readStringProperty
 ) where
 
-import Prelude hiding (read, head)
 import Safe
 
 import Control.Lens

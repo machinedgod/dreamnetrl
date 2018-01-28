@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax #-}
 
 module Dreamnet.GameState
 ( GameState(..)

@@ -1,7 +1,8 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 
 module Dreamnet.Utils
-( bla
+( line
+, bla
 , circle
 , floodFillRange
 ) where
@@ -9,11 +10,30 @@ module Dreamnet.Utils
 
 import Control.Lens
 import Control.Monad.State
-import Data.List (unfoldr)
+import Data.Bool                 (bool)
+import Data.List                 (unfoldr)
 import qualified Data.Set as S
 import Linear
 
 --------------------------------------------------------------------------------
+
+line ∷ V2 Int → V2 Int → [V2 Int]
+line v1 v2 = let v1f         = fmap fromIntegral v1 ∷ V2 Float
+                 v2f         = fmap fromIntegral v2 ∷ V2 Float
+                 vd          = normalize (v2f - v1f)
+                 step        = 0.5
+                 steps       = ceiling (distance v1f v2f / step) ∷ Int
+                 toCoord d   = floor <$> vd ^* d
+                 enough []   = []
+                 enough l    = let h = takeWhile (/=v2) l
+                                   t = dropWhile (/=v2) l
+                               in  h ++ bool [] [head t] (not $ null t)
+                 uniq []     = []
+                 uniq xs     = foldr (\v l → if null l || head l /= v
+                                               then v : l
+                                               else l) [] xs
+             in  uniq $ enough $ fmap (v1^+^) $ toCoord <$> [0, step..fromIntegral steps]
+
 
 -- | See <http://roguebasin.roguelikedevelopment.org/index.php/Digital_lines>.
 -- | Bresenham's line algorithm.
@@ -76,7 +96,7 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
 
         inRange ∷ Word → V2 Int → Bool
         inRange d x = let tfv = fmap fromIntegral
-                      in  abs (distance (tfv o) (tfv x)) < fromIntegral d
+                      in  abs (distance (tfv o) (tfv x) ∷ Float) < fromIntegral d
 
         neighbors ∷ V2 Int → S.Set (V2 Int)
         neighbors p = S.map (+p) $ S.fromList [ V2 -1 -1

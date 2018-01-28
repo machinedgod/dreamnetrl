@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Dreamnet.ObjectProperties
 ( IsPassable(..)
@@ -17,5 +18,5 @@ class IsSeeThrough a where
 class Describable a where
     description ∷ a → String
 
-class HasAi a where
-    runAi ∷ a → a
+class HasAi m a where
+    runAi ∷ a → m a

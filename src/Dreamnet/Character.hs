@@ -64,7 +64,7 @@ module Dreamnet.Character
 
 
 import Control.Lens (makeLenses, (^.))
-import Data.Maybe   (isJust, fromMaybe)
+import Data.Maybe   (isJust)
 
 --------------------------------------------------------------------------------
 
@@ -205,5 +205,5 @@ equippedSlots = filter hasItem . equipmentSlots
 equippedContainers ∷ (ItemTraits a) ⇒ Character a b → [SlotWrapper a]
 equippedContainers = filter containers . equippedSlots
     where
-        containers (SlotWrapper (Slot i)) = fromMaybe False (isContainer <$> i)
+        containers (SlotWrapper (Slot i)) = maybe False isContainer i
 

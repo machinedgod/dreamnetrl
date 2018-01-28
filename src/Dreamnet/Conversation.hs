@@ -1,5 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 
 module Dreamnet.Conversation
 ( ConversationNode(..)
@@ -12,7 +11,6 @@ module Dreamnet.Conversation
 ) where
 
 
-import Prelude hiding ((!!))
 import Safe
 
 import Linear

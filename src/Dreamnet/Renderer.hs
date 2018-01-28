@@ -106,8 +106,8 @@ initRenderer = do
     mainWin ← C.newWindow mainHeight mainWidth 0 0
     hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
 
-    let interactW = (columns - 4)
-        interactH = (rows - 4)
+    let interactW = columns - 4
+        interactH = rows - 4
         interactX = 2
         interactY = 2
 
@@ -146,7 +146,8 @@ initRenderer = do
 
                        , _s_visibilityUnknown = []
                        , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
-                       , _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
+                       , _s_visibilityVisible = [ C.AttributeColor cWhite ]
+                       --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        --, _s_colorRed     = cRed    
                        --, _s_colorGreen   = cGreen  

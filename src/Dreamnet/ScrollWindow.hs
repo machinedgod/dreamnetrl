@@ -17,8 +17,6 @@ module Dreamnet.ScrollWindow
 ) where
 
 
-import Prelude hiding (head)
-
 import Control.Lens
 import Control.Monad.State
 import Data.Monoid
@@ -80,7 +78,7 @@ scrollDown ∷ ScrollData → ScrollData
 scrollDown sd = let nsl = views sd_startLine (+1) sd -- <------ Where are these +1's coming from???
                     tlc = views sd_lines length sd
                     vlc = view sd_maxLines sd
-                in  if (nsl <= tlc - vlc)
+                in  if nsl <= tlc - vlc
                         then sd_startLine +~ 1 $ sd
                         else sd
 

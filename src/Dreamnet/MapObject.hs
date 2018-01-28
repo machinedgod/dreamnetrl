@@ -1,5 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.MapObject
 ( Object(..)
@@ -103,10 +105,10 @@ instance IsSeeThrough Object where
 -- environment. I assume this'll have to start from the player, and extract a
 -- whole lot of player code into something that can be controlled either by AI,
 -- or by keyboard
-instance HasAi Object where
-    runAi (Camera a)    = Camera (not a) 
-    runAi (Union o1 o2) = Union (runAi o1) (runAi o2)
-    runAi x             = x
+instance (Monad m) ⇒ HasAi m Object where
+    runAi (Camera a)    = pure $ Camera (not a) 
+    runAi (Union o1 o2) = Union <$> runAi o1 <*> runAi o2
+    runAi x             = pure x
 
 
 

@@ -26,7 +26,6 @@ module Dreamnet.TileMap
 , loadTileMap
 ) where
 
-import Prelude hiding (read)
 import Safe
 
 import Control.Monad.IO.Class 
@@ -161,7 +160,7 @@ readPositioned fp = fmap makeTable . liftIO . BS.readFile $ fp
         makeTable    = either decodeErr vectorsToMap . CSV.decode CSV.NoHeader
         decodeErr e  = error $ "CSV decoding error in '" <> fp <> "': " <> e
         vectorsToMap = V.foldr insertTile M.empty
-        insertTile v = M.insert (pos v) [(tile v)]
+        insertTile v = M.insert (pos v) [tile v]
         pos v        = let err = "Invalid coord when specifying positioned tile in '" <> fp <> "'"
                            x   = readNote err (V.head v)
                            y   = readNote err (V.head $ V.drop 1 v)

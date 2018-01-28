@@ -5,12 +5,11 @@
 module Dreamnet.Dreamnet
 where
 
-import Prelude hiding (interact, take)
-
 import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
+import Data.Functor        (($>))
 import Linear              (V2)
 
 import UI.NCurses.Class
@@ -64,7 +63,7 @@ newGame dd = do
     cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
-    return $ Game {
+    return Game {
         _g_world        = newWorld
                               (fromTileMap m (objectFromTile dd) Unknown)
                               (newCharacter "Carla" End)
@@ -116,20 +115,20 @@ onStateSwitch ∷ GameState → GameState → StateT Game C.Curses ()
 onStateSwitch Normal (Examination s) = do
     g_scrollWindow %= setText s
     sw ← use g_scrollWindow
-    lift $ do
+    lift $
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
     is ← uses (g_world.w_playerCharacter) (fmap show . equippedContainers)
     g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
-    lift $ do
+    lift $
         renderScrollWindow sw
 
 onStateSwitch Normal CharacterUI = do
     g_scrollWindow %= setText "Character sheet"
     sw ← use g_scrollWindow
-    lift $ do
+    lift $
         renderScrollWindow sw
 
 onStateSwitch (Examination _) Normal = do
@@ -157,7 +156,7 @@ dreamnet dd = C.runCurses $ do
     void $ C.setCursorMode C.CursorInvisible
     g ← newGame dd
     void $ flip execStateT g $ do
-        g_world %= snd . runWorld (updateVisible *> return Normal)
+        g_world %= snd . runWorld (updateVisible $> Normal)
         renderNormal
         loopTheLoop
 
@@ -190,7 +189,7 @@ loopTheLoop = do
                 (gs, w') ← uses g_world (runWorld (updateWorld we))
                 switchGameState gs
                 g_world .= w'
-                when (gs == Normal) $
+                when (gs == Normal)
                     renderNormal
 
             Conversation _ (ChoiceNode l _) → do
@@ -258,46 +257,46 @@ loopTheLoop = do
                 fbr  ← use g_carlasFramebuffer
                 doRender (renderComputer fbr (computerData comp))
 
-        lift $ C.render
+        lift C.render
         loopTheLoop 
 
 
 allButTheBase ∷ Object → Bool
-allButTheBase (Base _ _ _) = False
-allButTheBase _            = True
+allButTheBase Base{} = False
+allButTheBase _      = True
 
 
-updateWorld ∷ (MonadWorld Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
+updateWorld ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     movePlayer v
-    switchAim allButTheBase
+    switchAim (pure allButTheBase)
     updateVisible
     updateAi
     return Normal
-updateWorld NextAim = switchAim allButTheBase *> pure Normal
+updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
-    s ← interactOrElse objectInteraction (return Normal)
-    w_aim .= Nothing
+    s ← interactOrElse objectInteraction (pure Normal)
+    switchAim Nothing
     updateVisible
     updateAi
     return s
 updateWorld Get = do
     o ← get
-    w_status .= maybe  "There's nothing there." ("Picked up " <>) o 
-    w_aim    .= Nothing
+    setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
+    switchAim Nothing
     updateAi
     return Normal
 updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
 
 
-objectInteraction ∷ (MonadWorld Object b c w) ⇒ V2 Int → Object → w GameState
-objectInteraction v (Door o)     = changeObject_ v (Door (not o)) *> return Normal
-objectInteraction _ Computer     = return Interaction 
-objectInteraction _ (Person c)   = return (Conversation <$> (view ch_name) <*> (view ch_conversation) $ c)
+objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
+objectInteraction v (Door o)     = changeObject_ v (Door (not o)) $> Normal
+objectInteraction _ Computer     = pure Interaction 
+objectInteraction _ (Person c)   = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
 objectInteraction v (Union _ o2) = objectInteraction v o2
-objectInteraction _ o            = (w_status .= ("Tried interaction with: " <> show o)) *> pure Normal
+objectInteraction _ o            = setStatus ("Tried interaction with: " <> show o) $> Normal
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
@@ -316,7 +315,7 @@ updateComputer ∷ Char → StateT Game C.Curses ()
 updateComputer '\n' = do
     o ← uses g_carlasComputer (*> commitInput)
     g_carlasFramebuffer .= computerOutput o
-    g_carlasComputer %= (\l → l *> commitInput *> return ())
+    g_carlasComputer %= (\l → l *> commitInput $> ())
 updateComputer '\b' = g_carlasComputer %= (*> backspace)
 updateComputer c    = g_carlasComputer %= (*> input c)
 

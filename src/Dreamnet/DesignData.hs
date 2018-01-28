@@ -33,7 +33,7 @@ defaultDesignData =
     , _dd_defaultRedshirt = newCharacter "?" redshirtConvo
     }
     where
-        toNamedTuple = (,) <$> (view ch_name) <*> id
+        toNamedTuple = (,) <$> view ch_name <*> id
 
 
 characters ∷ [Character Item ConversationNode]
@@ -55,14 +55,14 @@ johnnyConvo ∷ ConversationNode
 johnnyConvo =
     ListenNode "Yea?" $
       TalkNode "Hey dude, I'm Carla" $
-        ListenNode "Who gives a shit? Now would you mind, we're in the middle of something." $
+        ListenNode "Who gives a shit? Now would you mind, we're in the middle of something."
           End
 
 sallyConvo ∷ ConversationNode
 sallyConvo =
     ListenNode "Mmmm, hello _there_ hot stuff." $
       TalkNode "Hi, I am..." $
-        ListenNode "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?" $
+        ListenNode "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?"
           End
 
 moeConvo ∷ ConversationNode
