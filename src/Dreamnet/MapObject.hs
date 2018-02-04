@@ -17,6 +17,7 @@ module Dreamnet.MapObject
 
 
 import Control.Lens   ((^.))
+import Control.Applicative (liftA2)
 import Data.Semigroup (Semigroup, (<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
@@ -30,7 +31,7 @@ import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
 import Dreamnet.TileMap          (Tile, t_char)
 import Dreamnet.TileData         (ttype, readBoolProperty, readStringProperty)
-import Dreamnet.World            (WorldReadAPI(..))
+import Dreamnet.World            (WorldReadAPI(..), WorldAPI(..))
 
 --------------------------------------------------------------------------------
 
@@ -109,16 +110,17 @@ instance IsSeeThrough Object where
 -- environment. I assume this'll have to start from the player, and extract a
 -- whole lot of player code into something that can be controlled either by AI,
 -- or by keyboard
-instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
+--instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
+instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
     runAi v (Camera l) = do
         pv         ← playerPos
         seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
         pure $ if seesPlayer
                  then Camera (min 9 (l + 1))
                  else Camera (max 0 (l - 1))
-    runAi v (Union o1 o2) = Union <$> runAi v o1 *> runAi v o2
-    runAi _ x             = pure x
-
+    runAi v (Person c) = moveObject v id (v + 1) id >> pure (Person c)
+    runAi v (Union o1 o2) = (liftA2 Union) (runAi v o1) (runAi v o2)
+    runAi _ x = pure x
 
 
 objectFromTile ∷ DesignData → Tile → Object

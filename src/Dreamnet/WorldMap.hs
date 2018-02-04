@@ -117,6 +117,7 @@ outOfBounds m (V2 x y)
     | otherwise                          = False
 
 
+-- TODO partial function! :-O
 objectAt ∷ V2 Int → WorldMap a b → a
 objectAt v m = views wm_data (V.! linCoord m v) m
 

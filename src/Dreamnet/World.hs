@@ -30,7 +30,7 @@ import Prelude hiding (interact, rem)
 import Safe
 
 import Control.Lens               (makeLenses, (^.), (%=), (+=), (.=), use, uses)
-import Control.Monad              (when, (<=<), void)
+import Control.Monad              (when, (<=<))
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
@@ -54,22 +54,21 @@ class WorldReadAPI a b c w | w → a, w → b, w → c where
     playerPos ∷ w (V2 Int)
     castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
+
 -- TODO seriously refactor this into much better DSL
 class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
     setStatus ∷ String → w ()
     changeObject ∷ V2 Int → (a → w a) → w ()
     playerCharacter ∷ w c
     movePlayer ∷ (IsPassable a) ⇒ V2 Int → w ()
-    moveObject ∷ V2 Int → (a → Bool) → V2 Int → w ()
+    moveObject ∷ V2 Int → (a → a) → V2 Int → (a → a) → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
     interactOrElse ∷ (V2 Int → a → w d) → w d → w d
     examine ∷ (Describable a) ⇒ w String
     get ∷ w (Maybe d)
-    updateVisible ∷ (IsSeeThrough a) ⇒ w ()
     -- TODO redo this, to be a function, and calculate on demand, not prefront
+    updateVisible ∷ (IsSeeThrough a) ⇒ w ()
     updateAi ∷ (HasAi w a) ⇒ w ()
-
-    
 
 --------------------------------------------------------------------------------
  
@@ -100,6 +99,7 @@ newWorld m ch =
 
 --------------------------------------------------------------------------------
 
+-- TODO if I use ST monad, I can get mutable state for cheap
 newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
                        deriving (Functor, Applicative, Monad, MonadState (World a b c))
 
@@ -120,14 +120,12 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
         obj ← uses w_map (objectAt npp)
         when (isPassable obj) $
             w_playerPos += v
-    moveObject cp ff np = do
-        m  ← use w_map
-        md ← use (w_map.wm_data)
-        void $ runMaybeT $ do
-            os ← MaybeT (pure $ md V.!? linCoord m cp)
-            when (ff os) $ do
-                -- TODO ACTUALLY DO MOVE SHIT AROUND!
-                pure ()
+    moveObject cp cmf np nmf = do
+        changeObject cp (pure . cmf)
+        changeObject np (pure . nmf)
+        --void $ runMaybeT $ do
+        --    os ← MaybeT (pure $ md V.!? linCoord m cp)
+        --    ns ← MaybeT (pure $ md V.!? linCoord m np)
     playerCharacter = use w_playerCharacter
     switchAim (Just nof) = do
         pp ← use w_playerPos

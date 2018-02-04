@@ -24,3 +24,4 @@ class Describable a where
 
 class HasAi m a where
     runAi ∷ V2 Int → a → m a
+
