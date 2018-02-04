@@ -10,6 +10,7 @@ module Dreamnet.ComputerModel
 
 , ComputerData
 , cd_input
+, cd_requestedQuit
 
 , computerOutput
 , computerData
@@ -22,10 +23,11 @@ import Prelude hiding (read)
 import Control.Lens hiding (List)
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Data.Semigroup
-import Data.Char  (toLower)
-import Data.List  (intercalate)
-import Data.Maybe (fromMaybe)
+import Data.Functor   (($>))
+import Data.Semigroup ((<>))
+import Data.Char      (toLower)
+import Data.List      (intercalate)
+import Data.Maybe     (fromMaybe)
 
 
 --------------------------------------------------------------------------------
@@ -39,6 +41,7 @@ class ComputerAPI c where
 
 data ComputerData = ComputerData {
       _cd_input ∷ String
+    , _cd_requestedQuit ∷ Bool
     }
 
 makeLenses ''ComputerData
@@ -76,6 +79,8 @@ data Command = Help   (Maybe String)
              | Run
              | Poke   (Maybe String)
              | Peek   (Maybe String)
+
+             | Quit
              deriving (Read)
 
 
@@ -94,6 +99,7 @@ command "load"  p = Just $ Load p
 command "run"   _ = Just Run
 command "poke"  p = Just $ Poke p
 command "peek"  p = Just $ Peek p
+command "quit"  _ = Just $ Quit
 command _       _ = Nothing
 
 
@@ -160,11 +166,12 @@ processCommand (Load _) = return "segmentation fault: 0x7473 <no cartridge hardw
 processCommand Run      = return "Crack-boot segment empty."
 processCommand (Poke _) = return "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
 processCommand (Peek _) = return "Privilege escalation required. This command is used only for routine maintenance of your node, and should not exist on your hardware. Please report this error immediately to the ministry of online communications at 9-1-1-MINIONLINE."
+processCommand Quit     = (cd_requestedQuit .= True) $> "Bye."
 
 --------------------------------------------------------------------------------
 
 bootData ∷ ComputerData
-bootData = ComputerData ""
+bootData = ComputerData "" False
 
 
 newComputer ∷ ComputerM ()

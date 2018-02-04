@@ -184,11 +184,11 @@ drawMap chf matf m = do
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        drawTile u k i (o, v) = uncurry (drawCharAt $ coordLin m i) $
-                                    case v of
-                                        Unknown → (' ', u)
-                                        Known   → (chf o, k)
-                                        Visible → (chf o, matf o)
+        drawTile u k i (os, v) = uncurry (drawCharAt $ coordLin m i) $
+                                     case v of
+                                         Unknown → (' ', u)
+                                         Known   → (chf (last os), k)
+                                         Visible → (chf (last os), matf (last os))
 
 
 drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r ()

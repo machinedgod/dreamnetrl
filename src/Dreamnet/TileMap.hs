@@ -7,6 +7,7 @@ module Dreamnet.TileMap
 , t_char
 , t_data
 
+, Tileset
 , TileLayer
 , l_width
 , l_height
@@ -55,11 +56,13 @@ makeLenses ''Tile
 
 --------------------------------------------------------------------------------
 
+type Tileset = M.Map Char Tile
+
 data TileLayer = TileLayer {
       _l_width      ∷ Word
     , _l_height     ∷ Word
     , _l_data       ∷ V.Vector Char
-    , _l_tileset    ∷ M.Map Char Tile
+    , _l_tileset    ∷ Tileset
     }
     deriving(Show)
 

@@ -77,15 +77,15 @@ runInput = liftCurses . runInputF
 
 
 cursesToEvent ∷ GameState → Curses.Event → Maybe Event
-cursesToEvent _                  (Curses.EventCharacter 'q') = Just Quit
-cursesToEvent Normal             (Curses.EventCharacter   c) = WorldEv <$> worldEvent c
-cursesToEvent (Examination _)    (Curses.EventCharacter   c) = UIEv <$> uiEvent c
-cursesToEvent (Conversation _ _) (Curses.EventCharacter   c) = UIEv <$> uiEvent c
-cursesToEvent InventoryUI        (Curses.EventCharacter   c) = UIEv <$> uiEvent c
-cursesToEvent CharacterUI        (Curses.EventCharacter   c) = UIEv <$> uiEvent c
-cursesToEvent Interaction        (Curses.EventCharacter   c) = Just (PassThrough c)
+cursesToEvent _                  (Curses.EventCharacter   '\ESC')              = Just Quit
+cursesToEvent Normal             (Curses.EventCharacter   c)                   = WorldEv <$> worldEvent c
+cursesToEvent (Examination _)    (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
+cursesToEvent (Conversation _ _) (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
+cursesToEvent InventoryUI        (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
+cursesToEvent CharacterUI        (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
+cursesToEvent Interaction        (Curses.EventCharacter   c)                   = Just (PassThrough c)
 cursesToEvent Interaction        (Curses.EventSpecialKey  Curses.KeyBackspace) = Just (PassThrough '\b')
-cursesToEvent _ _                                            = Nothing
+cursesToEvent _ _                                                              = Nothing
 
 --normalStateEvent 'q'  = Just $ Quit
 

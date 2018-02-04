@@ -5,7 +5,7 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens        (makeLenses, use, uses, view, views, (.=), (%=))
+import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
@@ -253,9 +253,13 @@ loopTheLoop = do
             Interaction → do
                 let (PassThrough c) = e
                 updateComputer c
-                comp ← use g_carlasComputer
-                fbr  ← use g_carlasFramebuffer
-                doRender (renderComputer fbr (computerData comp))
+                qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
+                if qr
+                  then switchGameState Normal
+                  else do
+                       comp ← use g_carlasComputer
+                       fbr  ← use g_carlasFramebuffer
+                       doRender (renderComputer fbr (computerData comp))
 
         lift C.render
         loopTheLoop 
@@ -272,49 +276,47 @@ updateWorld (Move v) = do
     movePlayer v
     switchAim (pure allButTheBase)
     updateVisible
-    updateAi *> alarmStateCheck
+    updateAi -- *> alarmStateCheck
     return Normal
 updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     setStatus ""
-    s ← interactOrElse objectInteraction (pure Normal)
+    s ← interactOrElse (\v os → fmap last $ traverse (objectInteraction v) os) (pure Normal)
     switchAim Nothing
     updateVisible
-    updateAi *> alarmStateCheck
+    updateAi -- *> alarmStateCheck
     return s
 updateWorld Get = do
     setStatus ""
     o ← get
     setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
     switchAim Nothing
-    updateAi *> alarmStateCheck
+    updateAi -- *> alarmStateCheck
     return Normal
 updateWorld Wait = do
     setStatus ""
     updateVisible
-    updateAi *> alarmStateCheck
+    updateAi -- *> alarmStateCheck
     return Normal
 updateWorld InventorySheet = return InventoryUI
 updateWorld CharacterSheet = return CharacterUI
 
 
-alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
-alarmStateCheck = do
-    wm ← worldMap
-    let isAlarm = views wm_data (foldr cameraActivated False) wm
-    when isAlarm $ setStatus "***** ALARM *****"
-    where
-        cameraActivated (Camera x)    p = p || (x > 7)
-        cameraActivated (Union o1 o2) p = p || cameraActivated o1 p || cameraActivated o2 p
-        cameraActivated _             p = p || False
+--alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
+--alarmStateCheck = do
+--    wm ← worldMap
+--    let isAlarm = views wm_data (foldr cameraActivated False) wm
+--    when isAlarm $ setStatus "***** ALARM *****"
+--    where
+--        cameraActivated (Camera x)    p = p || (x > 7)
+--        cameraActivated _             p = p || False
 
 
 objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
 objectInteraction v (Door o)     = changeObject_ v (Door (not o)) $> Normal
 objectInteraction _ Computer     = pure Interaction 
 objectInteraction _ (Person c)   = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
-objectInteraction v (Union _ o2) = objectInteraction v o2
 objectInteraction _ o            = setStatus ("Tried interaction with: " <> show o) $> Normal
 
 

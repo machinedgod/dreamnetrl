@@ -17,8 +17,7 @@ module Dreamnet.MapObject
 
 
 import Control.Lens   ((^.))
-import Control.Applicative (liftA2)
-import Data.Semigroup (Semigroup, (<>))
+import Data.Semigroup ((<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
 import Data.Char      (intToDigit)
@@ -56,12 +55,8 @@ data Object = Base      Char Passable SeeThrough
             | Camera    AlarmLevel
             | Computer
             | ItemO     Item
-            | Union Object Object
             deriving (Eq, Show)
 
-
-instance Semigroup Object where
-    o1 <> o2 = Union o1 o2
 
 instance IsPassable Object where
     isPassable (Base _ p _)     = p
@@ -72,7 +67,6 @@ instance IsPassable Object where
     isPassable (Camera _)       = True
     isPassable Computer         = False
     isPassable (ItemO _)        = True
-    isPassable (Union o1 o2)    = isPassable o1 && isPassable o2
     {-# INLINE isPassable #-}
 
 instance Describable Object where
@@ -87,9 +81,6 @@ instance Describable Object where
                                        (a > 5)
     description Computer         = "Your machine. You wonder if Devin mailed you about the job."
     description (ItemO (Item n)) = "A " <> n <> "."
-    description (Union o1 o2)    = let md  = description o1
-                                       md2 = description o2
-                                   in  md `mappend` ", " `mappend` md2
     {-# INLINE description #-}
 
 instance IsSeeThrough Object where
@@ -101,7 +92,6 @@ instance IsSeeThrough Object where
     isSeeThrough (Camera _)       = True
     isSeeThrough Computer         = True
     isSeeThrough (ItemO _)        = True
-    isSeeThrough (Union o1 o2)    = isSeeThrough o1 && isSeeThrough o2
     {-# INLINE isSeeThrough #-}
 
 
@@ -119,7 +109,6 @@ instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
                  then Camera (min 9 (l + 1))
                  else Camera (max 0 (l - 1))
     runAi v (Person c) = moveObject v id (v + 1) id >> pure (Person c)
-    runAi v (Union o1 o2) = (liftA2 Union) (runAi v o1) (runAi v o2)
     runAi _ x = pure x
 
 
@@ -150,7 +139,6 @@ objectToChar (Camera l)       = intToDigit l
 --objectToChar (Camera _)       = '*'
 objectToChar Computer         = '$'
 objectToChar (ItemO _)        = '['
-objectToChar (Union _ o2)     = objectToChar o2
 {-# INLINE objectToChar #-}
 
 
@@ -168,6 +156,5 @@ objectToMat mats def (Camera l)
     | otherwise       = fromMaybe def $ ("green light" `M.lookup` mats)
 objectToMat mats def  Computer        = fromMaybe def $ "metal" `M.lookup` mats
 objectToMat mats def (ItemO _)        = fromMaybe def $ "blue plastic" `M.lookup` mats
-objectToMat mats def (Union _ o2)     = objectToMat mats def o2
 {-# INLINE objectToMat #-}
 

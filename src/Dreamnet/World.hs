@@ -63,7 +63,7 @@ class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c wh
     movePlayer ∷ (IsPassable a) ⇒ V2 Int → w ()
     moveObject ∷ V2 Int → (a → a) → V2 Int → (a → a) → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
-    interactOrElse ∷ (V2 Int → a → w d) → w d → w d
+    interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
     examine ∷ (Describable a) ⇒ w String
     get ∷ w (Maybe d)
     -- TODO redo this, to be a function, and calculate on demand, not prefront
@@ -111,14 +111,14 @@ instance WorldReadAPI a Visibility b (WorldM a Visibility b) where
 instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
     setStatus s = w_status .= s
     changeObject v fo = do
-        m  ← use w_map
-        no ← fo (objectAt v m)
+        m   ← use w_map
+        nos ← traverse fo (objectsAt v m)
         -- Hackage says this is O(m + 1) for a single update :-(
-        w_map.wm_data %= (V.// [(linCoord m v, no)])
+        w_map.wm_data %= (V.// [(linCoord m v, nos)])
     movePlayer v = do
         npp ← uses w_playerPos (+v)
-        obj ← uses w_map (objectAt npp)
-        when (isPassable obj) $
+        obj ← uses w_map (objectsAt npp)
+        when (allPassable obj) $
             w_playerPos += v
     moveObject cp cmf np nmf = do
         changeObject cp (pure . cmf)
@@ -136,10 +136,10 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
             _      → w_aim .= headMay os
     switchAim Nothing = w_aim .= Nothing
     interactOrElse f e = fromMaybe e <=< runMaybeT $ do
-        v ← MaybeT (use w_aim)
-        o ← uses w_map (objectAt v)
-        return (f v o)
-    examine = interactOrElse (const (pure . description)) (use (w_map.wm_desc))
+        v  ← MaybeT (use w_aim)
+        os ← uses w_map (objectsAt v)
+        return (f v os)
+    examine = interactOrElse (const (pure . describeAll)) (use (w_map.wm_desc))
     get = pure Nothing
     updateVisible = do
         pp ← playerPos
@@ -161,12 +161,12 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
     updateAi = do
         m  ← use w_map
         use (w_map.wm_data) >>=
-          V.imapM (\i → runAi (coordLin m i)) >>=
+          V.imapM (\i os → traverse (runAi (coordLin m i)) os) >>=
           (w_map.wm_data .=)
 
 
 castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a b → V2 Int → V2 Int → [(V2 Int, Bool)]
-castVisibilityRay' m o d = let seeThrough = isSeeThrough . (`objectAt` m)
+castVisibilityRay' m o d = let seeThrough = areSeeThrough . (`objectsAt` m)
                            in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
                            --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
 
@@ -181,6 +181,6 @@ changeObject_ ∷ (Applicative w, WorldAPI a b c w) ⇒ V2 Int → a → w ()
 changeObject_ v o = changeObject v (const (pure o))
 
 
-interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → a → w ()) → w ()
+interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → [a] → w ()) → w ()
 interact f = interactOrElse f (pure ())
 
