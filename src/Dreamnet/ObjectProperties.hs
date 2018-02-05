@@ -9,8 +9,9 @@ module Dreamnet.ObjectProperties
 ) where
 
 
-import Data.List (intercalate)
-import Linear    (V2)
+import Data.Semigroup ((<>))
+import Data.List      (intercalate)
+import Linear         (V2)
 
 --------------------------------------------------------------------------------
 

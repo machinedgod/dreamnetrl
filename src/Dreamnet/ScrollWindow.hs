@@ -14,15 +14,19 @@ module Dreamnet.ScrollWindow
 
 , clearScrollWindow
 , renderScrollWindow
+
+, lines'
+, line''
 ) where
 
 
-import Control.Lens
-import Control.Monad.State
-import Data.Monoid
+import Control.Lens  (makeLenses, view, views, (%~), (+~), (.~))
+import Control.Monad (when, unless)
+import Data.Foldable (foldl', toList)
+import Data.Monoid   ((<>), mempty)
 
-import qualified Data.Vector as V
-import qualified UI.NCurses as C
+import qualified Data.Vector as V (fromList, imapM_)
+import qualified UI.NCurses  as C
 
 --------------------------------------------------------------------------------
 
@@ -86,17 +90,19 @@ scrollDown sd = let nsl = views sd_startLine (+1) sd -- <------ Where are these 
 
 lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
 lines' l lf sep xs = let (ln, r) = line'' l lf sep xs
-                     in  if null r
-                           then ln : []
-                           else ln : lines' l lf sep r
+                     in  if null r && ln == mempty
+                           then error "Phrase longer than limit (cannot be separated by separator!)"
+                           else if null r
+                             then ln : []
+                             else ln : lines' l lf sep r
 
 
 line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
-line'' l lf sep = foldl (\(f, b) x → if b /= mempty
-                                       then (f, b <> [x])
-                                       else if lf (f <> sep <> x) < l
-                                         then (f <> sep <> x, b)
-                                         else (f, [x])) (mempty, [])
+line'' l lf sep = foldl' (\(f, b) x → if b /= mempty
+                                        then (f, b <> [x])
+                                        else if lf (f <> sep <> x) < l
+                                          then (f <> sep <> x, b)
+                                          else (f, [x])) (mempty, [])
 
 --------------------------------------------------------------------------------
 

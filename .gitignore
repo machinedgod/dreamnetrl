@@ -10,5 +10,5 @@ ctags
 *.prof
 *.ps
 *.swp
-*.set?
+**/*.set?
 .stack-work

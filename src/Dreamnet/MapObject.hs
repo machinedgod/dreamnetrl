@@ -22,7 +22,7 @@ import Data.Semigroup ((<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
 import Data.Char      (intToDigit)
-import Linear         (V2(V2), _x)
+import Linear         (V2(V2), normalize)
 
 import qualified Data.Map as M  (Map, lookup)
 
@@ -74,7 +74,8 @@ instance IsPassable Object where
 
 
 instance Describable Object where
-    description (Base _ _ _)     = "<you-should-not-be-able-to-examine-base-objects!>"
+    description (Base _ _ _)     = "Base"
+    --description (Base _ _ _)     = "<you-should-not-be-able-to-examine-base-objects!>"
     description (Door o)         = "Just a common door. They're " <> bool "closed." "opened." o
     description (Stairs t)       = "If map changing would've been coded in, you would use these to go " <> bool "down." "up." t
     description (Prop _ n _ _ _) = "A " <> n <> "."
@@ -115,9 +116,11 @@ instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
             else changeObject_ v c (Camera (max 0 (l - 1)))
 
     runAi v p@(Person ch) = when (ch ^. ch_name == "Moe") $ do
-                              if v^._x == 14
-                                  then moveObject v p (v - (V2 1 0))
-                                  else moveObject v p (v + (V2 1 0))
+                                pv         ← playerPos
+                                seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
+                                when seesPlayer $ do
+                                    let d = fmap round (normalize (fmap fromIntegral (pv - v) ∷ V2 Float))
+                                    moveObject v p (v + d)
     runAi _ _ = pure ()
 
 

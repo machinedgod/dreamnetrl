@@ -33,7 +33,7 @@ import Safe
 
 import Control.Lens               (makeLenses, (^.), (%=), (+=), (.=), use,
                                    uses, view)
-import Control.Monad              (when, (<=<), void)
+import Control.Monad              (when, (<=<))
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
@@ -148,7 +148,7 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
     interactOrElse f e = fromMaybe e <=< runMaybeT $ do
         v  ← MaybeT (use w_aim)
         os ← uses w_map (objectsAt v)
-        return (f v os)
+        pure (f v os)
 
     updateVisible = do
         pp ← playerPos
@@ -192,8 +192,8 @@ replaceObjects v os = modifyObjects v (const os)
 
 castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a b → V2 Int → V2 Int → [(V2 Int, Bool)]
 castVisibilityRay' m o d = let seeThrough = areSeeThrough . (`objectsAt` m)
-                           in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
-                           --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
+                           --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
+                           in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
 
 
 runWorld ∷ WorldM a b c GameState → World a b c → (GameState, World a b c)
@@ -211,8 +211,8 @@ interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → [a] → w ()) →
 interact f = interactOrElse f (pure ())
 
 
-examine ∷ (Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
-examine = interactOrElse (\_ os → pure $ description (last os)) (view wm_desc <$> worldMap)
+examine ∷ (Show a, Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
+examine = interactOrElse (\_ → pure . describeAll) (view wm_desc <$> worldMap)
 
 
 get ∷ (Applicative w, WorldAPI a b c w) ⇒ w (Maybe d)
