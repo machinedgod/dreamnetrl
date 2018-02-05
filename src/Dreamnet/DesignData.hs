@@ -5,6 +5,7 @@ module Dreamnet.DesignData
 ( DesignData
 , dd_characters
 , dd_defaultRedshirt
+, dd_startingMap
 
 , defaultDesignData
 ) where
@@ -21,6 +22,7 @@ import Dreamnet.Character
 data DesignData = DesignData {
       _dd_characters      ∷ M.Map String (Character Item ConversationNode) 
     , _dd_defaultRedshirt ∷ Character Item ConversationNode
+    , _dd_startingMap     ∷ String
     }
 
 makeLenses ''DesignData
@@ -31,6 +33,8 @@ defaultDesignData =
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
     , _dd_defaultRedshirt = newCharacter "?" redshirtConvo
+    , _dd_startingMap     = "res/bar"
+    --, _dd_startingMap     = "res/job" 
     }
     where
         toNamedTuple = (,) <$> view ch_name <*> id

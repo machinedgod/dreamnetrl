@@ -20,11 +20,12 @@ import qualified UI.NCurses as C
 
 --------------------------------------------------------------------------------
 
+-- Note: NEVER slap equality on recursive data structures
 data ConversationNode = TalkNode   String   ConversationNode
                       | ListenNode String   ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | End
-                      deriving (Eq, Show)
+                      deriving (Show)
 
 
 pick ∷ Word → ConversationNode → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB

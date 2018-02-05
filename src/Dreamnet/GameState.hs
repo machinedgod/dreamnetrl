@@ -25,5 +25,4 @@ data GameState = Normal
                | Conversation  String ConversationNode
                | InventoryUI
                | CharacterUI
-               deriving(Eq)
 

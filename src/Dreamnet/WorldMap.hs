@@ -64,7 +64,7 @@ fromTileMap tm t2o dv =
     WorldMap {
       _wm_width   = tm^.m_width
     , _wm_height  = tm^.m_height
-    , _wm_data    = let mapData           = transposeAndMerge $ layerToObject <$> (tm^.m_layers)
+    , _wm_data    = let mapData           = transposeAndMerge $ layerToObject (tm^.m_tileset) <$> (tm^.m_layers)
                         maybeObjects i    = coordLin tm i `M.lookup` (tm^.m_positioned)
                         addPositioned i o = maybe o ((o<>) . fmap t2o) (maybeObjects i)
                     in  V.imap addPositioned mapData
@@ -76,8 +76,8 @@ fromTileMap tm t2o dv =
         squareSize ∷ Int
         squareSize = fromIntegral (tm^.m_width * tm^.m_height)
 
-        layerToObject ∷ TileLayer → V.Vector a
-        layerToObject tl = charToObject (tl^.l_tileset) <$> (tl^.l_data)
+        layerToObject ∷ Tileset → TileLayer → V.Vector a
+        layerToObject ts tl = charToObject ts <$> (tl^.l_data)
 
         charToObject ∷ Tileset → Char → a
         charToObject ts c = let maybeTile = c `M.lookup` ts
@@ -88,7 +88,12 @@ fromTileMap tm t2o dv =
         transposeAndMerge ls = V.fromList $ mergeIntoList ls <$> [0..squareSize - 1]
 
         mergeIntoList ∷ V.Vector (V.Vector a) → Int → [a]
-        mergeIntoList ls i = V.foldl' (\l v → l ++ [v V.! i]) [] ls
+        mergeIntoList ls i = V.foldl' appendIfDifferent [] ls
+            where
+                appendIfDifferent [] v = [v V.! i]
+                appendIfDifferent l v  = if last l == v V.! i
+                                           then l
+                                           else l ++ [v V.! i]
 
 
 outOfBounds ∷ WorldMap a b → V2 Int → Bool
@@ -112,14 +117,3 @@ interestingObjects v r ff m =
     where
         collectObjects x l = let o = objectsAt x m
                              in  bool l (x : l) (or $ ff <$> o)
-
-
---removeFromWorldPile ∷ (MonadWorld w) ⇒ V2 Int → Item → w ()
---removeFromWorldPile v i = w_items %= M.update (wrapMaybe . removeFromList i) v
---    where
---        removeFromList i l = filter (/=i) l
---        wrapMaybe [] = Nothing
---        wrapMaybe l  = Just l
---
---
-

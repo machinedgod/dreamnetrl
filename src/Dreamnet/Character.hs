@@ -175,9 +175,13 @@ data Character a b = Character {
     , _ch_electronics ∷ ElectronicsSkills
     , _ch_social      ∷ CommunicationSkills
     }
-    deriving (Eq, Show)
+    deriving (Show)
 
 makeLenses ''Character
+
+
+instance Eq (Character a b) where
+    ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
 
 
 newCharacter ∷ String → b → Character a b

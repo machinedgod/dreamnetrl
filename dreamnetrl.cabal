@@ -50,7 +50,7 @@ executable dreamnetrl
   -- .hs or .lhs file containing the Main module.
   main-is:             Main.hs
 
-  ghc-options:         -rtsopts -auto-all -caf-all -Wall
+  ghc-options:         -rtsopts -prof -fprof-auto -fprof-cafs -Wall
 
   extra-libraries:     tinfo
 
@@ -91,7 +91,8 @@ executable dreamnetrl
                        linear,
                        ncurses,
                        bytestring,
-                       cassava
+                       cassava,
+                       directory
   -- Directories containing source files.
   hs-source-dirs:      src
   

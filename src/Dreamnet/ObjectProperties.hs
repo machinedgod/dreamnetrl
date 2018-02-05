@@ -29,7 +29,6 @@ class Describable a where
     describeAll ∷ [a] → String
     describeAll = intercalate ", " . fmap description 
 
-
 class HasAi m a where
-    runAi ∷ V2 Int → a → m a
+    runAi ∷ V2 Int → a → m ()
 

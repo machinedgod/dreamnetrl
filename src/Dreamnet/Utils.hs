@@ -9,29 +9,30 @@ module Dreamnet.Utils
 
 
 import Control.Lens
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Data.Bool                 (bool)
 import Data.List                 (unfoldr)
+import Data.Foldable             (foldr')
 import qualified Data.Set as S
 import Linear
 
 --------------------------------------------------------------------------------
 
 line ∷ V2 Int → V2 Int → [V2 Int]
-line v1 v2 = let v1f         = fmap fromIntegral v1 ∷ V2 Float
-                 v2f         = fmap fromIntegral v2 ∷ V2 Float
-                 vd          = normalize (v2f - v1f)
-                 step        = 0.5
-                 steps       = ceiling (distance v1f v2f / step) ∷ Int
-                 toCoord d   = floor <$> vd ^* d
-                 enough []   = []
-                 enough l    = let h = takeWhile (/=v2) l
-                                   t = dropWhile (/=v2) l
-                               in  h ++ bool [] [head t] (not $ null t)
-                 uniq []     = []
-                 uniq xs     = foldr (\v l → if null l || head l /= v
-                                               then v : l
-                                               else l) [] xs
+line v1 v2 = let v1f       = fmap fromIntegral v1 ∷ V2 Float
+                 v2f       = fmap fromIntegral v2 ∷ V2 Float
+                 vd        = normalize (v2f - v1f)
+                 step      = 0.5
+                 steps     = ceiling (distance v1f v2f / step) ∷ Int
+                 toCoord d = floor <$> vd ^* d
+                 enough [] = []
+                 enough l  = let !h = takeWhile (/=v2) l
+                                 !t = dropWhile (/=v2) l
+                             in  h ++ bool [] [head t] (not $ null t)
+                 uniq []   = []
+                 uniq xs   = foldr' (\v l → if null l || head l /= v
+                                              then v : l
+                                              else l) [] xs
              in  uniq $ enough $ fmap (v1^+^) $ toCoord <$> [0, step..fromIntegral steps]
 
 
@@ -79,6 +80,7 @@ circle radius (V2 x0 y0) = uncurry V2 <$> iniPoints
                                            x' = x + 1
 
 
+-- TODO use ST monad
 floodFillRange ∷ Word → V2 Int → [V2 Int]
 floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, S.empty)
     where

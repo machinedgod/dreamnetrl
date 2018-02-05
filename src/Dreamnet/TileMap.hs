@@ -12,12 +12,12 @@ module Dreamnet.TileMap
 , l_width
 , l_height
 , l_data
-, l_tileset
 
 , TileMap
 , m_width
 , m_height
 , m_layers
+, m_tileset
 , m_positioned
 , m_desc
 , tileAt
@@ -29,16 +29,17 @@ module Dreamnet.TileMap
 
 import Safe
 
-import Control.Monad.IO.Class 
-import Control.Lens 
-import Data.Semigroup
-import Data.Maybe (fromMaybe)
-import Data.List (elemIndex)
-import Data.Bool (bool)
-import Linear 
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Lens           (makeLenses, view, (^.), (.~), element)
+import Data.Semigroup         ((<>))
+import Data.Maybe             (fromMaybe)
+import Data.List              (elemIndex)
+import Data.Bool              (bool)
+import Linear                 (V2(V2))
+import System.Directory       (doesFileExist)
 
-import qualified Data.Map    as M
-import qualified Data.Vector as V
+import qualified Data.Map             as M
+import qualified Data.Vector          as V
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Csv             as CSV
 
@@ -56,13 +57,10 @@ makeLenses ''Tile
 
 --------------------------------------------------------------------------------
 
-type Tileset = M.Map Char Tile
-
 data TileLayer = TileLayer {
       _l_width      ∷ Word
     , _l_height     ∷ Word
     , _l_data       ∷ V.Vector Char
-    , _l_tileset    ∷ Tileset
     }
     deriving(Show)
 
@@ -72,11 +70,11 @@ instance CoordVector TileLayer where
     width = view l_width
 
 
-tileAt ∷ TileLayer → V2 Int → Tile
-tileAt tl v = let char      = (tl^.l_data) V.! linCoord tl v
-                  maybeTile = char `M.lookup` (tl^.l_tileset)
-                  err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " <> [char]
-              in  fromMaybe err maybeTile
+tileAt ∷ TileLayer → Tileset → V2 Int → Tile
+tileAt tl ts v = let char      = (tl^.l_data) V.! linCoord tl v
+                     maybeTile = char `M.lookup` ts
+                     err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " <> [char]
+                 in  fromMaybe err maybeTile
 
 
 changeTile ∷ V2 Int → Tile → TileLayer → TileLayer
@@ -91,12 +89,14 @@ findAll ch tl = let foldCoord i c l = bool l (coordLin tl i : l) (c == ch)
 
 type Width  = Word
 type Height = Word
+type Tileset = M.Map Char Tile
 
 
 data TileMap = TileMap {
       _m_width      ∷ Width
     , _m_height     ∷ Height
     , _m_layers     ∷ V.Vector TileLayer
+    , _m_tileset    ∷ Tileset
     , _m_positioned ∷ M.Map (V2 Int) [Tile]
     , _m_desc       ∷ String
     }
@@ -119,42 +119,58 @@ makeFilename' fp s i = fp <> "." <> s <> show i
 
 loadTileMap ∷ (MonadIO m) ⇒ FilePath → m TileMap
 loadTileMap fp = do
-    layer0 ← readLayer fp 0
+    ts     ← readTileset fp
+    lc     ← layerCount fp
+    layers ← traverse (readLayer fp) [0..lc - 1]
+    --layer0 ← readLayer fp 0
     desc   ← liftIO $ readFile (makeFilename fp "desc")
     pos    ← readPositioned (makeFilename fp "positioned")
 
-    let w = layer0^.l_width
-        h = layer0^.l_height
+    let w = (layers !! 0) ^.l_width
+        h = (layers !! 0) ^.l_height
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)
-        (V.fromList [ layer0 ])
+        (V.fromList layers)
+        ts
         pos
         desc
 
 
-readLayer ∷ (MonadIO m) ⇒ FilePath → Word → m TileLayer
-readLayer fp i = do
-    mapStr   ← liftIO $ readFile (makeFilename' fp "layer" i)
-    tableStr ← liftIO $ BS.readFile (makeFilename' fp "set" i)
-
-    let w     = findWidth mapStr
-        h     = findHeight mapStr
-        ldata = cleanNewlines mapStr
-        tset  = createTable tableStr
-    return $ TileLayer w h ldata tset
+readTileset ∷ (MonadIO m) ⇒ FilePath → m Tileset
+readTileset fp = liftIO $ BS.readFile (makeFilename fp "set") >>=
+                   pure . either err makeMap . CSV.decode CSV.NoHeader
     where
-        findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
-        findHeight    = fromIntegral . length . filter (=='\n')
-        cleanNewlines = V.fromList . filter (/='\n')
-        createTable   = either err makeMap . CSV.decode CSV.NoHeader
-        err e         = error $ "Can't parse " <> makeFilename' fp "set" i <> ": " <> e
-        makeMap       = V.foldr' insertTile M.empty
+        err e   = error $ "Can't parse " <> makeFilename fp "set" <> ": " <> e
+        makeMap = V.foldr' insertTile M.empty
         insertTile v  = let t = createTile v
                         in  M.insert (t^.t_char) t
         createTile v  = let char  = head . V.head $ v
                             edata = V.drop 1 v
                         in  Tile char edata
+
+
+layerCount ∷ (MonadIO m) ⇒ FilePath → m Word
+layerCount fp = fromIntegral <$> countLayers 0
+    where
+        countLayers ∷ (MonadIO m) ⇒ Int → m Int
+        countLayers acc = let lfp = makeFilename' fp "layer" (fromIntegral acc)
+                          in  liftIO (doesFileExist lfp) >>=
+                                bool (pure acc)
+                                     (countLayers (acc + 1))
+
+
+readLayer ∷ (MonadIO m) ⇒ FilePath → Word → m TileLayer
+readLayer fp i = do
+    mapStr   ← liftIO $ readFile (makeFilename' fp "layer" i)
+    let w     = findWidth mapStr
+        h     = findHeight mapStr
+        ldata = cleanNewlines mapStr
+    return $ TileLayer w h ldata
+    where
+        findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
+        findHeight    = fromIntegral . length . filter (=='\n')
+        cleanNewlines = V.fromList . filter (/='\n')
 
 
 readPositioned ∷ (MonadIO m) ⇒ FilePath → m (M.Map (V2 Int) [Tile])

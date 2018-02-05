@@ -57,9 +57,7 @@ makeLenses ''Game
 newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
-    --m   ← loadTileMap "res/apartment0"
-    m   ← loadTileMap "res/bar"
-    --m   ← loadTileMap "res/job"
+    m   ← loadTileMap (view dd_startingMap dd)
     cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
@@ -189,8 +187,9 @@ loopTheLoop = do
                 (gs, w') ← uses g_world (runWorld (updateWorld we))
                 switchGameState gs
                 g_world .= w'
-                when (gs == Normal)
-                    renderNormal
+                case gs of
+                    Normal → renderNormal
+                    _      → pure ()
 
             Conversation _ (ChoiceNode l _) → do
                 let (UIEv uie) = e
@@ -282,7 +281,7 @@ updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     setStatus ""
-    s ← interactOrElse (\v os → fmap last $ traverse (objectInteraction v) os) (pure Normal)
+    s ← interactOrElse (\v os → objectInteraction v (last os)) (pure Normal)
     switchAim Nothing
     updateVisible
     updateAi -- *> alarmStateCheck
@@ -295,7 +294,7 @@ updateWorld Get = do
     updateAi -- *> alarmStateCheck
     return Normal
 updateWorld Wait = do
-    setStatus ""
+    setStatus "Waiting..."
     updateVisible
     updateAi -- *> alarmStateCheck
     return Normal
@@ -314,10 +313,10 @@ updateWorld CharacterSheet = return CharacterUI
 
 
 objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
-objectInteraction v (Door o)     = changeObject_ v (Door (not o)) $> Normal
-objectInteraction _ Computer     = pure Interaction 
-objectInteraction _ (Person c)   = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
-objectInteraction _ o            = setStatus ("Tried interaction with: " <> show o) $> Normal
+objectInteraction v d@(Door o) = changeObject_ v d (Door (not o)) $> Normal
+objectInteraction _ Computer   = pure Interaction
+objectInteraction _ (Person c) = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
+objectInteraction _ o          = setStatus ("Tried interaction with: " <> show o) $> Normal
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()

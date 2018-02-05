@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -17,12 +17,15 @@ module Dreamnet.MapObject
 
 
 import Control.Lens   ((^.))
+import Control.Monad  (when)
 import Data.Semigroup ((<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
 import Data.Char      (intToDigit)
+import Linear         (V2(V2), _x)
 
 import qualified Data.Map as M  (Map, lookup)
+
 
 import Dreamnet.ObjectProperties
 import Dreamnet.Conversation     (ConversationNode)
@@ -30,7 +33,7 @@ import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
 import Dreamnet.TileMap          (Tile, t_char)
 import Dreamnet.TileData         (ttype, readBoolProperty, readStringProperty)
-import Dreamnet.World            (WorldReadAPI(..), WorldAPI(..))
+import Dreamnet.World            (WorldReadAPI(..), WorldAPI(..), changeObject_)
 
 --------------------------------------------------------------------------------
 
@@ -69,6 +72,7 @@ instance IsPassable Object where
     isPassable (ItemO _)        = True
     {-# INLINE isPassable #-}
 
+
 instance Describable Object where
     description (Base _ _ _)     = "<you-should-not-be-able-to-examine-base-objects!>"
     description (Door o)         = "Just a common door. They're " <> bool "closed." "opened." o
@@ -82,6 +86,7 @@ instance Describable Object where
     description Computer         = "Your machine. You wonder if Devin mailed you about the job."
     description (ItemO (Item n)) = "A " <> n <> "."
     {-# INLINE description #-}
+
 
 instance IsSeeThrough Object where
     isSeeThrough (Base _ _ s)     = s
@@ -102,14 +107,18 @@ instance IsSeeThrough Object where
 -- or by keyboard
 --instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
 instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
-    runAi v (Camera l) = do
+    runAi v c@(Camera l) = do
         pv         ← playerPos
         seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
-        pure $ if seesPlayer
-                 then Camera (min 9 (l + 1))
-                 else Camera (max 0 (l - 1))
-    runAi v (Person c) = moveObject v id (v + 1) id >> pure (Person c)
-    runAi _ x = pure x
+        if seesPlayer
+            then changeObject_ v c (Camera (min 9 (l + 1)))
+            else changeObject_ v c (Camera (max 0 (l - 1)))
+
+    runAi v p@(Person ch) = when (ch ^. ch_name == "Moe") $ do
+                              if v^._x == 14
+                                  then moveObject v p (v - (V2 1 0))
+                                  else moveObject v p (v + (V2 1 0))
+    runAi _ _ = pure ()
 
 
 objectFromTile ∷ DesignData → Tile → Object
