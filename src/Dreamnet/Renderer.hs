@@ -125,29 +125,27 @@ initRenderer = do
                 | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
                 | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
             createStyles8Colors = do 
-                cRed     ←  C.newColorID  C.ColorRed      C.ColorBlack  1
-                cGreen   ←  C.newColorID  C.ColorGreen    C.ColorBlack  2
-                cYellow  ←  C.newColorID  C.ColorYellow   C.ColorBlack  3
-                cBlue    ←  C.newColorID  C.ColorBlue     C.ColorBlack  4
-                cMagenta ←  C.newColorID  C.ColorMagenta  C.ColorBlack  5
-                cCyan    ←  C.newColorID  C.ColorCyan     C.ColorBlack  6
-                cWhite   ←  C.newColorID  C.ColorWhite    C.ColorBlack  7
+                cRed     ← C.newColorID  C.ColorRed      C.ColorBlack  1
+                cGreen   ← C.newColorID  C.ColorGreen    C.ColorBlack  2
+                cYellow  ← C.newColorID  C.ColorYellow   C.ColorBlack  3
+                cBlue    ← C.newColorID  C.ColorBlue     C.ColorBlack  4
+                cMagenta ← C.newColorID  C.ColorMagenta  C.ColorBlack  5
+                cCyan    ← C.newColorID  C.ColorCyan     C.ColorBlack  6
+                cWhite   ← C.newColorID  C.ColorWhite    C.ColorBlack  7
 
-                let materials = M.fromList
-                        [ ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
-                        , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
-                        , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
-                        , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
-                        , ("green plastic"  , [ C.AttributeColor cGreen,  C.AttributeDim  ])
-                        , ("ceramics"       , [ C.AttributeColor cWhite,  C.AttributeDim  ])
-                        , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
-                        , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
-                        , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
-                        ]
-                    matUnknown = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                 return Styles {
-                         _s_materials = materials
-                       --, _s_unknown   = matUnknown
+                         _s_materials = M.fromList
+                            [ ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
+                            , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
+                            , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
+                            , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
+                            , ("green plastic"  , [ C.AttributeColor cGreen,  C.AttributeDim  ])
+                            , ("ceramics"       , [ C.AttributeColor cWhite,  C.AttributeDim  ])
+                            , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
+                            , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
+                            , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
+                            ]
+                       --, _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                        , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
                        , _s_visibilityUnknown = []
@@ -186,7 +184,7 @@ drawMap chf matf m = do
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        drawTile u k i ([], v) = uncurry (drawCharAt $ coordLin m i) $ ('?', u)
+        drawTile _ k i ([], _) = uncurry (drawCharAt $ coordLin m i) $ ('?', k)
         drawTile u k i (os, v) = uncurry (drawCharAt $ coordLin m i) $
                                      case v of
                                          Unknown → (' ', u)

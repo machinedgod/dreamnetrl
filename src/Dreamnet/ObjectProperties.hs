@@ -9,16 +9,13 @@ module Dreamnet.ObjectProperties
 ) where
 
 
-import Data.Semigroup ((<>))
-import Data.List      (intercalate)
-import Linear         (V2)
+import Data.List (intercalate)
+import Linear    (V2)
 
 --------------------------------------------------------------------------------
 
-class IsPassable a where
-    isPassable ∷ a → Bool
-    allPassable ∷ [a] → Bool -- TODO loosen datatypes
-    allPassable = and . fmap isPassable
+class IsPassable m a where
+    isPassable ∷ a → m Bool
 
 class IsSeeThrough a where
     isSeeThrough ∷ a → Bool

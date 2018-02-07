@@ -16,7 +16,7 @@ module Dreamnet.MapObject
 ) where
 
 
-import Control.Lens   ((^.))
+import Control.Lens   ((^.), view)
 import Data.Semigroup ((<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
@@ -26,6 +26,7 @@ import qualified Data.Map as M  (Map, lookup)
 
 
 import Dreamnet.ObjectProperties
+import Dreamnet.Entity           (e_object)
 import Dreamnet.Conversation     (ConversationNode)
 import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
@@ -59,21 +60,22 @@ data Object = Base      Char Passable SeeThrough
             deriving (Eq, Show)
 
 
-instance IsPassable Object where
-    isPassable (Base _ p _)     = p
-    isPassable (Door o)         = o
-    isPassable (Stairs _)       = True
-    isPassable (Prop _ _ _ p _) = p
-    isPassable (Person _)       = False -- TODO Check if allied
-    isPassable (Camera _)       = True
-    isPassable Computer         = False
-    isPassable (ItemO _)        = True
+instance (Applicative w, WorldReadAPI Object b (Character c d) w) ⇒ IsPassable w Object where
+    isPassable (Base _ p _)     = pure p
+    isPassable (Door o)         = pure o
+    isPassable (Stairs _)       = pure True
+    isPassable (Prop _ _ _ p _) = pure p
+    isPassable (Person c)       = or . fmap nameMatches <$> team
+        where
+            nameMatches c' = view ch_name c == view (e_object.ch_name) c'
+    isPassable (Camera _)       = pure True
+    isPassable Computer         = pure False
+    isPassable (ItemO _)        = pure True
     {-# INLINE isPassable #-}
 
 
 instance Describable Object where
-    description (Base _ _ _)     = "Base"
-    --description (Base _ _ _)     = "<you-should-not-be-able-to-examine-base-objects!>"
+    description (Base _ _ _)     = "<base>"
     description (Door o)         = "Just a common door. They're " <> bool "closed." "opened." o
     description (Stairs t)       = "If map changing would've been coded in, you would use these to go " <> bool "down." "up." t
     description (Prop _ n _ _ _) = "A " <> n <> "."
@@ -105,7 +107,7 @@ instance IsSeeThrough Object where
 -- whole lot of player code into something that can be controlled either by AI,
 -- or by keyboard
 --instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
-instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
+instance (Monad w, WorldAPI Object b c w) ⇒ HasAi w Object where
     runAi v c@(Camera l) = do
         pv         ← selCharPos  -- TODO whole team!
         seesPlayer ← and . fmap snd <$> castVisibilityRay v pv

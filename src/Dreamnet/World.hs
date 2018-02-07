@@ -60,6 +60,7 @@ import Dreamnet.Visibility
 
 class WorldReadAPI a b c w | w → a, w → b, w → c where
     worldMap ∷ w (WorldMap a b)
+    team ∷ w [Entity c]
     selCharPos ∷ w (V2 Int)
     castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
@@ -70,7 +71,7 @@ class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c wh
     changeObject ∷ V2 Int → (a → w a) → w ()
     selChar ∷ w c
     selectCharacter ∷ (c → Bool) → w ()
-    moveSelected ∷ (IsPassable a) ⇒ V2 Int → w ()
+    moveSelected ∷ (IsPassable w a) ⇒ V2 Int → w ()
     moveObject ∷ (Eq a) ⇒ V2 Int → a → V2 Int → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
     interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
@@ -114,10 +115,11 @@ newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
 
 instance WorldReadAPI a Visibility b (WorldM a Visibility b) where
     worldMap = use w_map
+    team = use w_team
     selCharPos = use (w_selected.e_position)
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
-instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
+instance WorldAPI a Visibility b (WorldM a Visibility b) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
@@ -126,9 +128,10 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
         replaceObjects v nos
 
     moveSelected v = do
-        npp ← uses (w_selected.e_position) (+v)
-        obj ← uses w_map (objectsAt npp)
-        when (allPassable obj) $
+        npp     ← uses (w_selected.e_position) (+v)
+        obj     ← uses w_map (objectsAt npp)
+        canWalk ← traverse isPassable obj
+        when (and canWalk) $
             w_selected %= move v
 
     moveObject cp o np = do
@@ -168,7 +171,7 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
             <*> uses w_team (fmap (view e_position))
 
         let linPoints = mconcat $ pointsForOne m <$> t
-        -- TODO resolving 'x' causes lag
+        -- NOTE resolving 'x' causes lag
         w_map.wm_visible %= V.imap (\i x → if i `S.member` linPoints
                                              then Visible
                                              else case x of
@@ -227,7 +230,7 @@ interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → [a] → w ()) →
 interact f = interactOrElse f (pure ())
 
 
-examine ∷ (Show a, Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
+examine ∷ (Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
 examine = interactOrElse (\_ → pure . describeAll) (view wm_desc <$> worldMap)
 
 
