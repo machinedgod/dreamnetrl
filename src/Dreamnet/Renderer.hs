@@ -23,6 +23,7 @@ module Dreamnet.Renderer
 
 , drawMap
 , drawPlayer
+, drawTeam
 , drawAim
 , drawHud
 ) where
@@ -32,6 +33,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Linear               (V2(V2))
 import Data.Semigroup       ((<>))
+import Data.Foldable        (traverse_)
 
 import UI.NCurses.Class
 import qualified UI.NCurses  as C
@@ -46,7 +48,7 @@ import Dreamnet.Visibility
 
 data Styles = Styles {
       _s_materials ∷ M.Map String [C.Attribute]
-    , _s_unknown   ∷ [C.Attribute]
+    --, _s_unknown   ∷ [C.Attribute]
     , _s_playerAim ∷ [C.Attribute]
 
     , _s_visibilityUnknown ∷ [C.Attribute]
@@ -54,7 +56,7 @@ data Styles = Styles {
     , _s_visibilityVisible ∷ [C.Attribute]
 
     --, _s_colorRed     ∷ C.ColorID
-    --, _s_colorGreen   ∷ C.ColorID
+    , _s_colorGreen   ∷ C.ColorID
     --, _s_colorYellow  ∷ C.ColorID
     --, _s_colorBlue    ∷ C.ColorID
     , _s_colorMagenta ∷ C.ColorID
@@ -145,7 +147,7 @@ initRenderer = do
                     matUnknown = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                 return Styles {
                          _s_materials = materials
-                       , _s_unknown   = matUnknown
+                       --, _s_unknown   = matUnknown
                        , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
                        , _s_visibilityUnknown = []
@@ -154,7 +156,7 @@ initRenderer = do
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        --, _s_colorRed     = cRed    
-                       --, _s_colorGreen   = cGreen  
+                       , _s_colorGreen   = cGreen
                        --, _s_colorYellow  = cYellow 
                        --, _s_colorBlue    = cBlue   
                        , _s_colorMagenta = cMagenta
@@ -193,10 +195,20 @@ drawMap chf matf m = do
 
 
 drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r ()
-drawPlayer v = do
+drawPlayer v = use (rd_styles.s_colorMagenta) >>= drawCharacter v
+
+
+drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r ()
+drawTeam vs = do
+    s ← use (rd_styles.s_colorGreen)
+    traverse_ (flip drawCharacter s) vs
+
+
+drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r ()
+drawCharacter v cid = do
     w ← use rd_mainWindow
-    s ← uses (rd_styles.s_colorMagenta) C.AttributeColor
-    updateWindow w $ drawCharAt v '@' [s]
+    --s ←  C.AttributeColor
+    updateWindow w $ drawCharAt v '@' [C.AttributeColor cid]
 
 
 drawAim ∷ (MonadRender r) ⇒ V2 Int → r ()

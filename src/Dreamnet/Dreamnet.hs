@@ -24,6 +24,7 @@ import Dreamnet.Conversation
 
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
+import Dreamnet.Entity
 import Dreamnet.ScrollWindow
 import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
@@ -64,7 +65,10 @@ newGame dd = do
     return Game {
         _g_world        = newWorld
                               (fromTileMap m (objectFromTile dd) Unknown)
-                              (newCharacter "Carla" End)
+                              [ newCharacter "Carla"   End
+                              , newCharacter "Raj"     End
+                              , newCharacter "Delgado" End
+                              ]
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
@@ -117,7 +121,7 @@ onStateSwitch Normal (Examination s) = do
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
-    is ← uses (g_world.w_playerCharacter) (fmap show . equippedContainers)
+    is ← uses (g_world.w_selected.e_object) (fmap show . equippedContainers)
     g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
     lift $
@@ -272,7 +276,7 @@ allButTheBase _      = True
 updateWorld ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     setStatus ""
-    movePlayer v
+    moveSelected v
     switchAim (pure allButTheBase)
     updateVisible
     updateAi -- *> alarmStateCheck
@@ -298,8 +302,21 @@ updateWorld Wait = do
     updateVisible
     updateAi -- *> alarmStateCheck
     return Normal
-updateWorld InventorySheet = return InventoryUI
-updateWorld CharacterSheet = return CharacterUI
+updateWorld InventorySheet = pure InventoryUI
+updateWorld CharacterSheet = pure CharacterUI
+updateWorld (SelectTeamMember 0) = selectByName "Carla"
+updateWorld (SelectTeamMember 1) = selectByName "Raj"
+updateWorld (SelectTeamMember 2) = selectByName "Delgado"
+updateWorld (SelectTeamMember _) = pure Normal
+
+
+selectByName ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ String → w GameState
+selectByName n = do
+    switchAim Nothing
+    selectCharacter byName
+    pure Normal
+    where
+        byName = (==n) . view ch_name
 
 
 --alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
@@ -343,7 +360,8 @@ updateComputer c    = g_carlasComputer %= (*> input c)
 renderNormal ∷ StateT Game C.Curses ()
 renderNormal = do
     m  ← use (g_world.w_map)
-    p  ← use (g_world.w_playerPos)
+    p  ← use (g_world.w_selected.e_position)
+    t  ← uses (g_world.w_team) (fmap (view e_position))
     ma ← use (g_world.w_aim)
     s  ← use (g_world.w_status)
     
@@ -352,6 +370,7 @@ renderNormal = do
     doRender $ do
         drawMap objectToChar (objectToMat mats def) m
         drawPlayer p
+        drawTeam t
         drawHud s
         maybe (return ()) drawAim ma
 

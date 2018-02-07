@@ -33,8 +33,7 @@ defaultDesignData =
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
     , _dd_defaultRedshirt = newCharacter "?" redshirtConvo
-    , _dd_startingMap     = "res/bar"
-    --, _dd_startingMap     = "res/job" 
+    , _dd_startingMap     = "res/job"
     }
     where
         toNamedTuple = (,) <$> view ch_name <*> id

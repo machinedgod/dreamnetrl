@@ -17,12 +17,10 @@ module Dreamnet.MapObject
 
 
 import Control.Lens   ((^.))
-import Control.Monad  (when)
 import Data.Semigroup ((<>))
 import Data.Bool      (bool)
 import Data.Maybe     (fromMaybe)
 import Data.Char      (intToDigit)
-import Linear         (V2(V2), normalize)
 
 import qualified Data.Map as M  (Map, lookup)
 
@@ -109,18 +107,11 @@ instance IsSeeThrough Object where
 --instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
 instance (Monad m, WorldAPI Object b c m) ⇒ HasAi m Object where
     runAi v c@(Camera l) = do
-        pv         ← playerPos
+        pv         ← selCharPos  -- TODO whole team!
         seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
         if seesPlayer
             then changeObject_ v c (Camera (min 9 (l + 1)))
             else changeObject_ v c (Camera (max 0 (l - 1)))
-
-    runAi v p@(Person ch) = when (ch ^. ch_name == "Moe") $ do
-                                pv         ← playerPos
-                                seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
-                                when seesPlayer $ do
-                                    let d = fmap round (normalize (fmap fromIntegral (pv - v) ∷ V2 Float))
-                                    moveObject v p (v + d)
     runAi _ _ = pure ()
 
 

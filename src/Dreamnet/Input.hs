@@ -29,6 +29,7 @@ data WorldEvent = Move (V2 Int)
                 | Wait
                 | InventorySheet
                 | CharacterSheet
+                | SelectTeamMember  Int
                 deriving (Eq, Show)
 
 
@@ -105,6 +106,16 @@ worldEvent 'g'  = Just   Get
 worldEvent '.'  = Just   Wait
 worldEvent 'i'  = Just   InventorySheet
 worldEvent 'c'  = Just   CharacterSheet
+worldEvent '1'  = Just $ SelectTeamMember 0
+worldEvent '2'  = Just $ SelectTeamMember 1
+worldEvent '3'  = Just $ SelectTeamMember 2
+worldEvent '4'  = Just $ SelectTeamMember 3
+worldEvent '5'  = Just $ SelectTeamMember 4
+worldEvent '6'  = Just $ SelectTeamMember 5
+worldEvent '7'  = Just $ SelectTeamMember 6
+worldEvent '8'  = Just $ SelectTeamMember 7
+worldEvent '9'  = Just $ SelectTeamMember 8
+worldEvent '0'  = Just $ SelectTeamMember 9
 worldEvent _    = Nothing
 
 

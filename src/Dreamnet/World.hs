@@ -1,6 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings, NegativeLiterals, TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -17,8 +17,8 @@ module Dreamnet.World
 
 , World
 -- TODO take out and enforce interaction through API class
-, w_playerPos
-, w_playerCharacter
+, w_team
+, w_selected
 , w_aim
 , w_map
 , w_status
@@ -31,9 +31,9 @@ module Dreamnet.World
 import Prelude hiding (interact, rem)
 import Safe
 
-import Control.Lens               (makeLenses, (^.), (%=), (+=), (.=), use,
+import Control.Lens               (makeLenses, (^.), (%=), (.=), use,
                                    uses, view)
-import Control.Monad              (when, (<=<))
+import Control.Monad              (when, (<=<), void)
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
@@ -41,12 +41,14 @@ import Data.Foldable              (traverse_)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
-import Data.List                  (delete)
+import Data.List                  (delete, find)
 
 import qualified Data.Set            as S  (fromList, member)
-import qualified Data.Vector         as V  ((!?), modify, imap, imapM_)
+import qualified Data.Vector         as V  (modify, imap, imapM_, toList)
 import qualified Data.Vector.Mutable as MV (write, read)
 
+
+import Dreamnet.Entity
 import Dreamnet.ObjectProperties
 import Dreamnet.Utils
 import Dreamnet.CoordVector
@@ -58,7 +60,7 @@ import Dreamnet.Visibility
 
 class WorldReadAPI a b c w | w → a, w → b, w → c where
     worldMap ∷ w (WorldMap a b)
-    playerPos ∷ w (V2 Int)
+    selCharPos ∷ w (V2 Int)
     castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
@@ -66,8 +68,9 @@ class WorldReadAPI a b c w | w → a, w → b, w → c where
 class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
     setStatus ∷ String → w ()
     changeObject ∷ V2 Int → (a → w a) → w ()
-    playerCharacter ∷ w c
-    movePlayer ∷ (IsPassable a) ⇒ V2 Int → w ()
+    selChar ∷ w c
+    selectCharacter ∷ (c → Bool) → w ()
+    moveSelected ∷ (IsPassable a) ⇒ V2 Int → w ()
     moveObject ∷ (Eq a) ⇒ V2 Int → a → V2 Int → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
     interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
@@ -82,25 +85,26 @@ class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c wh
 --   b: visibility data
 --   c: character data
 data World a b c = World {
-      _w_playerPos       ∷ V2 Int
-    , _w_playerCharacter ∷ c
-    , _w_aim             ∷ Maybe (V2 Int)
-    , _w_map             ∷ WorldMap a b
-    , _w_status          ∷ String
+      _w_team     ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
+    , _w_selected ∷ Entity c
+    , _w_aim      ∷ Maybe (V2 Int)
+    , _w_map      ∷ WorldMap a b
+    , _w_status   ∷ String
     }
 
 makeLenses ''World
 
 
-newWorld ∷ WorldMap a b → c → World a b c
-newWorld m ch = 
-    World {
-      _w_playerPos       = fromMaybe (error "Map is missing spawn points!") $ (m^.wm_spawns) V.!? 0
-    , _w_playerCharacter = ch
-    , _w_aim             = Nothing
-    , _w_map             = m
-    , _w_status          = ""
-    }
+newWorld ∷ WorldMap a b → [c] → World a b c
+newWorld m chs =
+    let team = new <$> zip (V.toList $ m^.wm_spawns) chs
+    in  World {
+          _w_team     = drop 1 team
+        , _w_selected = head team
+        , _w_aim      = Nothing
+        , _w_map      = m
+        , _w_status   = ""
+        }
 
 --------------------------------------------------------------------------------
 
@@ -110,7 +114,7 @@ newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
 
 instance WorldReadAPI a Visibility b (WorldM a Visibility b) where
     worldMap = use w_map
-    playerPos = use w_playerPos
+    selCharPos = use (w_selected.e_position)
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
 instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
@@ -121,11 +125,11 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
         nos ← traverse fo (objectsAt v m)
         replaceObjects v nos
 
-    movePlayer v = do
-        npp ← uses w_playerPos (+v)
+    moveSelected v = do
+        npp ← uses (w_selected.e_position) (+v)
         obj ← uses w_map (objectsAt npp)
         when (allPassable obj) $
-            w_playerPos += v
+            w_selected %= move v
 
     moveObject cp o np = do
         objs  ← uses w_map (objectsAt cp)
@@ -133,10 +137,17 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
             modifyObjects cp (o `delete`)
             modifyObjects np (<> [o])
 
-    playerCharacter = use w_playerCharacter
+    selChar = use (w_selected.e_object)
+
+    selectCharacter f = void $ runMaybeT $ do
+        nc ← MaybeT $ uses w_team (find (f . view e_object))
+        oc ← use w_selected
+        w_team %= filter (not . f . view e_object)
+        w_team %= (<> [oc])
+        w_selected .= nc
 
     switchAim (Just nof) = do
-        pp ← use w_playerPos
+        pp ← use (w_selected.e_position)
         os ← uses w_map (interestingObjects pp 2 nof)
         ca ← use w_aim
         case ca of
@@ -151,11 +162,12 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
         pure (f v os)
 
     updateVisible = do
-        pp ← playerPos
-        m  ← worldMap
-        let !points    = circle 20 pp
-            !los       = concat $ (fmap fst . visibleAndOneExtra . castVisibilityRay' m pp) <$> points
-            !linPoints = S.fromList $ linCoord m <$> los
+        m ← use w_map
+        t ← pure (:)
+            <*> use (w_selected.e_position)
+            <*> uses w_team (fmap (view e_position))
+
+        let linPoints = mconcat $ pointsForOne m <$> t
         -- TODO resolving 'x' causes lag
         w_map.wm_visible %= V.imap (\i x → if i `S.member` linPoints
                                              then Visible
@@ -163,6 +175,10 @@ instance (IsPassable a, Describable a) ⇒ WorldAPI a Visibility b (WorldM a Vis
                                                  Visible → Known
                                                  _       → x)
         where
+            pointsForOne m p =
+                let !points    = circle 20 p
+                    !los       = concat $ (fmap fst . visibleAndOneExtra . castVisibilityRay' m p) <$> points
+                in  S.fromList $ linCoord m <$> los
             visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
             visibleAndOneExtra l =
                 let front = takeWhile ((==True) . snd) l

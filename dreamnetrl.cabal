@@ -59,6 +59,7 @@ executable dreamnetrl
                        Dreamnet.Character
                        Dreamnet.Utils
                        Dreamnet.Input
+                       Dreamnet.Entity
                        Dreamnet.WorldMap
                        Dreamnet.ObjectProperties
                        Dreamnet.TileData
