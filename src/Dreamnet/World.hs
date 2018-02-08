@@ -31,8 +31,8 @@ module Dreamnet.World
 import Prelude hiding (interact, rem)
 import Safe
 
-import Control.Lens               (makeLenses, (^.), (%=), (.=), use,
-                                   uses, view)
+import Control.Lens               (makeLenses, (^.), (%=), (.=), use, uses,
+                                   view)
 import Control.Monad              (when, (<=<), void)
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
@@ -66,14 +66,17 @@ class WorldReadAPI a b c w | w → a, w → b, w → c where
 
 
 -- TODO seriously refactor this into much better DSL
-class (WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
+class (Eq a, WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
     setStatus ∷ String → w ()
     changeObject ∷ V2 Int → (a → w a) → w ()
     selChar ∷ w c
     selectCharacter ∷ (c → Bool) → w ()
     moveSelected ∷ (IsPassable w a) ⇒ V2 Int → w ()
-    moveObject ∷ (Eq a) ⇒ V2 Int → a → V2 Int → w ()
+    addObject ∷ V2 Int → a → w ()
+    deleteObject ∷ V2 Int → a → w ()
+    moveObject ∷ V2 Int → a → V2 Int → w ()
     switchAim ∷ Maybe (a → Bool) → w ()
+    moveAim ∷ V2 Int → w ()
     interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
     -- TODO redo this, to be a function, and calculate on demand, not prefront
     updateVisible ∷ (IsSeeThrough a) ⇒ w ()
@@ -98,10 +101,10 @@ makeLenses ''World
 
 newWorld ∷ WorldMap a b → [c] → World a b c
 newWorld m chs =
-    let team = new <$> zip (V.toList $ m^.wm_spawns) chs
+    let t = new <$> zip (V.toList $ m^.wm_spawns) chs
     in  World {
-          _w_team     = drop 1 team
-        , _w_selected = head team
+          _w_team     = drop 1 t
+        , _w_selected = head t
         , _w_aim      = Nothing
         , _w_map      = m
         , _w_status   = ""
@@ -113,13 +116,13 @@ newWorld m chs =
 newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
                        deriving (Functor, Applicative, Monad, MonadState (World a b c))
 
-instance WorldReadAPI a Visibility b (WorldM a Visibility b) where
+instance (Eq a) ⇒ WorldReadAPI a Visibility b (WorldM a Visibility b) where
     worldMap = use w_map
     team = use w_team
     selCharPos = use (w_selected.e_position)
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
-instance WorldAPI a Visibility b (WorldM a Visibility b) where
+instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
@@ -133,6 +136,12 @@ instance WorldAPI a Visibility b (WorldM a Visibility b) where
         canWalk ← traverse isPassable obj
         when (and canWalk) $
             w_selected %= move v
+
+    addObject v o = do
+        modifyObjects v (<> [o])
+
+    deleteObject v o = do
+        modifyObjects v (o `delete`)
 
     moveObject cp o np = do
         objs  ← uses w_map (objectsAt cp)
@@ -158,6 +167,8 @@ instance WorldAPI a Visibility b (WorldM a Visibility b) where
             _      → w_aim .= headMay os
 
     switchAim Nothing = w_aim .= Nothing
+
+    moveAim v = w_aim %= fmap (+v)
 
     interactOrElse f e = fromMaybe e <=< runMaybeT $ do
         v  ← MaybeT (use w_aim)
@@ -220,7 +231,7 @@ runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
-changeObject_ ∷ (Eq a, Applicative w, WorldAPI a b c w) ⇒ V2 Int → a → a → w ()
+changeObject_ ∷ (Applicative w, WorldAPI a b c w) ⇒ V2 Int → a → a → w ()
 changeObject_ v oo no = changeObject v (\c → pure $ if c == oo
                                                       then no
                                                       else c)

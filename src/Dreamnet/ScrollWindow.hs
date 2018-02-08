@@ -24,6 +24,7 @@ import Control.Lens  (makeLenses, view, views, (%~), (+~), (.~))
 import Control.Monad (when, unless)
 import Data.Foldable (foldl', toList)
 import Data.Monoid   ((<>), mempty)
+import Data.List     (intercalate)
 
 import qualified Data.Vector as V (fromList, imapM_)
 import qualified UI.NCurses  as C
@@ -66,8 +67,9 @@ createScrollData = do
 --------------------------------------------------------------------------------
 
 setText ∷ String → ScrollData → ScrollData
-setText s sd = let w = view sd_lineWidth sd
-               in  setLines (lines' w length " " (words s)) sd
+setText s sd = let w   = view sd_lineWidth sd
+                   ls  = intercalate [""] $ lines' w length " " . words <$> lines s
+               in  setLines ls sd
 
 
 setLines ∷ [String] → ScrollData → ScrollData

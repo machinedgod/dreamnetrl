@@ -22,9 +22,11 @@ import Dreamnet.GameState
 --------------------------------------------------------------------------------
 
 data WorldEvent = Move (V2 Int)
+                | Aim  (V2 Int)
                 | NextAim
                 | Examine
                 | Interact
+                | UseHeld
                 | Get
                 | Wait
                 | InventorySheet
@@ -78,15 +80,15 @@ runInput = liftCurses . runInputF
 
 
 cursesToEvent ∷ GameState → Curses.Event → Maybe Event
-cursesToEvent _                  (Curses.EventCharacter   '\ESC')              = Just Quit
-cursesToEvent Normal             (Curses.EventCharacter   c)                   = WorldEv <$> worldEvent c
-cursesToEvent (Examination _)    (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
-cursesToEvent (Conversation _ _) (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
-cursesToEvent InventoryUI        (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
-cursesToEvent CharacterUI        (Curses.EventCharacter   c)                   = UIEv <$> uiEvent c
-cursesToEvent Interaction        (Curses.EventCharacter   c)                   = Just (PassThrough c)
-cursesToEvent Interaction        (Curses.EventSpecialKey  Curses.KeyBackspace) = Just (PassThrough '\b')
-cursesToEvent _ _                                                              = Nothing
+cursesToEvent _                  (Curses.EventCharacter '\ESC') = Just Quit
+cursesToEvent Normal             (Curses.EventCharacter c)      = WorldEv <$> worldEvent c
+cursesToEvent (Examination _)    (Curses.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent (Conversation _ _) (Curses.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent InventoryUI        (Curses.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent CharacterUI        (Curses.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent Interaction        (Curses.EventCharacter c)      = Just (PassThrough c)
+cursesToEvent Interaction        (Curses.EventSpecialKey Curses.KeyBackspace) = Just (PassThrough '\b')
+cursesToEvent _ _                                               = Nothing
 
 --normalStateEvent 'q'  = Just $ Quit
 
@@ -99,9 +101,18 @@ worldEvent 'y'  = Just $ Move (V2 -1 -1)
 worldEvent 'u'  = Just $ Move (V2  1 -1)
 worldEvent 'b'  = Just $ Move (V2 -1  1)
 worldEvent 'n'  = Just $ Move (V2  1  1)
+worldEvent 'H'  = Just $ Aim (V2 -1  0)
+worldEvent 'J'  = Just $ Aim (V2  0  1)
+worldEvent 'K'  = Just $ Aim (V2  0 -1)
+worldEvent 'L'  = Just $ Aim (V2  1  0)
+worldEvent 'Y'  = Just $ Aim (V2 -1 -1)
+worldEvent 'U'  = Just $ Aim (V2  1 -1)
+worldEvent 'B'  = Just $ Aim (V2 -1  1)
+worldEvent 'N'  = Just $ Aim (V2  1  1)
 worldEvent '\t' = Just   NextAim
 worldEvent 'e'  = Just   Examine
 worldEvent ' '  = Just   Interact
+worldEvent 'f'  = Just   UseHeld
 worldEvent 'g'  = Just   Get
 worldEvent '.'  = Just   Wait
 worldEvent 'i'  = Just   InventorySheet

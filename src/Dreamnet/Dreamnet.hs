@@ -5,7 +5,7 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
+import Control.Lens        (makeLenses, use, uses, view, views, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
@@ -62,7 +62,7 @@ newGame dd = do
     cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
-    return Game {
+    pure Game {
         _g_world        = newWorld
                               (fromTileMap m (objectFromTile dd) Unknown)
                               [ newCharacter "Carla"   End
@@ -110,7 +110,7 @@ doRender r = do
     re       ← use g_rendererData
     (x, re') ← lift (runRenderer re r)
     g_rendererData .= re'
-    return x
+    pure x
         
 
 onStateSwitch ∷ GameState → GameState → StateT Game C.Curses ()
@@ -145,7 +145,7 @@ onStateSwitch (Conversation _ _) Normal = do
     w ← use g_conversationWindow
     lift $ clearConversationWindow w
     renderNormal
-onStateSwitch _ _ = return ()
+onStateSwitch _ _ = pure ()
 
 --------------------------------------------------------------------------------
 
@@ -279,8 +279,12 @@ updateWorld (Move v) = do
     moveSelected v
     switchAim (pure allButTheBase)
     updateVisible
-    updateAi -- *> alarmStateCheck
-    return Normal
+    updateAi *> alarmStateCheck
+    pure Normal
+updateWorld (Aim v) = do -- TODO should spend time?
+    setStatus ""
+    moveAim v 
+    pure Normal
 updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
@@ -288,20 +292,26 @@ updateWorld Interact = do
     s ← interactOrElse (\v os → objectInteraction v (last os)) (pure Normal)
     switchAim Nothing
     updateVisible
-    updateAi -- *> alarmStateCheck
-    return s
+    updateAi *> alarmStateCheck
+    pure s
+updateWorld UseHeld = interactOrElse doIt (pure Normal)
+    where
+        doIt v os = do
+            setStatus "*pew pew*"
+            deleteObject v (last os)
+            pure Normal
 updateWorld Get = do
     setStatus ""
     o ← get
     setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
     switchAim Nothing
-    updateAi -- *> alarmStateCheck
-    return Normal
+    updateAi *> alarmStateCheck
+    pure Normal
 updateWorld Wait = do
     setStatus "Waiting..."
     updateVisible
-    updateAi -- *> alarmStateCheck
-    return Normal
+    updateAi *> alarmStateCheck
+    pure Normal
 updateWorld InventorySheet = pure InventoryUI
 updateWorld CharacterSheet = pure CharacterUI
 updateWorld (SelectTeamMember 0) = selectByName "Carla"
@@ -319,14 +329,16 @@ selectByName n = do
         byName = (==n) . view ch_name
 
 
---alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
---alarmStateCheck = do
---    wm ← worldMap
---    let isAlarm = views wm_data (foldr cameraActivated False) wm
---    when isAlarm $ setStatus "***** ALARM *****"
---    where
---        cameraActivated (Camera x)    p = p || (x > 7)
---        cameraActivated _             p = p || False
+alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
+alarmStateCheck = do
+    wm ← worldMap
+    let isAlarm = views wm_data (foldr cameraActivated False) wm
+    when isAlarm $ setStatus "***** ALARM *****"
+    where
+        cameraActivated ol p = (p ||) $ or $ flip fmap ol $
+                                  \case
+                                    (Camera x) → x > 7
+                                    _          → False
 
 
 objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
@@ -345,7 +357,7 @@ updateConversationChoice SelectChoice = do
     let nc = pick i cs
     switchGameState (Conversation ch nc)
     renderConversation ch nc -- <FUUUGLY!!!!!
-updateConversationChoice Back = return ()
+updateConversationChoice Back = pure ()
 
 
 updateComputer ∷ Char → StateT Game C.Curses ()
@@ -372,7 +384,7 @@ renderNormal = do
         drawPlayer p
         drawTeam t
         drawHud s
-        maybe (return ()) drawAim ma
+        maybe (pure ()) drawAim ma
 
 
 renderConversation ∷ String → ConversationNode → StateT Game C.Curses ()
@@ -392,7 +404,7 @@ renderConversation _ (ChoiceNode _ _) = do
     lift $ do
         clearConversationWindow w
         drawChoiceWindow cw   -- TODO MOVE this to Actual choice node, to use the fucking model!
-renderConversation _ _ = return () -- We'll never end up here
+renderConversation _ _ = pure () -- We'll never end up here
 
 
 renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
