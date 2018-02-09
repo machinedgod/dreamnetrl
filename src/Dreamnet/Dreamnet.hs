@@ -297,8 +297,9 @@ updateWorld Interact = do
 updateWorld UseHeld = interactOrElse doIt (pure Normal)
     where
         doIt v os = do
-            setStatus "*pew pew*"
-            deleteObject v (last os)
+            let o = last os
+            setStatus $ "You hit the " <> show o <> " for 4 damage."
+            deleteObject v o
             pure Normal
 updateWorld Get = do
     setStatus ""

@@ -76,6 +76,7 @@ executable dreamnetrl
                        Dreamnet.Conversation
                        Dreamnet.CoordVector
                        Dreamnet.ScrollWindow
+                       Dreamnet.ObjectMonad
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
@@ -93,7 +94,8 @@ executable dreamnetrl
                        ncurses,
                        bytestring,
                        cassava,
-                       directory
+                       directory,
+                       free
   -- Directories containing source files.
   hs-source-dirs:      src
   

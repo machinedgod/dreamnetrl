@@ -80,6 +80,7 @@ class (Eq a, WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w �
     interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
     -- TODO redo this, to be a function, and calculate on demand, not prefront
     updateVisible ∷ (IsSeeThrough a) ⇒ w ()
+    -- TODO not really happy with 'update*' anything. Provide a primitive!
     updateAi ∷ (HasAi w a) ⇒ w ()
 
 --------------------------------------------------------------------------------
@@ -99,6 +100,7 @@ data World a b c = World {
 makeLenses ''World
 
 
+-- TODO consolidate Player characters into the WorldMap, somehow
 newWorld ∷ WorldMap a b → [c] → World a b c
 newWorld m chs =
     let t = new <$> zip (V.toList $ m^.wm_spawns) chs
@@ -116,6 +118,8 @@ newWorld m chs =
 newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
                        deriving (Functor, Applicative, Monad, MonadState (World a b c))
 
+-- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
+--      that much more flexible!
 instance (Eq a) ⇒ WorldReadAPI a Visibility b (WorldM a Visibility b) where
     worldMap = use w_map
     team = use w_team

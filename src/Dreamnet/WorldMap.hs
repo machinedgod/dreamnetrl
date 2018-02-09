@@ -14,6 +14,7 @@ module Dreamnet.WorldMap
 , wm_desc
 , wm_spawns
 
+, newWorldMap
 , fromTileMap
 , outOfBounds
 , objectsAt
@@ -57,6 +58,18 @@ makeLenses ''WorldMap
 
 instance CoordVector (WorldMap a b) where
     width = (^.wm_width)
+
+
+newWorldMap ∷ (Monoid a, Monoid b) ⇒ Width → Height → WorldMap a b
+newWorldMap w h = 
+    WorldMap {
+      _wm_width   = w
+    , _wm_height  = h
+    , _wm_data    = V.replicate (fromIntegral (w * h)) [mempty] 
+    , _wm_visible = V.replicate (fromIntegral (w * h)) mempty
+    , _wm_desc    = "Debug generated map!"
+    , _wm_spawns  = V.fromList $ [V2 0 0]
+    }
 
 
 fromTileMap ∷ ∀ a b. (Eq a) ⇒ TileMap → (Tile → a) → b → WorldMap a b
