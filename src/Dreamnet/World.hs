@@ -18,9 +18,10 @@ module Dreamnet.World
 , World
 -- TODO take out and enforce interaction through API class
 , w_team
-, w_selected
+, w_active
 , w_aim
 , w_map
+, w_vis
 , w_status
 , newWorld
 
@@ -41,11 +42,11 @@ import Data.Foldable              (traverse_)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
-import Data.List                  (delete, find)
+import Data.List                  (find)
 
 import qualified Data.Set            as S  (fromList, member)
-import qualified Data.Vector         as V  (modify, imap, imapM_, toList)
-import qualified Data.Vector.Mutable as MV (write, read)
+import qualified Data.Vector         as V  (Vector, imap, imapM_,
+                                            toList, replicate)
 
 
 import Dreamnet.Entity
@@ -59,9 +60,9 @@ import Dreamnet.Visibility
 --------------------------------------------------------------------------------
 
 class WorldReadAPI a b c w | w → a, w → b, w → c where
-    worldMap ∷ w (WorldMap a b)
+    worldMap ∷ w (WorldMap a)
     team ∷ w [Entity c]
-    selCharPos ∷ w (V2 Int)
+    active ∷ w (Entity c)
     castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
@@ -90,26 +91,28 @@ class (Eq a, WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w �
 --   b: visibility data
 --   c: character data
 data World a b c = World {
-      _w_team     ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
-    , _w_selected ∷ Entity c
-    , _w_aim      ∷ Maybe (V2 Int)
-    , _w_map      ∷ WorldMap a b
-    , _w_status   ∷ String
+      _w_team   ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
+    , _w_active ∷ Entity c
+    , _w_aim    ∷ Maybe (V2 Int)
+    , _w_map    ∷ WorldMap a
+    , _w_vis    ∷ V.Vector b
+    , _w_status ∷ String
     }
 
 makeLenses ''World
 
 
 -- TODO consolidate Player characters into the WorldMap, somehow
-newWorld ∷ WorldMap a b → [c] → World a b c
+newWorld ∷ (Monoid b) ⇒ WorldMap a → [c] → World a b c
 newWorld m chs =
     let t = new <$> zip (V.toList $ m^.wm_spawns) chs
     in  World {
-          _w_team     = drop 1 t
-        , _w_selected = head t
-        , _w_aim      = Nothing
-        , _w_map      = m
-        , _w_status   = ""
+          _w_team   = drop 1 t
+        , _w_active = head t
+        , _w_aim    = Nothing
+        , _w_map    = m
+        , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
+        , _w_status = ""
         }
 
 --------------------------------------------------------------------------------
@@ -122,48 +125,50 @@ newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
 --      that much more flexible!
 instance (Eq a) ⇒ WorldReadAPI a Visibility b (WorldM a Visibility b) where
     worldMap = use w_map
+
     team = use w_team
-    selCharPos = use (w_selected.e_position)
+
+    active = use (w_active)
+
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
+
 
 instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
-        m   ← use w_map
-        nos ← traverse fo (objectsAt v m)
-        replaceObjects v nos
+        m  ← use w_map
+        nc ← traverse fo (valuesAt v m)
+        w_map %= replaceCell v nc
 
     moveSelected v = do
-        npp     ← uses (w_selected.e_position) (+v)
-        obj     ← uses w_map (objectsAt npp)
+        npp     ← uses (w_active.e_position) (+v)
+        obj     ← uses w_map (valuesAt npp)
         canWalk ← traverse isPassable obj
         when (and canWalk) $
-            w_selected %= move v
+            w_active %= move v
 
-    addObject v o = do
-        modifyObjects v (<> [o])
+    addObject v o = w_map %= addToCell v o
 
-    deleteObject v o = do
-        modifyObjects v (o `delete`)
+    deleteObject v o = w_map %= deleteFromCell v o
 
+    -- TODO crashes if np is out of map bounds!!!
     moveObject cp o np = do
-        objs  ← uses w_map (objectsAt cp)
+        objs  ← uses w_map (valuesAt cp)
         when (o `elem` objs) $ do
-            modifyObjects cp (o `delete`)
-            modifyObjects np (<> [o])
+            w_map %= addToCell np o . deleteFromCell cp o
 
-    selChar = use (w_selected.e_object)
+    selChar = use (w_active.e_object)
 
     selectCharacter f = void $ runMaybeT $ do
         nc ← MaybeT $ uses w_team (find (f . view e_object))
-        oc ← use w_selected
+        oc ← use w_active
         w_team %= filter (not . f . view e_object)
         w_team %= (<> [oc])
-        w_selected .= nc
+        w_active .= nc
 
     switchAim (Just nof) = do
-        pp ← use (w_selected.e_position)
+        pp ← use (w_active.e_position)
         os ← uses w_map (interestingObjects pp 2 nof)
         ca ← use w_aim
         case ca of
@@ -176,22 +181,22 @@ instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
 
     interactOrElse f e = fromMaybe e <=< runMaybeT $ do
         v  ← MaybeT (use w_aim)
-        os ← uses w_map (objectsAt v)
+        os ← uses w_map (valuesAt v)
         pure (f v os)
 
     updateVisible = do
         m ← use w_map
         t ← pure (:)
-            <*> use (w_selected.e_position)
+            <*> use (w_active.e_position)
             <*> uses w_team (fmap (view e_position))
 
         let linPoints = mconcat $ pointsForOne m <$> t
         -- NOTE resolving 'x' causes lag
-        w_map.wm_visible %= V.imap (\i x → if i `S.member` linPoints
-                                             then Visible
-                                             else case x of
-                                                 Visible → Known
-                                                 _       → x)
+        w_vis %= V.imap (\i x → if i `S.member` linPoints
+                                  then Visible
+                                  else case x of
+                                    Visible → Known
+                                    _       → x)
         where
             pointsForOne m p =
                 let !points    = circle 20 p
@@ -208,24 +213,8 @@ instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
         use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
 
 
-modifyObjects ∷ V2 Int → ([a] → [a]) → WorldM a b c ()
-modifyObjects v f = do
-    m ← use w_map
-    -- This one should update in place if its safe to do so
-    w_map.wm_data %= V.modify (\vec → do
-                                      let i = linCoord m v
-                                      os ← MV.read vec i
-                                      MV.write vec i (f os))
-    -- Hackage says this is O(m + 1) for a single update :-(
-    --w_map.wm_data %= (V.// [(linCoord m v, os)])
-
-
-replaceObjects ∷ V2 Int → [a] → WorldM a b c ()
-replaceObjects v os = modifyObjects v (const os)
-
-
-castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a b → V2 Int → V2 Int → [(V2 Int, Bool)]
-castVisibilityRay' m o d = let seeThrough = areSeeThrough . (`objectsAt` m)
+castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a → V2 Int → V2 Int → [(V2 Int, Bool)]
+castVisibilityRay' m o d = let seeThrough = areSeeThrough . (`valuesAt` m)
                            --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
                            in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
 
@@ -246,7 +235,7 @@ interact f = interactOrElse f (pure ())
 
 
 examine ∷ (Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
-examine = interactOrElse (\_ → pure . describeAll) (view wm_desc <$> worldMap)
+examine = interactOrElse (\_ → pure . describeAll) (desc <$> worldMap)
 
 
 get ∷ (Applicative w, WorldAPI a b c w) ⇒ w (Maybe d)

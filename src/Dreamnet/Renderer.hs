@@ -174,13 +174,13 @@ drawCharAt (V2 x y) c s = do
     C.drawGlyph (C.Glyph c s)
 
 
-drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → [C.Attribute]) → WorldMap a Visibility → r ()
-drawMap chf matf m = do
+drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → [C.Attribute]) → WorldMap a → V.Vector Visibility → r ()
+drawMap chf matf m vis = do
     u ← use (rd_styles.s_visibilityUnknown)
     k ← use (rd_styles.s_visibilityKnown)
     w ← use rd_mainWindow 
     updateWindow w $
-        V.imapM_ (drawTile u k) $ V.zip (m^.wm_data) (m^.wm_visible)
+        V.imapM_ (drawTile u k) $ V.zip (m^.wm_data) vis
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)

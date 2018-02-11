@@ -64,7 +64,7 @@ newGame dd = do
     cw  ← createChoiceData
     pure Game {
         _g_world        = newWorld
-                              (fromTileMap m (objectFromTile dd) Unknown)
+                              (fromTileMap m (objectFromTile dd))
                               [ newCharacter "Carla"   End
                               , newCharacter "Raj"     End
                               , newCharacter "Delgado" End
@@ -121,7 +121,7 @@ onStateSwitch Normal (Examination s) = do
         renderScrollWindow sw
 
 onStateSwitch Normal InventoryUI = do
-    is ← uses (g_world.w_selected.e_object) (fmap show . equippedContainers)
+    is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
     g_scrollWindow %= setLines is
     sw ← use g_scrollWindow
     lift $
@@ -373,7 +373,8 @@ updateComputer c    = g_carlasComputer %= (*> input c)
 renderNormal ∷ StateT Game C.Curses ()
 renderNormal = do
     m  ← use (g_world.w_map)
-    p  ← use (g_world.w_selected.e_position)
+    v  ← use (g_world.w_vis)
+    p  ← use (g_world.w_active.e_position)
     t  ← uses (g_world.w_team) (fmap (view e_position))
     ma ← use (g_world.w_aim)
     s  ← use (g_world.w_status)
@@ -381,7 +382,7 @@ renderNormal = do
     mats ← use (g_rendererData.rd_styles.s_materials)
     def  ← use (g_rendererData.rd_styles.s_visibilityVisible)
     doRender $ do
-        drawMap objectToChar (objectToMat mats def) m
+        drawMap objectToChar (objectToMat mats def) m v
         drawPlayer p
         drawTeam t
         drawHud s

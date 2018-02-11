@@ -7,28 +7,34 @@
 
 module Dreamnet.WorldMap
 ( WorldMap
-, wm_width
-, wm_height
+, desc
+
+-- TODO convert to API
 , wm_data
-, wm_visible
-, wm_desc
 , wm_spawns
 
 , newWorldMap
 , fromTileMap
+
 , outOfBounds
-, objectsAt
+, valuesAt
+, modifyCell
+, replaceCell
+, addToCell
+, deleteFromCell
 , interestingObjects
 ) where
 
-import Control.Lens   (makeLenses, views, (^.))
+import Control.Lens   (makeLenses, view, views, (^.), (%~))
 import Data.Bool      (bool)
 import Data.Semigroup ((<>))
+import Data.List      (delete)
 import Linear         (V2(V2))
 
-import qualified Data.Vector as V (Vector, (!), imap, replicate, fromList, head,
-                                   foldl')
-import qualified Data.Map    as M (lookup)
+import qualified Data.Vector         as V  (Vector, (!), imap, replicate, fromList, head,
+                                            foldl', modify)
+import qualified Data.Vector.Mutable as MV (write, read)
+import qualified Data.Map            as M  (lookup)
 
 
 import Dreamnet.CoordVector
@@ -38,17 +44,14 @@ import Dreamnet.TileMap
 --------------------------------------------------------------------------------
 
 type Range    = Word
-type Width    = Word
-type Height   = Word
 
 -- | Type variables
 --   a: gameplay data
 --   b: visibility data
-data WorldMap a b = WorldMap {
+data WorldMap a = WorldMap {
       _wm_width   ∷ Width
     , _wm_height  ∷ Height
     , _wm_data    ∷ V.Vector [a]
-    , _wm_visible ∷ V.Vector b
     , _wm_desc    ∷ String
     , _wm_spawns  ∷ V.Vector (V2 Int) 
     }
@@ -56,38 +59,37 @@ data WorldMap a b = WorldMap {
 makeLenses ''WorldMap
 
 
-instance CoordVector (WorldMap a b) where
-    width = (^.wm_width)
+instance CoordVector (WorldMap a) where
+    width  = view wm_width
+    height = view wm_height
 
 
-newWorldMap ∷ (Monoid a, Monoid b) ⇒ Width → Height → WorldMap a b
+newWorldMap ∷ (Monoid a) ⇒ Width → Height → WorldMap a
 newWorldMap w h = 
     WorldMap {
       _wm_width   = w
     , _wm_height  = h
     , _wm_data    = V.replicate (fromIntegral (w * h)) [mempty] 
-    , _wm_visible = V.replicate (fromIntegral (w * h)) mempty
     , _wm_desc    = "Debug generated map!"
     , _wm_spawns  = V.fromList $ [V2 0 0]
     }
 
 
-fromTileMap ∷ ∀ a b. (Eq a) ⇒ TileMap → (Tile → a) → b → WorldMap a b
-fromTileMap tm t2o dv = 
+fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → a) → WorldMap a
+fromTileMap tm t2o = 
     WorldMap {
-      _wm_width   = tm^.m_width
-    , _wm_height  = tm^.m_height
+      _wm_width   = width tm
+    , _wm_height  = height tm
     , _wm_data    = let mapData           = transposeAndMerge $ layerToObject (tm^.m_tileset) <$> (tm^.m_layers)
                         maybeObjects i    = coordLin tm i `M.lookup` (tm^.m_positioned)
                         addPositioned i o = maybe o ((o<>) . fmap t2o) (maybeObjects i)
                     in  V.imap addPositioned mapData
-    , _wm_visible = V.replicate squareSize dv
     , _wm_desc    = tm^.m_desc
     , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
     }
     where
         squareSize ∷ Int
-        squareSize = fromIntegral (tm^.m_width * tm^.m_height)
+        squareSize = fromIntegral (width tm * height tm)
 
         layerToObject ∷ Tileset → TileLayer → V.Vector a
         layerToObject ts tl = charToObject ts <$> (tl^.l_data)
@@ -109,24 +111,40 @@ fromTileMap tm t2o dv =
                                            else l ++ [v V.! i]
 
 
-outOfBounds ∷ WorldMap a b → V2 Int → Bool
-outOfBounds m (V2 x y)
-    | x < 0                              = True
-    | y < 0                              = True
-    | x >= fromIntegral (m ^. wm_width)  = True
-    | y >= fromIntegral (m ^. wm_height) = True
-    | otherwise                          = False
+desc ∷ WorldMap a → String
+desc = view wm_desc
 
 
 -- TODO partial function! :-O
-objectsAt ∷ V2 Int → WorldMap a b → [a]
-objectsAt v m = views wm_data (V.! linCoord m v) m
+valuesAt ∷ V2 Int → WorldMap a → [a]
+valuesAt v m = views wm_data (V.! linCoord m v) m
 
 
-interestingObjects ∷ V2 Int → Range → (a → Bool) → WorldMap a b → [V2 Int]
+modifyCell ∷ V2 Int → ([a] → [a]) → WorldMap a → WorldMap a
+modifyCell v f m = wm_data %~ V.modify modifyInPlace $ m
+    where
+        modifyInPlace vec = do
+            let i = linCoord m v
+            os ← MV.read vec i
+            MV.write vec i (f os)
+
+
+replaceCell ∷ V2 Int → [a] → WorldMap a → WorldMap a
+replaceCell v os = modifyCell v (const os)
+
+
+addToCell ∷ V2 Int → a → WorldMap a → WorldMap a
+addToCell v x = modifyCell v (<> [x])
+
+
+deleteFromCell ∷ (Eq a) ⇒ V2 Int → a → WorldMap a → WorldMap a
+deleteFromCell v x = modifyCell v (x `delete`)
+
+
+interestingObjects ∷ V2 Int → Range → (a → Bool) → WorldMap a → [V2 Int]
 interestingObjects v r ff m =
     let points = filter (not . outOfBounds m) (floodFillRange r v)
     in  foldr collectObjects [] points
     where
-        collectObjects x l = let o = objectsAt x m
+        collectObjects x l = let o = valuesAt x m
                              in  bool l (x : l) (or $ ff <$> o)

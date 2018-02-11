@@ -26,7 +26,7 @@ import qualified Data.Map as M  (Map, lookup)
 
 
 import Dreamnet.ObjectProperties
-import Dreamnet.Entity           (e_object)
+import Dreamnet.Entity           (e_position, e_object)
 import Dreamnet.Conversation     (ConversationNode)
 import Dreamnet.Character        (Character, ch_name, Item(Item))
 import Dreamnet.DesignData       (DesignData, dd_characters, dd_defaultRedshirt)
@@ -109,7 +109,7 @@ instance IsSeeThrough Object where
 --instance (Monad m, WorldReadAPI Object b c m) ⇒ HasAi m Object where
 instance (Monad w, WorldAPI Object b c w) ⇒ HasAi w Object where
     runAi v c@(Camera l) = do
-        pv         ← selCharPos  -- TODO whole team!
+        pv         ← view e_position <$> active  -- TODO whole team!
         seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
         if seesPlayer
             then changeObject_ v c (Camera (min 9 (l + 1)))

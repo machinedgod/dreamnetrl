@@ -95,7 +95,8 @@ executable dreamnetrl
                        bytestring,
                        cassava,
                        directory,
-                       free
+                       free,
+                       binary
   -- Directories containing source files.
   hs-source-dirs:      src
   

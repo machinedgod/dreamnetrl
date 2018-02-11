@@ -9,13 +9,9 @@ module Dreamnet.TileMap
 
 , Tileset
 , TileLayer
-, l_width
-, l_height
 , l_data
 
 , TileMap
-, m_width
-, m_height
 , m_layers
 , m_tileset
 , m_positioned
@@ -67,7 +63,8 @@ data TileLayer = TileLayer {
 makeLenses ''TileLayer
 
 instance CoordVector TileLayer where
-    width = view l_width
+    width  = view l_width
+    height = view l_height
 
 
 tileAt ∷ TileLayer → Tileset → V2 Int → Tile
@@ -87,10 +84,7 @@ findAll ch tl = let foldCoord i c l = bool l (coordLin tl i : l) (c == ch)
 
 --------------------------------------------------------------------------------
 
-type Width  = Word
-type Height = Word
 type Tileset = M.Map Char Tile
-
 
 data TileMap = TileMap {
       _m_width      ∷ Width
@@ -105,7 +99,8 @@ data TileMap = TileMap {
 makeLenses ''TileMap
 
 instance CoordVector TileMap where
-    width = view m_width
+    width  = view m_width
+    height = view m_height
 
 --------------------------------------------------------------------------------
 
