@@ -7,7 +7,6 @@
 
 module Dreamnet.ObjectMonad
 ( ObjectAPI(..)
-, ObjectProgram
 , runObjectMonadWorld
 )
 where
@@ -15,8 +14,6 @@ where
 
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
-import GHC.Generics       (Generic)
---import Data.Binary        (Binary)
 
 import Dreamnet.GameState (GameState(Normal))
 import Dreamnet.World     (WorldAPI(moveObject))
@@ -24,35 +21,38 @@ import Dreamnet.World     (WorldAPI(moveObject))
 --------------------------------------------------------------------------------
 
 class ObjectAPI o where
+    position         ∷ o (V2 Int)
     move             ∷ V2 Int → o ()
-    getPosition      ∷ o (V2 Int)
     requestGameState ∷ GameState → o ()
     setCollidable    ∷ Bool → o () -- Creates a state, creates and object. NO!
     setSeeThrough    ∷ Bool → o ()
+    canSee           ∷ V2 Int → o Bool
     -- Keep adding primitives until you can describe all MapObjects as programs
 
 --------------------------------------------------------------------------------
 
 data ObjectF a = Move (V2 Int) a
-               | GetPosition (V2 Int → a)
+               | Position (V2 Int → a)
                | RequestGameState GameState a
                | SetCollidable Bool a
                | SetSeeThrough Bool a
-               deriving(Functor, Generic) -- Derive binary can't work with functions
+               | CanSee (V2 Int) (Bool → a)
+               deriving(Functor) -- TODO Derive binary can't work with functions
 
 
-type ObjectProgram = Free ObjectF ()
 
 instance ObjectAPI (Free ObjectF) where
-    move v = Free $ Move v (Pure ())
+    position = Free $ Position Pure
 
-    getPosition = Free $ GetPosition $ \v → Pure v
+    move v = Free $ Move v (Pure ())
 
     requestGameState gs =  Free $ RequestGameState gs (Pure ())
 
     setCollidable c = Free $ SetCollidable c (Pure ())
 
     setSeeThrough s = Free $ SetSeeThrough s (Pure ())
+
+    canSee v = Free $ CanSee v Pure
 
 --------------------------------------------------------------------------------
 
@@ -64,7 +64,7 @@ runObjectMonadWorld = runWithGameState Normal False True
             moveObject cv o v
             runWithGameState gs cl st v o n
 
-        runWithGameState gs cl st cv o (Free (GetPosition fv)) = do
+        runWithGameState gs cl st cv o (Free (Position fv)) = do
             runWithGameState gs cl st cv o (fv cv)
 
         runWithGameState _ cl st cv o (Free (RequestGameState gs n)) = do
@@ -77,4 +77,11 @@ runObjectMonadWorld = runWithGameState Normal False True
             runWithGameState gs cl st cv o n
 
         runWithGameState gs _ _ _ _ (Pure x) = pure (x, gs)
+
+--------------------------------------------------------------------------------
+
+-- | Detects foes
+camera ∷ Free ObjectF Bool
+camera = position >>= canSee
+
 
