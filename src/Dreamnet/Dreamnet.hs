@@ -12,7 +12,6 @@ import Data.Semigroup      ((<>))
 import Data.Functor        (($>))
 import Linear              (V2)
 
-import UI.NCurses.Class
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre
 
@@ -22,6 +21,7 @@ import Dreamnet.Input
 import Dreamnet.World
 import Dreamnet.Conversation
 
+import Dreamnet.CoordVector
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.Entity
@@ -82,10 +82,6 @@ newGame dd = do
     }
 
 
--- TODO if I do the newtype back again, I don't have to lift everywhere to run curses code
-instance MonadCurses (StateT Game C.Curses) where
-    liftCurses = lift
-
 --------------------------------------------------------------------------------
 
 launchDreamnet ∷ DesignData → IO ()
@@ -104,13 +100,11 @@ switchGameState gs = do
     g_gameState .= gs
 
 
--- This'll die when renderer gets refactored a bit
+-- TODO This'll die when renderer gets refactored a bit
 doRender ∷ RendererF () → StateT Game C.Curses ()
-doRender r = do
-    re       ← use g_rendererData
-    (x, re') ← lift (runRenderer re r)
-    g_rendererData .= re'
-    pure x
+doRender r = use g_rendererData >>=
+    lift . (`runRenderer` r) >>=
+    (g_rendererData .=) . snd
         
 
 onStateSwitch ∷ GameState → GameState → StateT Game C.Curses ()
@@ -167,7 +161,7 @@ loopTheLoop ∷ StateT Game C.Curses ()
 loopTheLoop = do
     r ← use g_keepRunning
     when r $ do
-        e ← use g_gameState >>= runInput . nextEvent
+        e ← use g_gameState >>= lift . runInput . nextEvent
         
         when (e == Quit) $
             g_keepRunning .= False
@@ -372,7 +366,8 @@ updateComputer c    = g_carlasComputer %= (*> input c)
 
 renderNormal ∷ StateT Game C.Curses ()
 renderNormal = do
-    m  ← use (g_world.w_map)
+    w  ← uses (g_world.w_map) width
+    d  ← uses (g_world.w_map.wm_data) (fmap last)
     v  ← use (g_world.w_vis)
     p  ← use (g_world.w_active.e_position)
     t  ← uses (g_world.w_team) (fmap (view e_position))
@@ -382,11 +377,14 @@ renderNormal = do
     mats ← use (g_rendererData.rd_styles.s_materials)
     def  ← use (g_rendererData.rd_styles.s_visibilityVisible)
     doRender $ do
-        drawMap objectToChar (objectToMat mats def) m v
-        drawPlayer p
-        drawTeam t
-        drawHud s
-        maybe (pure ()) drawAim ma
+        main ← sequence [ drawMap objectToChar (objectToMat mats def) w d v
+                        , drawPlayer p
+                        , drawTeam t
+                        , maybe (pure (pure ())) drawAim ma
+                        ]
+        hud ← drawHud s
+        updateMain $ foldl1 (>>) main
+        updateHud hud
 
 
 renderConversation ∷ String → ConversationNode → StateT Game C.Curses ()
@@ -410,7 +408,7 @@ renderConversation _ _ = pure () -- We'll never end up here
 
 
 renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
-renderComputer a cd  = use rd_interactionWindow >>= \w → updateWindow w $ do
+renderComputer a cd  = updateInteraction $ do
     drawAnswer
     drawPrompt
 

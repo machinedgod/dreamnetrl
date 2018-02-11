@@ -12,39 +12,8 @@ module Dreamnet.Character
 , SlotWrapper(..)
 
 , CombatSkills
-, cs_remainingPoints
-, cs_melee
-, cs_barehanded
-, cs_knives
-, cs_swords
-, cs_staves
-, cs_maces
-, cs_ranged
-, cs_guns
-, cs_smgs
-, cs_shotguns
-, cs_assault
-, cs_sniper
-, cs_bows
-, cs_crossbows
-, cs_plasma
-, cs_lasers
-
 , ElectronicsSkills
-, es_remainingPoints
-, es_juryrig
-, es_modify
-, es_analyze
-
 , CommunicationSkills
-, ss_remainingPoints
-, ss_smallTalk
-, ss_bodyLanguageReading
-, ss_bodyLanguageControl
-, ss_trade
-, ss_interrogation
-, ss_charm
-
 , Character
 , ch_name
 , ch_leftHand
@@ -123,7 +92,7 @@ data CombatSkills = CombatSkills {
     }
     deriving (Eq, Show)
 
-makeLenses ''CombatSkills
+--makeLenses ''CombatSkills
 
 -- Holds all the skills needed to deal with electronics
 data ElectronicsSkills = ElectronicsSkills {
@@ -135,7 +104,7 @@ data ElectronicsSkills = ElectronicsSkills {
     }
     deriving (Eq, Show)
 
-makeLenses ''ElectronicsSkills
+--makeLenses ''ElectronicsSkills
 
 
 data CommunicationSkills = CommunicationSkills {
@@ -150,7 +119,7 @@ data CommunicationSkills = CommunicationSkills {
     }
     deriving (Eq, Show)
 
-makeLenses ''CommunicationSkills
+--makeLenses ''CommunicationSkills
 
 
 data Character a b = Character {

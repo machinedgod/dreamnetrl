@@ -12,11 +12,11 @@ module Dreamnet.Input
 , runInput
 ) where
 
-import Linear
+import Linear (V2(V2))
 
-import UI.NCurses.Class
-import qualified UI.NCurses as Curses
-
+import qualified UI.NCurses as Curses (Curses, defaultWindow, getEvent,
+                                       Event(EventCharacter, EventSpecialKey),
+                                       Key(KeyBackspace))
 import Dreamnet.GameState
 
 --------------------------------------------------------------------------------
@@ -75,8 +75,8 @@ instance MonadInput InputF where
 
 
 
-runInput ∷ (MonadCurses m) ⇒ InputF a → m a
-runInput = liftCurses . runInputF
+runInput ∷ InputF a → Curses.Curses a
+runInput = runInputF
 
 
 cursesToEvent ∷ GameState → Curses.Event → Maybe Event

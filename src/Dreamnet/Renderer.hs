@@ -5,22 +5,22 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Renderer
-( MonadRender(..)
-, RendererF
-
+( Material
 , Styles
 , s_materials
 , s_visibilityVisible
 
+, RenderAction
+, MonadRender(..)
+, RendererF
+
 , RendererEnvironment
 , rd_styles
-, rd_mainWindow
-, rd_hudWindow
-, rd_interactionWindow
 
 , initRenderer
 , runRenderer
 
+, lookupMaterial
 , drawMap
 , drawPlayer
 , drawTeam
@@ -33,27 +33,27 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Linear               (V2(V2))
 import Data.Semigroup       ((<>))
-import Data.Foldable        (traverse_)
+import Data.Maybe           (fromMaybe)
 
-import UI.NCurses.Class
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
 import Dreamnet.CoordVector
-import Dreamnet.WorldMap
 import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
-data Styles = Styles {
-      _s_materials ∷ M.Map String [C.Attribute]
-    --, _s_unknown   ∷ [C.Attribute]
-    , _s_playerAim ∷ [C.Attribute]
+type Material = [C.Attribute]
 
-    , _s_visibilityUnknown ∷ [C.Attribute]
-    , _s_visibilityKnown   ∷ [C.Attribute]
-    , _s_visibilityVisible ∷ [C.Attribute]
+data Styles = Styles {
+      _s_materials ∷ M.Map String Material
+    , _s_unknown   ∷ Material
+    , _s_playerAim ∷ Material
+
+    , _s_visibilityUnknown ∷ Material
+    , _s_visibilityKnown   ∷ Material
+    , _s_visibilityVisible ∷ Material
 
     --, _s_colorRed     ∷ C.ColorID
     , _s_colorGreen   ∷ C.ColorID
@@ -78,21 +78,25 @@ makeLenses ''RendererEnvironment
 
 --------------------------------------------------------------------------------
 
+type RenderAction = C.Update ()
+
 class (MonadState RendererEnvironment r) ⇒ MonadRender r where
-    updateWindow ∷ C.Window → C.Update () → r ()
+    updateMain ∷ RenderAction → r ()
+    updateHud ∷ RenderAction → r ()
+    updateInteraction ∷ RenderAction → r ()
     
 
 -- TODO double buffering
 newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.Curses a }
-                    deriving (Functor, Applicative, Monad, MonadState RendererEnvironment, MonadCurses)
-
-
-instance MonadCurses (StateT RendererEnvironment C.Curses) where
-    liftCurses = lift
+                    deriving (Functor, Applicative, Monad, MonadState RendererEnvironment)
 
 
 instance MonadRender RendererF where
-    updateWindow w = liftCurses . C.updateWindow w
+    updateMain ac = use rd_mainWindow >>=  RendererF . lift . (`C.updateWindow` ac)
+
+    updateHud ac = use rd_hudWindow >>= RendererF . lift . (`C.updateWindow` ac)
+
+    updateInteraction ac = use rd_interactionWindow >>= RendererF . lift  . (`C.updateWindow` ac)
 
 
 initRenderer ∷ C.Curses RendererEnvironment
@@ -145,7 +149,7 @@ initRenderer = do
                             , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
                             , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
                             ]
-                       --, _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
+                       , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                        , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
                        , _s_visibilityUnknown = []
@@ -168,58 +172,57 @@ runRenderer rd f = runStateT (runRendererF f) rd
     
 --------------------------------------------------------------------------------
 
-drawCharAt ∷ (Integral a) ⇒ V2 a → Char → [C.Attribute] → C.Update ()
-drawCharAt (V2 x y) c s = do
+lookupMaterial ∷ (MonadRender r) ⇒ String → r Material
+lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
+    uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
+
+
+draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction
+draw (V2 x y) c m = do
     C.moveCursor (fromIntegral y) (fromIntegral x)
-    C.drawGlyph (C.Glyph c s)
+    C.drawGlyph (C.Glyph c m)
 
 
-drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → [C.Attribute]) → WorldMap a → V.Vector Visibility → r ()
-drawMap chf matf m vis = do
+drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → Material) → Width → V.Vector a → V.Vector Visibility → r RenderAction
+drawMap chf matf w dat vis = do
     u ← use (rd_styles.s_visibilityUnknown)
     k ← use (rd_styles.s_visibilityKnown)
-    w ← use rd_mainWindow 
-    updateWindow w $
-        V.imapM_ (drawTile u k) $ V.zip (m^.wm_data) vis
+    pure $ V.imapM_ (drawTile u k) $ V.zip dat vis
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        drawTile _ k i ([], _) = uncurry (drawCharAt $ coordLin m i) $ ('?', k)
-        drawTile u k i (os, v) = uncurry (drawCharAt $ coordLin m i) $
+        --drawTile _ k i ([], _) = uncurry (draw $ coordLin w i) $ ('?', k)
+        drawTile u k i (o, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
-                                         Known   → (chf (last os), k)
-                                         Visible → (chf (last os), matf (last os))
+                                         Known   → (chf o, k)
+                                         Visible → (chf o, matf o)
 
 
-drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r ()
+drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
 drawPlayer v = use (rd_styles.s_colorMagenta) >>= drawCharacter v
 
 
-drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r ()
+drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r RenderAction
 drawTeam vs = do
     s ← use (rd_styles.s_colorGreen)
-    traverse_ (flip drawCharacter s) vs
+    fmap sequence_ $ traverse (flip drawCharacter s) vs
 
 
-drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r ()
+drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r RenderAction
 drawCharacter v cid = do
-    w ← use rd_mainWindow
-    --s ←  C.AttributeColor
-    updateWindow w $ drawCharAt v '@' [C.AttributeColor cid]
+    pure $ draw v '@' [C.AttributeColor cid]
 
 
-drawAim ∷ (MonadRender r) ⇒ V2 Int → r ()
+drawAim ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
 drawAim v = do
-    w  ← use rd_mainWindow
     s  ← use (rd_styles.s_playerAim)
-    updateWindow w $ drawCharAt v '×' s
+    pure $ draw v '×' s
          
 
-drawHud ∷ (MonadRender r) ⇒ String → r ()
+drawHud ∷ (MonadRender r) ⇒ String → r RenderAction
 drawHud s = do
-    w ← use rd_hudWindow
-    updateWindow w $ do
+    pure $ do
         C.drawBorder (Just $ C.Glyph '│' [])
                           (Just $ C.Glyph '│' [])
                           (Just $ C.Glyph '─' [])
@@ -233,3 +236,4 @@ drawHud s = do
         let st = take 80 $ s <> repeat '.'
         C.drawString $ "Status: " <> st
 
+--------------------------------------------------------------------------------
