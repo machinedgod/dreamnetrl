@@ -1,7 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses, UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
 
@@ -13,6 +12,7 @@ import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
 import Data.Functor        (($>))
+import Data.Bool           (bool)
 
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre
@@ -34,27 +34,13 @@ import Dreamnet.ComputerModel
 import Dreamnet.Renderer
 import Dreamnet.Visibility
 import Dreamnet.Character
-import Dreamnet.ObjectProperties
+import Dreamnet.ObjectMonad
 
 --------------------------------------------------------------------------------
 
-newtype Object = Object { runObject ∷ (Bool, Bool, Char, String) }
-               deriving (Eq, Show)
-
--- TODO these properties must die
-instance (Applicative w, WorldReadAPI Object b (Character c d) w) ⇒ IsPassable w Object where
-    isPassable (Object (t, _, _, _)) = pure t
-instance IsSeeThrough Object where
-    isSeeThrough (Object (_, t, _, _)) = t
-instance Describable Object where
-    description (Object (_, _, c, _)) = "<Description to be added for object: " <> show c <> ">"
-instance (Applicative w, WorldAPI Object b c w) ⇒ HasAi w Object where
-    runAi v (Object (_, _, _, _)) = pure ()
-
---------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world ∷ World Object Visibility (Character Item ConversationNode)
+      _g_world ∷ World Visibility (Character Item ConversationNode)
     , _g_gameState ∷ GameState
     , _g_keepRunning ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -82,7 +68,7 @@ newGame dd = do
     cw  ← createChoiceData
     pure Game {
         _g_world        = newWorld
-                              (fromTileMap m (objectFromTile dd))
+                              (fromTileMap m objectFromTile)
                               [ newCharacter "Carla"   End
                               , newCharacter "Raj"     End
                               , newCharacter "Delgado" End
@@ -99,20 +85,20 @@ newGame dd = do
       , _g_carlasFramebuffer = "Ready."
     }
     where -- TODO Set materials!
-        objectFromTile _  t@(ttype → "Base")     = Object (1 `readBoolProperty` t, 2 `readBoolProperty` t, view t_char t, "concrete") -- Set material!
-        objectFromTile _  t@(ttype → "Door")     = Object (1 `readBoolProperty` t, 1 `readBoolProperty` t, view t_char t, "wood")
-        objectFromTile _  t@(ttype → "Stairs")   = Object (1 `readBoolProperty` t, True, view t_char t, "wood")
-        objectFromTile _  t@(ttype → "Prop")     = Object (2 `readBoolProperty` t, 3 `readBoolProperty` t, view t_char t, 4 `readStringProperty` t)
-        objectFromTile dd t@(ttype → "Person")   = Object (False, True, '@', "blue")
+        objectFromTile t@(ttype → "Base")     = Object "Base"     (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t)   "<base>"
+        objectFromTile t@(ttype → "Door")     = Object "Door"     (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) $ "Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Stairs")   = Object "Stairs"   (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    $ "If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)
+        objectFromTile t@(ttype → "Prop")     = Object "Prop"     (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) $ "A " <> (4 `readStringProperty` t) <> "."
+        objectFromTile t@(ttype → "Person")   = Object "Person"    '@'            "blue"                      False                    True                    $ "Its " <> (1 `readStringProperty` t) <> "."
+        objectFromTile   (ttype → "Spawn")    = Object "Spawn"     '.'            "concrete"                  True                     True                    $ "Spawn point. You really should not be able to examine this?" -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+        objectFromTile t@(ttype → "Camera")   = Object "Camera"   (view t_char t) "green light"               True                     True                      "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." --                                        "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
+        objectFromTile t@(ttype → "Computer") = Object "Computer" (view t_char t) "metal"                     False                    True                      "Your machine. You wonder if Devin mailed you about the job."
+        objectFromTile t@(ttype → "Item")     = Object "Item"     (view t_char t) "blue plastic"              True                     True                    $ "A " <> (1 `readStringProperty` t) <> "."
+        objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
+-- TODO Errrrrr, this should be done through the tileset???
         --objectFromTile dd t@(ttype → "Person")   = let name      = 1 `readStringProperty` t
         --                                               maybeChar = M.lookup name (dd^.dd_characters)
         --                                           in  (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
-        objectFromTile _    (ttype → "Spawn")    = Object (True, True, '.', "concrete") -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-        objectFromTile _  t@(ttype → "Camera")   = Object (True, True, view t_char t, "green light")
-        objectFromTile _  t@(ttype → "Computer") = Object (False, True, view t_char t, "metal")
-        objectFromTile _  t@(ttype → "Item")     = Object (True, True,  view t_char t, "blue plastic")
-        objectFromTile _  t                      = error $ "Can't convert Tile type into Object: " <> show t
--- TODO Errrrrr, this should be done through the tileset???
 
 
 --------------------------------------------------------------------------------
@@ -296,17 +282,18 @@ loopTheLoop = do
 
 
 allButTheBase ∷ Object → Bool
-allButTheBase (Object (_, _, '.', _)) = False
-allButTheBase _                       = True
+allButTheBase o
+    | view o_symbol o == '.' = False
+    | otherwise              = True
 
 
-updateWorld ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
+updateWorld ∷ (Monad w, WorldAPI Visibility (Character i c) w) ⇒ WorldEvent → w GameState
 updateWorld (Move v) = do
     setStatus ""
     moveSelected v
     switchAim (pure allButTheBase)
     updateVisible
-    updateAi
+    --updateAi
     pure Normal
 updateWorld (Aim v) = do -- TODO should spend time?
     setStatus ""
@@ -316,13 +303,15 @@ updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     setStatus ""
-    --s ← interactOrElse (\v os → objectInteraction v (last os)) (pure Normal)
+    s ← withAimOrElse runProgram (pure Normal)
     switchAim Nothing
     updateVisible
-    updateAi
-    pure Normal
-    --pure s
-updateWorld UseHeld = interactOrElse doIt (pure Normal)
+    --updateAi
+    --pure Normal
+    pure s
+    where
+        runProgram v os = snd <$> runObjectMonadWorld (door IT_Operate) v (last os)
+updateWorld UseHeld = withAimOrElse doIt (pure Normal)
     where
         doIt v os = do
             let o = last os
@@ -334,12 +323,12 @@ updateWorld Get = do
     o ← get
     setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
     switchAim Nothing
-    updateAi
+    --updateAi
     pure Normal
 updateWorld Wait = do
     setStatus "Waiting..."
     updateVisible
-    updateAi
+    --updateAi
     pure Normal
 updateWorld InventorySheet = pure InventoryUI
 updateWorld CharacterSheet = pure CharacterUI
@@ -349,7 +338,7 @@ updateWorld (SelectTeamMember 2) = selectByName "Delgado"
 updateWorld (SelectTeamMember _) = pure Normal
 
 
-selectByName ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ String → w GameState
+selectByName ∷ (Monad w, WorldAPI Visibility (Character i c) w) ⇒ String → w GameState
 selectByName n = do
     switchAim Nothing
     selectCharacter byName
@@ -396,12 +385,8 @@ renderNormal = do
     ma ← use (g_world.w_aim)
     s  ← use (g_world.w_status)
     
-    mats ← use (g_rendererData.rd_styles.s_materials)
-    def  ← use (g_rendererData.rd_styles.s_visibilityVisible)
     doRender $ do
-        main ← sequence [ drawMap
-                                (\(Object (_, _, c, _)) → c)
-                                (\(Object (_, _, _, m)) → m) w d v
+        main ← sequence [ drawMap (view o_symbol) (view o_material) w d v
                         , drawPlayer p
                         , drawTeam t
                         , maybe (pure (pure ())) drawAim ma

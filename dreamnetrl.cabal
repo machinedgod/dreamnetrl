@@ -60,10 +60,8 @@ executable dreamnetrl
                        Dreamnet.Input
                        Dreamnet.Entity
                        Dreamnet.WorldMap
-                       Dreamnet.ObjectProperties
                        Dreamnet.TileData
                        Dreamnet.Renderer
-                       Dreamnet.MapObject
                        Dreamnet.ChoiceWindow
                        Dreamnet.Visibility
                        Dreamnet.GameState

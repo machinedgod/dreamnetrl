@@ -5,22 +5,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Renderer
-( Material
-, Styles
-, s_materials
-, s_visibilityVisible
-
-, RenderAction
+( RenderAction
 , MonadRender(..)
 , RendererF
 
 , RendererEnvironment
-, rd_styles
 
 , initRenderer
 , runRenderer
 
-, lookupMaterial
 , drawMap
 , drawPlayer
 , drawTeam
@@ -53,7 +46,7 @@ data Styles = Styles {
 
     , _s_visibilityUnknown ∷ Material
     , _s_visibilityKnown   ∷ Material
-    , _s_visibilityVisible ∷ Material
+    --, _s_visibilityVisible ∷ Material
 
     --, _s_colorRed     ∷ C.ColorID
     , _s_colorGreen   ∷ C.ColorID
@@ -157,7 +150,7 @@ initRenderer = do
 
                        , _s_visibilityUnknown = []
                        , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
-                       , _s_visibilityVisible = [ C.AttributeColor cWhite ]
+                       --, _s_visibilityVisible = [ C.AttributeColor cWhite ]
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        --, _s_colorRed     = cRed    

@@ -4,14 +4,22 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, UndecidableInstances #-}
 
 module Dreamnet.World
-( WorldReadAPI(..)
+( Object(Object)
+, o_name
+, o_symbol
+, o_material
+, o_passable
+, o_seeThrough
+, o_description
+
+, WorldReadAPI(..)
 
 , WorldAPI(..)
 , changeObject_
-, interact
+, withAim
 , examine
 , get
 
@@ -38,19 +46,16 @@ import Control.Monad              (when, (<=<), void)
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
-import Data.Foldable              (traverse_)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
-import Data.List                  (find)
+import Data.List                  (find, intercalate)
 
 import qualified Data.Set            as S  (fromList, member)
-import qualified Data.Vector         as V  (Vector, imap, imapM_,
-                                            toList, replicate)
+import qualified Data.Vector         as V  (Vector, imap, toList, replicate)
 
 
 import Dreamnet.Entity
-import Dreamnet.ObjectProperties
 import Dreamnet.Utils
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
@@ -59,43 +64,56 @@ import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
-class WorldReadAPI a b c w | w → a, w → b, w → c where
-    worldMap ∷ w (WorldMap a)
+data Object = Object {
+      _o_name        ∷ String
+    , _o_symbol      ∷ Char
+    , _o_material    ∷ String
+    , _o_passable    ∷ Bool
+    , _o_seeThrough  ∷ Bool
+    , _o_description ∷ String
+    }
+    deriving (Eq, Show)
+
+makeLenses ''Object
+
+--------------------------------------------------------------------------------
+
+class WorldReadAPI v c w | w → v, w → c where
+    worldMap ∷ w (WorldMap Object)
     team ∷ w [Entity c]
     active ∷ w (Entity c)
-    castVisibilityRay ∷ (IsSeeThrough a) ⇒ V2 Int → V2 Int → w [(V2 Int, Bool)]
+    castVisibilityRay ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
 -- TODO seriously refactor this into much better DSL
-class (Eq a, WorldReadAPI a b c w) ⇒ WorldAPI a b c w | w → a, w → b, w → c where
+class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
     setStatus ∷ String → w ()
-    changeObject ∷ V2 Int → (a → w a) → w ()
+    changeObject ∷ V2 Int → (Object → w Object) → w ()
     selChar ∷ w c
     selectCharacter ∷ (c → Bool) → w ()
-    moveSelected ∷ (IsPassable w a) ⇒ V2 Int → w ()
-    addObject ∷ V2 Int → a → w ()
-    deleteObject ∷ V2 Int → a → w ()
-    moveObject ∷ V2 Int → a → V2 Int → w ()
-    switchAim ∷ Maybe (a → Bool) → w ()
+    moveSelected ∷ V2 Int → w ()
+    addObject ∷ V2 Int → Object → w ()
+    deleteObject ∷ V2 Int → Object → w ()
+    moveObject ∷ V2 Int → Object → V2 Int → w ()
+    switchAim ∷ Maybe (Object → Bool) → w ()
     moveAim ∷ V2 Int → w ()
-    interactOrElse ∷ (V2 Int → [a] → w d) → w d → w d
+    withAimOrElse ∷ (V2 Int → [Object] → w d) → w d → w d
     -- TODO redo this, to be a function, and calculate on demand, not prefront
-    updateVisible ∷ (IsSeeThrough a) ⇒ w ()
+    updateVisible ∷ w ()
     -- TODO not really happy with 'update*' anything. Provide a primitive!
-    updateAi ∷ (HasAi w a) ⇒ w ()
+    --updateAi ∷ w ()
 
 --------------------------------------------------------------------------------
  
 -- | Type variables
---   a: gameplay data
---   b: visibility data
+--   v: visibility data
 --   c: character data
-data World a b c = World {
+data World v c = World {
       _w_team   ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
     , _w_active ∷ Entity c
     , _w_aim    ∷ Maybe (V2 Int)
-    , _w_map    ∷ WorldMap a
-    , _w_vis    ∷ V.Vector b
+    , _w_map    ∷ WorldMap Object
+    , _w_vis    ∷ V.Vector v
     , _w_status ∷ String
     }
 
@@ -103,7 +121,7 @@ makeLenses ''World
 
 
 -- TODO consolidate Player characters into the WorldMap, somehow
-newWorld ∷ (Monoid b) ⇒ WorldMap a → [c] → World a b c
+newWorld ∷ (Monoid v) ⇒ WorldMap Object → [c] → World v c
 newWorld m chs =
     let t = new <$> zip (V.toList $ m^.wm_spawns) chs
     in  World {
@@ -118,12 +136,12 @@ newWorld m chs =
 --------------------------------------------------------------------------------
 
 -- TODO if I use ST monad, I can get mutable state for cheap
-newtype WorldM a b c d = WorldM { runWorldM ∷ State (World a b c) d }
-                       deriving (Functor, Applicative, Monad, MonadState (World a b c))
+newtype WorldM v c a = WorldM { runWorldM ∷ State (World v c) a }
+                     deriving (Functor, Applicative, Monad, MonadState (World v c))
 
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
-instance (Eq a) ⇒ WorldReadAPI a Visibility b (WorldM a Visibility b) where
+instance WorldReadAPI Visibility c (WorldM Visibility c) where
     worldMap = use w_map
 
     team = use w_team
@@ -133,7 +151,7 @@ instance (Eq a) ⇒ WorldReadAPI a Visibility b (WorldM a Visibility b) where
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
 
-instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
+instance WorldAPI Visibility c (WorldM Visibility c) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
@@ -144,8 +162,7 @@ instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
     moveSelected v = do
         npp     ← uses (w_active.e_position) (+v)
         obj     ← uses w_map (valuesAt npp)
-        canWalk ← traverse isPassable obj
-        when (and canWalk) $
+        when (and $ fmap (view o_passable) obj) $
             w_active %= move v
 
     addObject v o = w_map %= addToCell v o
@@ -179,7 +196,7 @@ instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
 
     moveAim v = w_aim %= fmap (+v)
 
-    interactOrElse f e = fromMaybe e <=< runMaybeT $ do
+    withAimOrElse f e = fromMaybe e <=< runMaybeT $ do
         v  ← MaybeT (use w_aim)
         os ← uses w_map (valuesAt v)
         pure (f v os)
@@ -208,36 +225,36 @@ instance (Eq a) ⇒ WorldAPI a Visibility b (WorldM a Visibility b) where
                     rem   = dropWhile ((==True) . snd) l
                 in  bool (head rem : front) front (null rem)
 
-    updateAi = do
-        m ← use w_map
-        use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
+    --updateAi = do
+    --    m ← use w_map
+    --    use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
 
 
-castVisibilityRay' ∷ (IsSeeThrough a) ⇒ WorldMap a → V2 Int → V2 Int → [(V2 Int, Bool)]
-castVisibilityRay' m o d = let seeThrough = areSeeThrough . (`valuesAt` m)
+castVisibilityRay' ∷ WorldMap Object → V2 Int → V2 Int → [(V2 Int, Bool)]
+castVisibilityRay' m o d = let seeThrough = and . fmap (view o_seeThrough) . (`valuesAt` m)
                            --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
                            in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
 
 
-runWorld ∷ WorldM a b c GameState → World a b c → (GameState, World a b c)
+runWorld ∷ WorldM v c GameState → World v c → (GameState, World v c)
 runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
-changeObject_ ∷ (Applicative w, WorldAPI a b c w) ⇒ V2 Int → a → a → w ()
+changeObject_ ∷ (Applicative w, WorldAPI v c w) ⇒ V2 Int → Object → Object → w ()
 changeObject_ v oo no = changeObject v (\c → pure $ if c == oo
                                                       then no
                                                       else c)
 
 
-interact ∷ (Applicative w, WorldAPI a b c w) ⇒ (V2 Int → [a] → w ()) → w ()
-interact f = interactOrElse f (pure ())
+withAim ∷ (Applicative w, WorldAPI v c w) ⇒ (V2 Int → [Object] → w ()) → w ()
+withAim f = withAimOrElse f (pure ())
 
 
-examine ∷ (Applicative w, Describable a, WorldAPI a b c w) ⇒ w String
-examine = interactOrElse (\_ → pure . describeAll) (desc <$> worldMap)
+examine ∷ (Applicative w, WorldAPI v c w) ⇒ w String
+examine = withAimOrElse (\_ → pure . intercalate ", " . fmap (view o_description)) (desc <$> worldMap)
 
 
-get ∷ (Applicative w, WorldAPI a b c w) ⇒ w (Maybe d)
+get ∷ (Applicative w, WorldAPI v c w) ⇒ w (Maybe a)
 get = pure Nothing
 
