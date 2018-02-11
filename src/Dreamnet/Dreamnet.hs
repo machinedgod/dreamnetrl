@@ -1,16 +1,18 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses, UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
+
 
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens        (makeLenses, use, uses, view, views, (.=), (%=))
+import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
 import Control.Monad       (void, when)
 import Control.Monad.State (StateT, lift, execStateT)
 import Data.Semigroup      ((<>))
 import Data.Functor        (($>))
-import Linear              (V2)
 
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre
@@ -22,6 +24,7 @@ import Dreamnet.World
 import Dreamnet.Conversation
 
 import Dreamnet.CoordVector
+import Dreamnet.TileData         (ttype, readBoolProperty, readStringProperty)
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.Entity
@@ -29,9 +32,24 @@ import Dreamnet.ScrollWindow
 import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
-import Dreamnet.MapObject
 import Dreamnet.Visibility
 import Dreamnet.Character
+import Dreamnet.ObjectProperties
+
+--------------------------------------------------------------------------------
+
+newtype Object = Object { runObject ∷ (Bool, Bool, Char, String) }
+               deriving (Eq, Show)
+
+-- TODO these properties must die
+instance (Applicative w, WorldReadAPI Object b (Character c d) w) ⇒ IsPassable w Object where
+    isPassable (Object (t, _, _, _)) = pure t
+instance IsSeeThrough Object where
+    isSeeThrough (Object (_, t, _, _)) = t
+instance Describable Object where
+    description (Object (_, _, c, _)) = "<Description to be added for object: " <> show c <> ">"
+instance (Applicative w, WorldAPI Object b c w) ⇒ HasAi w Object where
+    runAi v (Object (_, _, _, _)) = pure ()
 
 --------------------------------------------------------------------------------
 
@@ -80,6 +98,21 @@ newGame dd = do
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
     }
+    where -- TODO Set materials!
+        objectFromTile _  t@(ttype → "Base")     = Object (1 `readBoolProperty` t, 2 `readBoolProperty` t, view t_char t, "concrete") -- Set material!
+        objectFromTile _  t@(ttype → "Door")     = Object (1 `readBoolProperty` t, 1 `readBoolProperty` t, view t_char t, "wood")
+        objectFromTile _  t@(ttype → "Stairs")   = Object (1 `readBoolProperty` t, True, view t_char t, "wood")
+        objectFromTile _  t@(ttype → "Prop")     = Object (2 `readBoolProperty` t, 3 `readBoolProperty` t, view t_char t, 4 `readStringProperty` t)
+        objectFromTile dd t@(ttype → "Person")   = Object (False, True, '@', "blue")
+        --objectFromTile dd t@(ttype → "Person")   = let name      = 1 `readStringProperty` t
+        --                                               maybeChar = M.lookup name (dd^.dd_characters)
+        --                                           in  (fromMaybe (dd^.dd_defaultRedshirt) maybeChar)
+        objectFromTile _    (ttype → "Spawn")    = Object (True, True, '.', "concrete") -- TODO shitty hardcoding, spawns should probably be generalized somehow!
+        objectFromTile _  t@(ttype → "Camera")   = Object (True, True, view t_char t, "green light")
+        objectFromTile _  t@(ttype → "Computer") = Object (False, True, view t_char t, "metal")
+        objectFromTile _  t@(ttype → "Item")     = Object (True, True,  view t_char t, "blue plastic")
+        objectFromTile _  t                      = error $ "Can't convert Tile type into Object: " <> show t
+-- TODO Errrrrr, this should be done through the tileset???
 
 
 --------------------------------------------------------------------------------
@@ -263,8 +296,8 @@ loopTheLoop = do
 
 
 allButTheBase ∷ Object → Bool
-allButTheBase Base{} = False
-allButTheBase _      = True
+allButTheBase (Object (_, _, '.', _)) = False
+allButTheBase _                       = True
 
 
 updateWorld ∷ (Monad w, WorldAPI Object Visibility (Character i c) w) ⇒ WorldEvent → w GameState
@@ -273,7 +306,7 @@ updateWorld (Move v) = do
     moveSelected v
     switchAim (pure allButTheBase)
     updateVisible
-    updateAi *> alarmStateCheck
+    updateAi
     pure Normal
 updateWorld (Aim v) = do -- TODO should spend time?
     setStatus ""
@@ -283,11 +316,12 @@ updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
 updateWorld Examine = Examination <$> examine
 updateWorld Interact = do
     setStatus ""
-    s ← interactOrElse (\v os → objectInteraction v (last os)) (pure Normal)
+    --s ← interactOrElse (\v os → objectInteraction v (last os)) (pure Normal)
     switchAim Nothing
     updateVisible
-    updateAi *> alarmStateCheck
-    pure s
+    updateAi
+    pure Normal
+    --pure s
 updateWorld UseHeld = interactOrElse doIt (pure Normal)
     where
         doIt v os = do
@@ -300,12 +334,12 @@ updateWorld Get = do
     o ← get
     setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
     switchAim Nothing
-    updateAi *> alarmStateCheck
+    updateAi
     pure Normal
 updateWorld Wait = do
     setStatus "Waiting..."
     updateVisible
-    updateAi *> alarmStateCheck
+    updateAi
     pure Normal
 updateWorld InventorySheet = pure InventoryUI
 updateWorld CharacterSheet = pure CharacterUI
@@ -324,23 +358,11 @@ selectByName n = do
         byName = (==n) . view ch_name
 
 
-alarmStateCheck ∷ (Monad w, WorldAPI Object b c w) ⇒ w ()
-alarmStateCheck = do
-    wm ← worldMap
-    let isAlarm = views wm_data (foldr cameraActivated False) wm
-    when isAlarm $ setStatus "***** ALARM *****"
-    where
-        cameraActivated ol p = (p ||) $ or $ flip fmap ol $
-                                  \case
-                                    (Camera x) → x > 7
-                                    _          → False
-
-
-objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
-objectInteraction v d@(Door o) = changeObject_ v d (Door (not o)) $> Normal
-objectInteraction _ Computer   = pure Interaction
-objectInteraction _ (Person c) = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
-objectInteraction _ o          = setStatus ("Tried interaction with: " <> show o) $> Normal
+--objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
+--objectInteraction v d@(Door o) = changeObject_ v d (Door (not o)) $> Normal
+--objectInteraction _ Computer   = pure Interaction
+--objectInteraction _ (Person c) = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
+--objectInteraction _ o          = setStatus ("Tried interaction with: " <> show o) $> Normal
 
 
 updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
@@ -377,7 +399,9 @@ renderNormal = do
     mats ← use (g_rendererData.rd_styles.s_materials)
     def  ← use (g_rendererData.rd_styles.s_visibilityVisible)
     doRender $ do
-        main ← sequence [ drawMap objectToChar (objectToMat mats def) w d v
+        main ← sequence [ drawMap
+                                (\(Object (_, _, c, _)) → c)
+                                (\(Object (_, _, _, m)) → m) w d v
                         , drawPlayer p
                         , drawTeam t
                         , maybe (pure (pure ())) drawAim ma

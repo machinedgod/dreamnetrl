@@ -139,7 +139,8 @@ initRenderer = do
 
                 return Styles {
                          _s_materials = M.fromList
-                            [ ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
+                            [ ("concrete"       , [ C.AttributeColor cWhite ])
+                            , ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
                             , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
                             , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
                             , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
@@ -148,6 +149,8 @@ initRenderer = do
                             , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
                             , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
                             , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
+
+                            , ("blue"           , [ C.AttributeColor cBlue ])
                             ]
                        , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                        , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
@@ -183,20 +186,22 @@ draw (V2 x y) c m = do
     C.drawGlyph (C.Glyph c m)
 
 
-drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → Material) → Width → V.Vector a → V.Vector Visibility → r RenderAction
+drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r RenderAction
 drawMap chf matf w dat vis = do
     u ← use (rd_styles.s_visibilityUnknown)
     k ← use (rd_styles.s_visibilityKnown)
-    pure $ V.imapM_ (drawTile u k) $ V.zip dat vis
+
+    mats ← V.mapM (lookupMaterial . matf) dat
+    pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
         --drawTile _ k i ([], _) = uncurry (draw $ coordLin w i) $ ('?', k)
-        drawTile u k i (o, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
+        drawTile u k i (c, m, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
-                                         Known   → (chf o, k)
-                                         Visible → (chf o, matf o)
+                                         Known   → (c, k)
+                                         Visible → (c, m)
 
 
 drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r RenderAction

@@ -15,8 +15,9 @@ where
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 
+import Dreamnet.ObjectProperties
 import Dreamnet.GameState (GameState(Normal))
-import Dreamnet.World     (WorldAPI(moveObject))
+import Dreamnet.World     (WorldReadAPI(castVisibilityRay), WorldAPI(moveObject))
 
 --------------------------------------------------------------------------------
 
@@ -27,7 +28,7 @@ class ObjectAPI o where
     setCollidable    ∷ Bool → o () -- Creates a state, creates and object. NO!
     setSeeThrough    ∷ Bool → o ()
     canSee           ∷ V2 Int → o Bool
-    -- Keep adding primitives until you can describe all MapObjects as programs
+    -- Keep adding primitives until you can describe all Map Objects as programs
 
 --------------------------------------------------------------------------------
 
@@ -56,10 +57,10 @@ instance ObjectAPI (Free ObjectF) where
 
 --------------------------------------------------------------------------------
 
-runObjectMonadWorld ∷ (Monad w, WorldAPI a b c w) ⇒ V2 Int → a → Free ObjectF d → w (d, GameState)
+runObjectMonadWorld ∷ (IsSeeThrough a, Monad w, WorldAPI a b c w) ⇒ V2 Int → a → Free ObjectF d → w (d, GameState)
 runObjectMonadWorld = runWithGameState Normal False True
     where
-        runWithGameState ∷ (Monad w, WorldAPI a b c w) ⇒ GameState → Bool → Bool → V2 Int → a → Free ObjectF d → w (d, GameState)
+        runWithGameState ∷ (IsSeeThrough a, Monad w, WorldAPI a b c w) ⇒ GameState → Bool → Bool → V2 Int → a → Free ObjectF d → w (d, GameState)
         runWithGameState gs cl st cv o (Free (Move v n)) = do
             moveObject cv o v
             runWithGameState gs cl st v o n
@@ -76,12 +77,16 @@ runObjectMonadWorld = runWithGameState Normal False True
         runWithGameState gs cl _ cv o (Free (SetSeeThrough st n)) = do
             runWithGameState gs cl st cv o n
 
+        runWithGameState gs cl st cv o (Free (CanSee v fs)) = do
+            seesV ← and . fmap snd <$> castVisibilityRay cv v
+            runWithGameState gs cl st cv o (fs seesV)
+
         runWithGameState gs _ _ _ _ (Pure x) = pure (x, gs)
 
 --------------------------------------------------------------------------------
 
 -- | Detects foes
-camera ∷ Free ObjectF Bool
-camera = position >>= canSee
+--camera ∷ Free ObjectF Bool
+--camera = position >>= canSee
 
 
