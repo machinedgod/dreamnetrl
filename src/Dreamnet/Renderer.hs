@@ -17,7 +17,7 @@ module Dreamnet.Renderer
 , drawMap
 , drawPlayer
 , drawTeam
-, drawAim
+--, drawAim
 , drawHud
 ) where
 
@@ -42,7 +42,7 @@ type Material = [C.Attribute]
 data Styles = Styles {
       _s_materials ∷ M.Map String Material
     , _s_unknown   ∷ Material
-    , _s_playerAim ∷ Material
+    --, _s_playerAim ∷ Material
 
     , _s_visibilityUnknown ∷ Material
     , _s_visibilityKnown   ∷ Material
@@ -146,7 +146,7 @@ initRenderer = do
                             , ("blue"           , [ C.AttributeColor cBlue ])
                             ]
                        , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
-                       , _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
+                       --, _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
                        , _s_visibilityUnknown = []
                        , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
@@ -212,10 +212,10 @@ drawCharacter v cid = do
     pure $ draw v '@' [C.AttributeColor cid]
 
 
-drawAim ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
-drawAim v = do
-    s  ← use (rd_styles.s_playerAim)
-    pure $ draw v '×' s
+--drawAim ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
+--drawAim v = do
+--    s  ← use (rd_styles.s_playerAim)
+--    pure $ draw v '×' s
          
 
 drawHud ∷ (MonadRender r) ⇒ String → r RenderAction

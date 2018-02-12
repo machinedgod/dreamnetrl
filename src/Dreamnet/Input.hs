@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals, LambdaCase #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -6,26 +6,26 @@ module Dreamnet.Input
 ( Event(..)
 , WorldEvent(..)
 , UIEvent(..)
+, TargetEvent(..)
 
-, MonadInput(..)
-, InputF
-, runInput
+, nextEvent
 ) where
 
-import Linear (V2(V2))
 
-import qualified UI.NCurses as Curses (Curses, defaultWindow, getEvent,
-                                       Event(EventCharacter, EventSpecialKey),
-                                       Key(KeyBackspace))
+import Data.Maybe (fromJust)
+import Linear     (V2(V2))
+
+import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
+                                  Event(EventCharacter, EventSpecialKey),
+                                  Key(KeyBackspace))
 import Dreamnet.GameState
 
 --------------------------------------------------------------------------------
 
 data WorldEvent = Move (V2 Int)
-                | Aim  (V2 Int)
-                | NextAim
                 | Examine
-                | Interact
+                | Operate
+                | Talk
                 | UseHeld
                 | Get
                 | Wait
@@ -42,55 +42,39 @@ data UIEvent = MoveUp
              deriving (Eq, Show)
 
 
+data TargetEvent = Aim  (V2 Int)
+                 deriving (Eq, Show)
+
+
 data Event = Quit
            | WorldEv      WorldEvent
            | UIEv         UIEvent
+           | TargetEv     TargetEvent
            | PassThrough  Char
            deriving (Eq, Show)
 
 
-class (Monad m) ⇒ MonadInput m where
-    nextEvent ∷ GameState → m Event
+nextEvent ∷ GameState → C.Curses Event
+nextEvent cst = do
+    C.defaultWindow >>= fmap (cursesToEvent cst) . event >>= \case
+        (Just e) → pure e
+        _        → nextEvent cst
+    where
+        event w = fromJust <$> C.getEvent w Nothing
 
 
-newtype InputF a = InputF { runInputF ∷ Curses.Curses a }
-                 deriving (Functor, Applicative, Monad)
+cursesToEvent ∷ GameState → C.Event → Maybe Event
+cursesToEvent _               (C.EventCharacter '\ESC') = Just Quit
+cursesToEvent Normal          (C.EventCharacter c)      = WorldEv <$> worldEvent c
+cursesToEvent TargetSelection (C.EventCharacter c)      = TargetEv <$> targetEvent c
+cursesToEvent Examination     (C.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent Conversation    (C.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent InventoryUI     (C.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent CharacterUI     (C.EventCharacter c)      = UIEv <$> uiEvent c
+cursesToEvent Operation       (C.EventCharacter c)      = Just (PassThrough c)
+cursesToEvent Operation       (C.EventSpecialKey C.KeyBackspace) = Just (PassThrough '\b')
+cursesToEvent _ _                                       = Nothing
 
-
-instance MonadInput InputF where
-    nextEvent cst = do
-        ce ← InputF $ do
-            w ← Curses.defaultWindow
-            keepAskingUntilDelivered w
-        case cursesToEvent cst ce of
-            (Just e) → return e
-            _        → nextEvent cst
-        where
-            keepAskingUntilDelivered w = do
-                me ← Curses.getEvent w Nothing 
-                case me of
-                    Just e → return e
-                    _      → keepAskingUntilDelivered w
-        
-
-
-
-runInput ∷ InputF a → Curses.Curses a
-runInput = runInputF
-
-
-cursesToEvent ∷ GameState → Curses.Event → Maybe Event
-cursesToEvent _                  (Curses.EventCharacter '\ESC') = Just Quit
-cursesToEvent Normal             (Curses.EventCharacter c)      = WorldEv <$> worldEvent c
-cursesToEvent (Examination _)    (Curses.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent (Conversation _ _) (Curses.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent InventoryUI        (Curses.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent CharacterUI        (Curses.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent Interaction        (Curses.EventCharacter c)      = Just (PassThrough c)
-cursesToEvent Interaction        (Curses.EventSpecialKey Curses.KeyBackspace) = Just (PassThrough '\b')
-cursesToEvent _ _                                               = Nothing
-
---normalStateEvent 'q'  = Just $ Quit
 
 worldEvent ∷ Char → Maybe WorldEvent
 worldEvent 'h'  = Just $ Move (V2 -1  0)
@@ -101,17 +85,9 @@ worldEvent 'y'  = Just $ Move (V2 -1 -1)
 worldEvent 'u'  = Just $ Move (V2  1 -1)
 worldEvent 'b'  = Just $ Move (V2 -1  1)
 worldEvent 'n'  = Just $ Move (V2  1  1)
-worldEvent 'H'  = Just $ Aim (V2 -1  0)
-worldEvent 'J'  = Just $ Aim (V2  0  1)
-worldEvent 'K'  = Just $ Aim (V2  0 -1)
-worldEvent 'L'  = Just $ Aim (V2  1  0)
-worldEvent 'Y'  = Just $ Aim (V2 -1 -1)
-worldEvent 'U'  = Just $ Aim (V2  1 -1)
-worldEvent 'B'  = Just $ Aim (V2 -1  1)
-worldEvent 'N'  = Just $ Aim (V2  1  1)
-worldEvent '\t' = Just   NextAim
 worldEvent 'e'  = Just   Examine
-worldEvent ' '  = Just   Interact
+worldEvent 'o'  = Just   Operate
+worldEvent 't'  = Just   Talk
 worldEvent 'f'  = Just   UseHeld
 worldEvent 'g'  = Just   Get
 worldEvent '.'  = Just   Wait
@@ -128,6 +104,19 @@ worldEvent '8'  = Just $ SelectTeamMember 7
 worldEvent '9'  = Just $ SelectTeamMember 8
 worldEvent '0'  = Just $ SelectTeamMember 9
 worldEvent _    = Nothing
+
+
+targetEvent ∷ Char → Maybe TargetEvent
+targetEvent '.'  = Just $ Aim (V2  0  0)
+targetEvent 'h'  = Just $ Aim (V2 -1  0)
+targetEvent 'j'  = Just $ Aim (V2  0  1)
+targetEvent 'k'  = Just $ Aim (V2  0 -1)
+targetEvent 'l'  = Just $ Aim (V2  1  0)
+targetEvent 'y'  = Just $ Aim (V2 -1 -1)
+targetEvent 'u'  = Just $ Aim (V2  1 -1)
+targetEvent 'b'  = Just $ Aim (V2 -1  1)
+targetEvent 'n'  = Just $ Aim (V2  1  1)
+targetEvent _    = Nothing
 
 
 uiEvent ∷ Char → Maybe UIEvent

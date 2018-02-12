@@ -7,19 +7,21 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens        (makeLenses, use, uses, view, (.=), (%=))
-import Control.Monad       (void, when)
-import Control.Monad.State (StateT, lift, execStateT)
-import Data.Semigroup      ((<>))
-import Data.Functor        (($>))
-import Data.Bool           (bool)
+import Control.Lens              (makeLenses, use, uses, view, (.=), (%=))
+import Control.Monad             (void, when)
+import Control.Monad.Free        (Free)
+import Control.Monad.State       (StateT, lift, execStateT)
+import Data.Semigroup            ((<>))
+import Data.Functor              (($>))
+import Data.Bool                 (bool)
+import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre
 
 import Dreamnet.DesignData
 import Dreamnet.GameState
-import Dreamnet.Input
+import qualified Dreamnet.Input as Input
 import Dreamnet.World
 import Dreamnet.Conversation
 
@@ -38,15 +40,15 @@ import Dreamnet.ObjectMonad
 
 --------------------------------------------------------------------------------
 
-
 data Game = Game {
-      _g_world ∷ World Visibility (Character Item ConversationNode)
-    , _g_gameState ∷ GameState
-    , _g_keepRunning ∷ Bool
+      _g_world        ∷ World Visibility (Character Item ConversationNode)
+    , _g_gameState    ∷ GameState
+    , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
 
     -- This is a correct place to put it for now,
     -- because later on there'll be multiple 'update' places
+    , _g_conversation ∷ ConversationNode
     , _g_conversationWindow ∷ C.Window
     , _g_scrollWindow ∷ ScrollData
     , _g_choiceWindow ∷ ChoiceData
@@ -77,6 +79,7 @@ newGame dd = do
       , _g_keepRunning  = True
       , _g_rendererData = rdf
 
+      , _g_conversation       = End
       , _g_conversationWindow = cvw
       , _g_scrollWindow       = sw
       , _g_choiceWindow       = cw
@@ -112,54 +115,12 @@ launchDreamnet = Dyre.wrapMain Dyre.defaultParams {
 
 --------------------------------------------------------------------------------
 
-switchGameState ∷ GameState → StateT Game C.Curses ()
-switchGameState gs = do
-    ogs ← use g_gameState
-    onStateSwitch ogs gs
-    g_gameState .= gs
-
-
 -- TODO This'll die when renderer gets refactored a bit
 doRender ∷ RendererF () → StateT Game C.Curses ()
 doRender r = use g_rendererData >>=
     lift . (`runRenderer` r) >>=
     (g_rendererData .=) . snd
         
-
-onStateSwitch ∷ GameState → GameState → StateT Game C.Curses ()
-onStateSwitch Normal (Examination s) = do
-    g_scrollWindow %= setText s
-    sw ← use g_scrollWindow
-    lift $
-        renderScrollWindow sw
-
-onStateSwitch Normal InventoryUI = do
-    is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
-    g_scrollWindow %= setLines is
-    sw ← use g_scrollWindow
-    lift $
-        renderScrollWindow sw
-
-onStateSwitch Normal CharacterUI = do
-    g_scrollWindow %= setText "Character sheet"
-    sw ← use g_scrollWindow
-    lift $
-        renderScrollWindow sw
-
-onStateSwitch (Examination _) Normal = do
-    sw ← use g_scrollWindow
-    lift $ clearScrollWindow sw
-    renderNormal
-
-onStateSwitch Normal (Conversation ch cn) = do
-    renderConversation ch cn
-    renderNormal
-onStateSwitch (Conversation _ _) Normal = do
-    w ← use g_conversationWindow
-    lift $ clearConversationWindow w
-    renderNormal
-onStateSwitch _ _ = pure ()
-
 --------------------------------------------------------------------------------
 
 dreamnet ∷ DesignData → IO ()
@@ -180,13 +141,13 @@ loopTheLoop ∷ StateT Game C.Curses ()
 loopTheLoop = do
     r ← use g_keepRunning
     when r $ do
-        e ← use g_gameState >>= lift . runInput . nextEvent
+        e ← use g_gameState >>= lift . Input.nextEvent
         
-        when (e == Quit) $
+        when (e == Input.Quit) $
             g_keepRunning .= False
 
         -- States can morph into other states
-        -- We need an 'init' function to be alled when state is first changed
+        -- We need an 'init' function to be called when state is first changed
         --
         -- If state switch would fire an event type instead of just
         -- being returned by the world, then the pipeline would still hold!
@@ -194,176 +155,218 @@ loopTheLoop = do
         -- Problem is that update (maybe even render) components would need
         -- access to the input pipeline then, which means World has to be aware
         -- of at least certain portions of the Game.
-        --
-        -- Maybe onStateSwitch would fire an event, to begin with?
 
         s ← use g_gameState
         case s of
-            Normal → do
-                let (WorldEv we) = e
-                (gs, w') ← uses g_world (runWorld (updateWorld we))
-                switchGameState gs
-                g_world .= w'
-                case gs of
-                    Normal → renderNormal
-                    _      → pure ()
+            Normal →
+                case e of
+                    (Input.WorldEv (Input.Move v)) → do
+                        g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
+                        renderNormal
 
-            Conversation _ (ChoiceNode l _) → do
-                let (UIEv uie) = e
-                g_choiceWindow %= setOptions l
-                updateConversationChoice uie
-                (Conversation n nc) ← use g_gameState
-                renderConversation n nc
-            Conversation ch cs → do
-                let (UIEv uie) = e
-                let nc = advance cs
-                case nc of
-                    End → switchGameState Normal
+                    (Input.WorldEv Input.Wait) → do
+                        g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
+                        renderNormal
+
+                    (Input.WorldEv (Input.SelectTeamMember 0)) → do
+                        g_world %= snd . runWorld (selectCharacter (byName "Carla") $> Normal)
+                        renderNormal
+
+                    (Input.WorldEv (Input.SelectTeamMember 1)) → do
+                        g_world %= snd . runWorld (selectCharacter (byName "Raj") $> Normal)
+                        renderNormal
+
+                    (Input.WorldEv (Input.SelectTeamMember 2)) → do
+                        g_world %= snd . runWorld (selectCharacter (byName "Delgado") $> Normal)
+                        renderNormal
+
+                    (Input.WorldEv Input.Get) → do
+                        obtainTarget >>= \case
+                            Just (v, o) → renderMessage $ "Trying to pick up: " <> show o <> " at " <> show v
+                            Nothing     → renderMessage "There's nothing here."
+
+                    (Input.WorldEv Input.UseHeld) → do
+                        obtainTarget >>= \case
+                            Just (v, o) → do
+                                g_world %= snd . runWorld (setStatus ("You hit the " <> show o <> " at " <> show v <> " for ! damage.") >> deleteObject v o $> Normal)
+                                renderNormal
+                            Nothing     → renderMessage "Nothing there."
+
+                    (Input.WorldEv Input.Examine) → do
+                        -- TODO run program!
+                        examineText ← obtainTarget >>= \case
+                            Nothing → uses (g_world.w_map) desc
+                            Just t  → pure $ view o_description (snd t)
+                        g_scrollWindow %= setText examineText
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                        g_gameState .= Examination
+
+                    (Input.WorldEv Input.Operate) → do
+                        obtainTarget >>= \case
+                            Nothing → do
+                                renderMessage "There's nothing here."
+                            Just (v, o) → do
+                                (gs, w') ← uses g_world (runWorld (runProgram v o))
+                                g_world .= w'
+                                g_gameState .= gs -- TODO if this isn't "NORMAL" then renderNormal that follows isn't correct
+                                renderNormal
+
+                    (Input.WorldEv Input.Talk) → do
+                        obtainTarget >>= \case
+                            Nothing → renderMessage "Trying to talk to someone, but there's no one there."
+                            -- TODO ONLY IF O IS A PERSON - ALSO REMEMBER TO ACTUALLY GET THE CONVERSATION NODE
+                            Just _  → do
+                                g_gameState .= Conversation
+                                use g_conversation >>= renderConversation -- >> renderNormal
+
+                    (Input.WorldEv Input.InventorySheet) → do
+                        is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
+                        g_scrollWindow %= setLines is
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                        g_gameState .= InventoryUI
+
+                    (Input.WorldEv Input.CharacterSheet) → do
+                        g_scrollWindow %= setText "Character sheet"
+                        use g_scrollWindow >>= lift .  renderScrollWindow
+                        g_gameState .= CharacterUI
+
+                    _ → pure ()  -- TODO Invalid event in invalid state. Oups!
+
+            Examination →
+                case e of
+                    (Input.UIEv Input.MoveUp) → do
+                        g_scrollWindow %= scrollUp
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    (Input.UIEv Input.MoveDown) → do
+                        g_scrollWindow %= scrollDown
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    _ → do
+                        use g_scrollWindow >>= lift . clearScrollWindow
+                        g_gameState .= Normal
+                        renderNormal
+
+
+            Conversation → do
+                c ← use g_conversation
+                case c of
+                    End → do
+                        g_gameState .= Normal
+                        use g_conversationWindow >>= lift . clearConversationWindow
+                        renderNormal
+
+                    --(ListenNode l) → do
+                    --    g_choiceWindow %= setOptions l
+                    --    updateConversationChoice uie
+                    --    use g_conversation >>= renderConversation
                     ChoiceNode l _ → do
+                        let (Input.UIEv uie) = e
                         g_choiceWindow %= setOptions l
                         updateConversationChoice uie
-                        switchGameState $ Conversation ch nc
-                    _   → switchGameState $ Conversation ch nc
-                renderConversation ch nc
+                        use g_conversation >>= renderConversation
+                    _   → do
+                        g_conversation %= advance
+                        use g_conversation >>= renderConversation
 
-            Examination _ → do
-                let (UIEv uie) = e
-                case uie of
-                    MoveUp → do
+            InventoryUI →
+                case e of
+                    (Input.UIEv Input.MoveUp) → do
                         g_scrollWindow %= scrollUp
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    MoveDown → do
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    (Input.UIEv Input.MoveDown) → do
                         g_scrollWindow %= scrollDown
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    _ → switchGameState Normal
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    _ → do
+                        g_gameState .= Normal
 
-            InventoryUI → do
-                let (UIEv uie) = e 
-                case uie of
-                    MoveUp → do
+            CharacterUI →
+                case e of
+                    (Input.UIEv Input.MoveUp) → do
                         g_scrollWindow %= scrollUp
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    MoveDown → do
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    (Input.UIEv Input.MoveDown) → do
                         g_scrollWindow %= scrollDown
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    _ → switchGameState Normal
-
-            CharacterUI → do
-                let (UIEv uie) = e 
-                case uie of
-                    MoveUp → do
-                        g_scrollWindow %= scrollUp
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    MoveDown → do
-                        g_scrollWindow %= scrollDown
-                        sw ← use g_scrollWindow
-                        lift (renderScrollWindow sw)
-                    _ → switchGameState Normal
+                        use g_scrollWindow >>= lift . renderScrollWindow
+                    _ → do
+                        g_gameState .= Normal
                     
 
-            Interaction → do
-                let (PassThrough c) = e
+            Operation → do
+                let (Input.PassThrough c) = e
                 updateComputer c
                 qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
                 if qr
-                  then switchGameState Normal
+                  then g_gameState .= Normal
                   else do
                        comp ← use g_carlasComputer
                        fbr  ← use g_carlasFramebuffer
                        doRender (renderComputer fbr (computerData comp))
+            _ → pure ()  --- TODO Target selection shouldn't happen in this case branch, no?
+
 
         lift C.render
         loopTheLoop 
 
 
-allButTheBase ∷ Object → Bool
-allButTheBase o
-    | view o_symbol o == '.' = False
-    | otherwise              = True
-
-
-updateWorld ∷ (Monad w, WorldAPI Visibility (Character i c) w) ⇒ WorldEvent → w GameState
-updateWorld (Move v) = do
-    setStatus ""
-    moveSelected v
-    switchAim (pure allButTheBase)
-    updateVisible
-    --updateAi
-    pure Normal
-updateWorld (Aim v) = do -- TODO should spend time?
-    setStatus ""
-    moveAim v 
-    pure Normal
-updateWorld NextAim = switchAim (pure allButTheBase) $> Normal
-updateWorld Examine = Examination <$> examine
-updateWorld Interact = do
-    setStatus ""
-    s ← withAimOrElse runProgram (pure Normal)
-    switchAim Nothing
-    updateVisible
-    --updateAi
-    --pure Normal
-    pure s
+runProgram ∷ (Monad w, WorldAPI v c w) ⇒ V2 Int → Object → w GameState
+runProgram v o = snd <$> runObjectMonadWorld (operationProgramForName (view o_name o)) v o
     where
-        runProgram v os = snd <$> runObjectMonadWorld (door IT_Operate) v (last os)
-updateWorld UseHeld = withAimOrElse doIt (pure Normal)
-    where
-        doIt v os = do
-            let o = last os
-            setStatus $ "You hit the " <> show o <> " for 4 damage."
-            deleteObject v o
-            pure Normal
-updateWorld Get = do
-    setStatus ""
-    o ← get
-    setStatus (maybe  "There's nothing there." ("Picked up " <>) o)
-    switchAim Nothing
-    --updateAi
-    pure Normal
-updateWorld Wait = do
-    setStatus "Waiting..."
-    updateVisible
-    --updateAi
-    pure Normal
-updateWorld InventorySheet = pure InventoryUI
-updateWorld CharacterSheet = pure CharacterUI
-updateWorld (SelectTeamMember 0) = selectByName "Carla"
-updateWorld (SelectTeamMember 1) = selectByName "Raj"
-updateWorld (SelectTeamMember 2) = selectByName "Delgado"
-updateWorld (SelectTeamMember _) = pure Normal
+        operationProgramForName ∷ String → Free ObjectF ()
+        operationProgramForName "Door"     = door     Operate
+        operationProgramForName "Computer" = computer Operate
+        operationProgramForName "Person"   = person   Operate
+        operationProgramForName _          = generic  Operate
+
+-- TODO reuse code for aiming weapons
+--switchAim ∷ Maybe (Object → Bool) → StateT Game C.Curses ()
+--switchAim (Just nof) = do
+--    pp ← use  (g_world.w_active.e_position)
+--    os ← uses (g_world.w_map) (interestingObjects pp 2 nof)
+--    ca ← use  g_aim
+--    case ca of
+--        Just a → g_aim .= headMay (drop 1 $ dropWhile (/=a) $ concat (replicate 2 os))
+--        _      → g_aim .= headMay os
+--switchAim Nothing = g_aim .= Nothing
 
 
-selectByName ∷ (Monad w, WorldAPI Visibility (Character i c) w) ⇒ String → w GameState
-selectByName n = do
-    switchAim Nothing
-    selectCharacter byName
-    pure Normal
-    where
-        byName = (==n) . view ch_name
+-- TODO reuse code for aiming weapons
+--allButTheBase ∷ Object → Bool
+--allButTheBase o
+--    | view o_symbol o == '.' = False
+--    | otherwise              = True
 
 
---objectInteraction ∷ (Applicative w, WorldAPI Object b c w) ⇒ V2 Int → Object → w GameState
---objectInteraction v d@(Door o) = changeObject_ v d (Door (not o)) $> Normal
---objectInteraction _ Computer   = pure Interaction
---objectInteraction _ (Person c) = pure (Conversation <$> view ch_name <*> view ch_conversation $ c)
---objectInteraction _ o          = setStatus ("Tried interaction with: " <> show o) $> Normal
+-- TODO lets get stuck here until commit?
+updateConversationChoice ∷ Input.UIEvent → StateT Game C.Curses ()
+updateConversationChoice Input.MoveUp = g_choiceWindow %= selectPrevious
+updateConversationChoice Input.MoveDown = g_choiceWindow %= selectNext
+updateConversationChoice Input.SelectChoice = do
+    pf ← uses g_choiceWindow (pick . commit)
+    g_conversation %= pf
+updateConversationChoice _ = pure ()
 
 
-updateConversationChoice ∷ UIEvent → StateT Game C.Curses ()
-updateConversationChoice MoveUp       = g_choiceWindow %= selectPrevious
-updateConversationChoice MoveDown     = g_choiceWindow %= selectNext
-updateConversationChoice SelectChoice = do
-    i ← uses g_choiceWindow commit
-    (Conversation ch cs) ← use g_gameState
-    let nc = pick i cs
-    switchGameState (Conversation ch nc)
-    renderConversation ch nc -- <FUUUGLY!!!!!
-updateConversationChoice Back = pure ()
+obtainTarget ∷ StateT Game C.Curses (Maybe (V2 Int, Object))
+obtainTarget = do
+    renderMessage "Select direction:"
+    lift C.render
+
+    ap ← use (g_world.w_active.e_position)
+    t ← lift (Input.nextEvent TargetSelection) >>= \case
+            Input.TargetEv (Input.Aim v) → pure v
+            -- TODO Should never receive anything except target events
+            _ → pure (V2 0 0)
+    case t of
+        (V2 0 0) → pure Nothing
+        v        → do
+            os ← uses (g_world.w_map) (drop 1 . valuesAt (ap + v))
+            case os of
+                [] → pure Nothing
+                l  → pure (Just (ap + v, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
+
+--------------------------------------------------------------------------------
+
+byName ∷ String → (Character a b) → Bool
+byName n = (==n) . view ch_name
 
 
 updateComputer ∷ Char → StateT Game C.Curses ()
@@ -375,6 +378,18 @@ updateComputer '\b' = g_carlasComputer %= (*> backspace)
 updateComputer c    = g_carlasComputer %= (*> input c)
 
 
+--withAimOrElse ∷ (V2 Int → [Object] → StateT Game C.Curses a) → StateT Game C.Curses a → StateT Game C.Curses a
+--withAimOrElse f e = fromMaybe e <=< runMaybeT $ do
+--    v  ← MaybeT (use g_aim)
+--    os ← uses (g_world.w_map) (valuesAt v)
+--    pure (f v os)
+--
+--
+--withAim ∷ (V2 Int → [Object] → StateT Game C.Curses ()) → StateT Game C.Curses ()
+--withAim f = withAimOrElse f (pure ())
+
+--------------------------------------------------------------------------------
+
 renderNormal ∷ StateT Game C.Curses ()
 renderNormal = do
     w  ← uses (g_world.w_map) width
@@ -382,38 +397,40 @@ renderNormal = do
     v  ← use (g_world.w_vis)
     p  ← use (g_world.w_active.e_position)
     t  ← uses (g_world.w_team) (fmap (view e_position))
-    ma ← use (g_world.w_aim)
     s  ← use (g_world.w_status)
     
     doRender $ do
-        main ← sequence [ drawMap (view o_symbol) (view o_material) w d v
-                        , drawPlayer p
-                        , drawTeam t
-                        , maybe (pure (pure ())) drawAim ma
-                        ]
-        hud ← drawHud s
-        updateMain $ foldl1 (>>) main
-        updateHud hud
+        sequence [ drawMap (view o_symbol) (view o_material) w d v
+                 , drawPlayer p
+                 , drawTeam t
+                 --, maybe (pure (pure ())) drawAim ma
+                 ]
+                 >>= updateMain . foldl1 (>>)
+        drawHud s >>= updateHud
 
 
-renderConversation ∷ String → ConversationNode → StateT Game C.Curses ()
-renderConversation _ (TalkNode s _)   = do
+renderMessage ∷ String → StateT Game C.Curses ()
+renderMessage msg = doRender (drawHud msg >>= updateHud)
+
+
+renderConversation ∷ ConversationNode → StateT Game C.Curses ()
+renderConversation (TalkNode s _)   = do
     w ← use g_conversationWindow
     lift $ do
         clearConversationWindow w 
         drawConversationWindow 0 "Carla" s w
-renderConversation n (ListenNode s _) = do
+renderConversation (ListenNode s _) = do
     w ← use g_conversationWindow
     lift $ do
         clearConversationWindow w
-        drawConversationWindow 1 n s w
-renderConversation _ (ChoiceNode _ _) = do
+        drawConversationWindow 1 "<NAME CODE INCOMPL>" s w
+renderConversation (ChoiceNode _ _) = do
     w ← use g_conversationWindow
     cw ← use g_choiceWindow
     lift $ do
         clearConversationWindow w
         drawChoiceWindow cw   -- TODO MOVE this to Actual choice node, to use the fucking model!
-renderConversation _ _ = pure () -- We'll never end up here
+renderConversation _ = pure () -- We'll never end up here
 
 
 renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()

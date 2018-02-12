@@ -19,15 +19,11 @@ module Dreamnet.World
 
 , WorldAPI(..)
 , changeObject_
-, withAim
-, examine
-, get
 
 , World
 -- TODO take out and enforce interaction through API class
 , w_team
 , w_active
-, w_aim
 , w_map
 , w_vis
 , w_status
@@ -38,18 +34,16 @@ module Dreamnet.World
 ) where
 
 import Prelude hiding (interact, rem)
-import Safe
 
 import Control.Lens               (makeLenses, (^.), (%=), (.=), use, uses,
                                    view)
-import Control.Monad              (when, (<=<), void)
+import Control.Monad              (when, void)
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
-import Data.Maybe                 (fromMaybe)
-import Data.List                  (find, intercalate)
+import Data.List                  (find)
 
 import qualified Data.Set            as S  (fromList, member)
 import qualified Data.Vector         as V  (Vector, imap, toList, replicate)
@@ -95,9 +89,6 @@ class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
     addObject ∷ V2 Int → Object → w ()
     deleteObject ∷ V2 Int → Object → w ()
     moveObject ∷ V2 Int → Object → V2 Int → w ()
-    switchAim ∷ Maybe (Object → Bool) → w ()
-    moveAim ∷ V2 Int → w ()
-    withAimOrElse ∷ (V2 Int → [Object] → w d) → w d → w d
     -- TODO redo this, to be a function, and calculate on demand, not prefront
     updateVisible ∷ w ()
     -- TODO not really happy with 'update*' anything. Provide a primitive!
@@ -111,7 +102,6 @@ class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
 data World v c = World {
       _w_team   ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
     , _w_active ∷ Entity c
-    , _w_aim    ∷ Maybe (V2 Int)
     , _w_map    ∷ WorldMap Object
     , _w_vis    ∷ V.Vector v
     , _w_status ∷ String
@@ -127,7 +117,6 @@ newWorld m chs =
     in  World {
           _w_team   = drop 1 t
         , _w_active = head t
-        , _w_aim    = Nothing
         , _w_map    = m
         , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
         , _w_status = ""
@@ -184,23 +173,6 @@ instance WorldAPI Visibility c (WorldM Visibility c) where
         w_team %= (<> [oc])
         w_active .= nc
 
-    switchAim (Just nof) = do
-        pp ← use (w_active.e_position)
-        os ← uses w_map (interestingObjects pp 2 nof)
-        ca ← use w_aim
-        case ca of
-            Just a → w_aim .= headMay (drop 1 $ dropWhile (/=a) $ concat (replicate 2 os))
-            _      → w_aim .= headMay os
-
-    switchAim Nothing = w_aim .= Nothing
-
-    moveAim v = w_aim %= fmap (+v)
-
-    withAimOrElse f e = fromMaybe e <=< runMaybeT $ do
-        v  ← MaybeT (use w_aim)
-        os ← uses w_map (valuesAt v)
-        pure (f v os)
-
     updateVisible = do
         m ← use w_map
         t ← pure (:)
@@ -245,16 +217,4 @@ changeObject_ ∷ (Applicative w, WorldAPI v c w) ⇒ V2 Int → Object → Obje
 changeObject_ v oo no = changeObject v (\c → pure $ if c == oo
                                                       then no
                                                       else c)
-
-
-withAim ∷ (Applicative w, WorldAPI v c w) ⇒ (V2 Int → [Object] → w ()) → w ()
-withAim f = withAimOrElse f (pure ())
-
-
-examine ∷ (Applicative w, WorldAPI v c w) ⇒ w String
-examine = withAimOrElse (\_ → pure . intercalate ", " . fmap (view o_description)) (desc <$> worldMap)
-
-
-get ∷ (Applicative w, WorldAPI v c w) ⇒ w (Maybe a)
-get = pure Nothing
 

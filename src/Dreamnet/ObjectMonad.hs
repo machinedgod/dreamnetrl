@@ -10,7 +10,13 @@ module Dreamnet.ObjectMonad
 , runObjectMonadWorld
 
 , InteractionType(..)
+
+, ObjectF
 , door
+, computer
+, person
+, generic
+
 )
 where
 
@@ -18,17 +24,20 @@ where
 import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
+import Data.Bool          (bool)
+import Data.Monoid        ((<>))
 
-import Dreamnet.GameState (GameState(Normal))
-import Dreamnet.World     (Object, o_passable, o_seeThrough,
+import Dreamnet.GameState (GameState(Normal, Operation, Conversation))
+import Dreamnet.World     (Object, o_symbol, o_material, o_passable, o_seeThrough, 
                            changeObject_,
                            WorldReadAPI(castVisibilityRay),
-                           WorldAPI(moveObject))
+                           WorldAPI(moveObject, setStatus))
 
 --------------------------------------------------------------------------------
 
-data InteractionType = IT_Operate
-                     | IT_Examine
+data InteractionType = Operate
+                     | Examine
+                     | Talk
 
 --------------------------------------------------------------------------------
 
@@ -36,11 +45,14 @@ class ObjectAPI o where
     position         ∷ o (V2 Int)
     move             ∷ V2 Int → o ()
     requestGameState ∷ GameState → o ()
-    collidable       ∷ o Bool
-    setPassable    ∷ Bool → o () -- Creates a state, creates and object. NO!
+    passable         ∷ o Bool
+    setPassable      ∷ Bool → o () -- Creates a state, creates and object. NO!
     seeThrough       ∷ o Bool
     setSeeThrough    ∷ Bool → o ()
     canSee           ∷ V2 Int → o Bool
+    message          ∷ String → o ()
+    changeChar       ∷ Char → o ()
+    changeMat        ∷ String → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
 
 --------------------------------------------------------------------------------
@@ -53,8 +65,10 @@ data ObjectF a = Move (V2 Int) a
                | SeeThrough (Bool → a)
                | SetSeeThrough Bool a
                | CanSee (V2 Int) (Bool → a)
+               | Message String a
+               | ChangeChar Char a
+               | ChangeMat String a
                deriving(Functor) -- TODO Derive binary can't work with functions
-
 
 
 instance ObjectAPI (Free ObjectF) where
@@ -64,7 +78,7 @@ instance ObjectAPI (Free ObjectF) where
 
     requestGameState gs =  Free $ RequestGameState gs (Pure ())
 
-    collidable = Free $ Passable Pure
+    passable = Free $ Passable Pure
 
     setPassable c = Free $ SetPassable c (Pure ())
 
@@ -73,6 +87,12 @@ instance ObjectAPI (Free ObjectF) where
     setSeeThrough s = Free $ SetSeeThrough s (Pure ())
 
     canSee v = Free $ CanSee v Pure
+
+    message m = Free $ Message m (Pure ())
+
+    changeChar c = Free $ ChangeChar c (Pure ())
+
+    changeMat s = Free $ ChangeMat s (Pure ())
 
 --------------------------------------------------------------------------------
 
@@ -111,16 +131,58 @@ runWithGameState gs (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
     runWithGameState gs (cv, o) (fs seesV)
 
+runWithGameState gs (cv, o) (Free (Message m n)) = do
+    setStatus m
+    runWithGameState gs (cv, o) n
+
+runWithGameState gs (cv, o) (Free (ChangeChar c n)) = do
+    changeObject_ cv o (o_symbol .~ c $ o)
+    runWithGameState gs (cv, o) n
+
+runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
+    changeObject_ cv o (o_material .~ m $ o)
+    runWithGameState gs (cv, o) n
+
 runWithGameState gs _ (Pure x) = pure (x, gs)
 
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
 door ∷ InteractionType → Free ObjectF ()
-door IT_Operate = collidable >>= setPassable . not
-door _          = pure ()
+door Operate = do
+    c ← passable >>= setPassable . not >> passable
+    changeChar $ bool '+' '\'' c
+    message $ "Doors are now " <>  bool "closed." "opened." c
+door Talk = do
+    message "\"Open sesame!\" you yell, but doors are deaf and numb to your pleas."
+door _ = pure ()
 
---objectToChar (Door o)         = bool '+' '\'' o
+
+computer ∷ InteractionType → Free ObjectF ()
+computer Operate = do
+    message $ "You can't login to this machine."
+computer Talk = do
+    message $ "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
+    --requestGameState Operation
+computer _       = pure ()
+
+
+person ∷ InteractionType → Free ObjectF ()
+person Operate = message $ "Unsure yourself about what exactly you're trying to pull off, ??? meets your 'operation' attempts with suspicious look."
+person Talk = message $ "??? refuses to talk to you."
+    --requestGameState Conversation
+person _       = pure ()
+
+
+generic ∷ InteractionType → Free ObjectF () 
+generic Operate = do
+    message "Trying to interact with whatever."
+generic Talk = do
+    message "Trying to talk to whatever."
+generic Examine = do
+    message "Trying to examine whatever."
+
+
 --objectToChar (Stairs u)       = bool '<' '>' u
 --objectToChar (Camera l)       = intToDigit l
 --objectToChar Computer         = '$'

@@ -22,7 +22,7 @@ module Dreamnet.ScrollWindow
 
 import Control.Lens  (makeLenses, view, views, (%~), (+~), (.~))
 import Control.Monad (when, unless)
-import Data.Foldable (foldl', toList)
+import Data.Foldable (foldl')
 import Data.Monoid   ((<>), mempty)
 import Data.List     (intercalate)
 
@@ -73,7 +73,7 @@ setText s sd = let w   = view sd_lineWidth sd
 
 
 setLines ∷ [String] → ScrollData → ScrollData
-setLines ls = sd_lines .~ ls
+setLines ls = (sd_startLine .~ 0) . (sd_lines .~ ls)
 
 
 scrollUp ∷ ScrollData → ScrollData
