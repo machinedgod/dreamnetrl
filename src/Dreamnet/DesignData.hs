@@ -137,7 +137,7 @@ moeConvo =
         chocolateIcecream = ChoiceNode [ "Dude on the bar"
                                        , "Dude at the table with a girl"
                                        , "Girl at the table with the dude"
-                                       , "<back>"
+                                       , "Not right now"
                                        ]
                                        [ TalkNode "Who's the dude at the bar?"
                                          $ ListenNode "That's Delgado. He's almost a part of the inventory."
@@ -154,7 +154,8 @@ moeConvo =
                                                    $ ListenNode "So our gal over there says 'Well, please allow me', then slides some fred krueger slash wolverine steel from her finger. Both me and the kid gaping eyes, she pricks the olive and eats it, then walks away."
                                                      $ TalkNode "Shit!"
                                                        $ ListenNode "Her price range must be through the roof, but the jacko over there can probably handle it." chocolateIcecream
-                                       , mainBranch
+                                       , TalkNode "Actually, not right now. I wanted to ask..."
+                                         $ mainBranch
                                        ]
 
         beer = ListenNode "Sure. Skinny, fat or extra fat?"

@@ -47,8 +47,7 @@ createChoiceData = do
 --------------------------------------------------------------------------------
 
 setOptions ∷ [String] → ChoiceData → ChoiceData
-setOptions ls = cd_options .~ V.fromList ls
---setOptions ls = (cd_currentSelection .~ 0) . (cd_options .~ V.fromList ls)
+setOptions ls = (cd_currentSelection .~ 0) . (cd_options .~ V.fromList ls)
 
 
 selectNext ∷ ChoiceData → ChoiceData

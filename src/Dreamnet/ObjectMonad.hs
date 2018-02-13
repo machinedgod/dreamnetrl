@@ -152,6 +152,7 @@ runWithGameState gs _ (Pure x) = pure (x, gs)
 door ∷ InteractionType → Free ObjectF ()
 door Operate = do
     c ← passable >>= setPassable . not >> passable
+    setSeeThrough c
     changeChar $ bool '+' '\'' c
     --passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
     message $ "Doors are now " <>  bool "closed." "opened." c
