@@ -18,7 +18,6 @@ module Dreamnet.GameState
 --      Bottomline is, changes in the world dictate changes in the
 --      player's domain (UI, controls, etc)
 data GameState = Normal
-               | TargetSelection
                | Examination
                | Operation
                | Conversation

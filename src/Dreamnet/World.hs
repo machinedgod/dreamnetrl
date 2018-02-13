@@ -8,7 +8,6 @@
 
 module Dreamnet.World
 ( Object(Object)
-, o_name
 , o_symbol
 , o_material
 , o_passable
@@ -59,8 +58,7 @@ import Dreamnet.Visibility
 --------------------------------------------------------------------------------
 
 data Object = Object {
-      _o_name        ∷ String
-    , _o_symbol      ∷ Char
+      _o_symbol      ∷ Char
     , _o_material    ∷ String
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool

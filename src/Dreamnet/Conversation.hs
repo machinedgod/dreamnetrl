@@ -28,15 +28,15 @@ data ConversationNode = TalkNode   String   ConversationNode
                       deriving (Show)
 
 
-pick ∷ Word → ConversationNode → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB
-pick _ (TalkNode   _ n)  = n
-pick _ (ListenNode _ n)  = n
-pick i (ChoiceNode _ ns) = ns `at` fromIntegral i
-pick _ End               = End
+pick ∷ ConversationNode → Word → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB
+pick (TalkNode   _ n)  _ = n
+pick (ListenNode _ n)  _ = n
+pick (ChoiceNode _ ns) i = ns `at` fromIntegral i
+pick End               _ = End
 
 
 advance ∷ ConversationNode → ConversationNode
-advance n@(ChoiceNode _ _) = pick 0 n
+advance n@(ChoiceNode _ _) = pick n 0
 advance (TalkNode _ n)     = n
 advance (ListenNode _ n)   = n
 advance End                = End

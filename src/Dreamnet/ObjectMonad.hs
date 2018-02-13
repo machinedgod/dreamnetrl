@@ -27,7 +27,7 @@ import Linear             (V2)
 import Data.Bool          (bool)
 import Data.Monoid        ((<>))
 
-import Dreamnet.GameState (GameState(Normal, Operation, Conversation))
+import Dreamnet.GameState (GameState(..))
 import Dreamnet.World     (Object, o_symbol, o_material, o_passable, o_seeThrough, 
                            changeObject_,
                            WorldReadAPI(castVisibilityRay),
@@ -36,11 +36,12 @@ import Dreamnet.World     (Object, o_symbol, o_material, o_passable, o_seeThroug
 --------------------------------------------------------------------------------
 
 data InteractionType = Operate
-                     | Examine
                      | Talk
+                     | OperateOn
 
 --------------------------------------------------------------------------------
 
+-- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
 class ObjectAPI o where
     position         ∷ o (V2 Int)
     move             ∷ V2 Int → o ()
@@ -50,9 +51,9 @@ class ObjectAPI o where
     seeThrough       ∷ o Bool
     setSeeThrough    ∷ Bool → o ()
     canSee           ∷ V2 Int → o Bool
-    message          ∷ String → o ()
     changeChar       ∷ Char → o ()
     changeMat        ∷ String → o ()
+    message          ∷ String → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
 
 --------------------------------------------------------------------------------
@@ -65,9 +66,9 @@ data ObjectF a = Move (V2 Int) a
                | SeeThrough (Bool → a)
                | SetSeeThrough Bool a
                | CanSee (V2 Int) (Bool → a)
-               | Message String a
                | ChangeChar Char a
                | ChangeMat String a
+               | Message String a
                deriving(Functor) -- TODO Derive binary can't work with functions
 
 
@@ -88,11 +89,11 @@ instance ObjectAPI (Free ObjectF) where
 
     canSee v = Free $ CanSee v Pure
 
-    message m = Free $ Message m (Pure ())
-
     changeChar c = Free $ ChangeChar c (Pure ())
 
     changeMat s = Free $ ChangeMat s (Pure ())
+
+    message m = Free $ Message m (Pure ())
 
 --------------------------------------------------------------------------------
 
@@ -131,16 +132,16 @@ runWithGameState gs (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
     runWithGameState gs (cv, o) (fs seesV)
 
-runWithGameState gs (cv, o) (Free (Message m n)) = do
-    setStatus m
-    runWithGameState gs (cv, o) n
-
 runWithGameState gs (cv, o) (Free (ChangeChar c n)) = do
     changeObject_ cv o (o_symbol .~ c $ o)
     runWithGameState gs (cv, o) n
 
 runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
     changeObject_ cv o (o_material .~ m $ o)
+    runWithGameState gs (cv, o) n
+
+runWithGameState gs (cv, o) (Free (Message m n)) = do
+    setStatus m
     runWithGameState gs (cv, o) n
 
 runWithGameState gs _ (Pure x) = pure (x, gs)
@@ -152,36 +153,38 @@ door ∷ InteractionType → Free ObjectF ()
 door Operate = do
     c ← passable >>= setPassable . not >> passable
     changeChar $ bool '+' '\'' c
+    --passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
     message $ "Doors are now " <>  bool "closed." "opened." c
-door Talk = do
+door Talk =
     message "\"Open sesame!\" you yell, but doors are deaf and numb to your pleas."
-door _ = pure ()
+door OperateOn =
+    message "Operating door on something else..."
 
 
 computer ∷ InteractionType → Free ObjectF ()
-computer Operate = do
-    message $ "You can't login to this machine."
-computer Talk = do
-    message $ "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
-    --requestGameState Operation
-computer _       = pure ()
-
+computer Operate =
+    message "You can't login to this machine."
+computer Talk =
+    message "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
+computer OperateOn =
+    message "Operating computer on something else. Yikes."
 
 person ∷ InteractionType → Free ObjectF ()
-person Operate = message $ "Unsure yourself about what exactly you're trying to pull off, ??? meets your 'operation' attempts with suspicious look."
-person Talk = message $ "??? refuses to talk to you."
-    --requestGameState Conversation
-person _       = pure ()
+person Operate =
+    message "Unsure yourself about what exactly you're trying to pull off, ??? meets your 'operation' attempts with suspicious look."
+person Talk =
+    requestGameState Conversation
+person OperateOn =
+    message "You try and operate ??? on whatever. Lol."
 
 
 generic ∷ InteractionType → Free ObjectF () 
-generic Operate = do
+generic Operate =
     message "Trying to interact with whatever."
-generic Talk = do
+generic Talk =
     message "Trying to talk to whatever."
-generic Examine = do
-    message "Trying to examine whatever."
-
+generic OperateOn =
+    message "You try and operate whatever on whatever."
 
 --objectToChar (Stairs u)       = bool '<' '>' u
 --objectToChar (Camera l)       = intToDigit l
