@@ -36,18 +36,19 @@ module Dreamnet.World
 import Prelude hiding (interact, rem)
 
 import Control.Lens               (makeLenses, (^.), (%=), (.=), use, uses,
-                                   view)
+                                   view, views)
 import Control.Monad              (when, void)
-import Control.Monad.State        (MonadState, State, runState)
+import Control.Monad.State        (MonadState, State, runState, execState, modify)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.List                  (find)
+import Data.Maybe                 (fromMaybe)
 
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, toList, replicate)
-import qualified Data.Map    as M  (Map)
+import qualified Data.Map    as M  (Map, singleton, lookup)
 
 
 import Dreamnet.Entity
@@ -75,19 +76,19 @@ makeLenses ''Object
 
 --------------------------------------------------------------------------------
 
-class WorldReadAPI v c w | w → v, w → c where
+class WorldReadAPI v w | w → v where
     worldMap ∷ w (WorldMap Object)
-    team ∷ w [Entity c]
-    active ∷ w (Entity c)
+    team ∷ w [Entity Object]
+    active ∷ w (Entity Object)
     castVisibilityRay ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
 -- TODO seriously refactor this into much better DSL
-class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
+class (WorldReadAPI v w) ⇒ WorldAPI v w | w → v where
     setStatus ∷ String → w ()
     changeObject ∷ V2 Int → (Object → w Object) → w ()
-    selChar ∷ w c
-    selectCharacter ∷ (c → Bool) → w ()
+    selChar ∷ w Object
+    selectCharacter ∷ String → w ()
     moveSelected ∷ V2 Int → w ()
     addObject ∷ V2 Int → Object → w ()
     deleteObject ∷ V2 Int → Object → w ()
@@ -103,9 +104,9 @@ class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
 --   v: visibility data
 --   c: character data
 --   TODO place team and active in the world map
-data World v c = World {
-      _w_team   ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
-    , _w_active ∷ Entity c
+data World v = World {
+      _w_team   ∷ [Entity Object] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
+    , _w_active ∷ Entity Object
     , _w_map    ∷ WorldMap Object
     , _w_vis    ∷ V.Vector v
     , _w_status ∷ String
@@ -115,26 +116,31 @@ makeLenses ''World
 
 
 -- TODO consolidate Player characters into the WorldMap, somehow
-newWorld ∷ (Monoid v) ⇒ WorldMap Object → [c] → World v c
-newWorld m chs =
-    let t = new <$> zip (V.toList $ m^.wm_spawns) chs
+newWorld ∷ (Monoid v) ⇒ WorldMap Object → [String] → World v
+newWorld m chnms =
+    let t  = newEntity <$> zip (V.toList $ m^.wm_spawns) (fmap charToObject chnms)
     in  World {
           _w_team   = drop 1 t
         , _w_active = head t
-        , _w_map    = m
+        , _w_map    = execState (traverse (\e → modify (addToCell
+                                                         (view e_position e)
+                                                         (view e_object e))) t) m
+        --, _w_map    = m
         , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
         , _w_status = ""
         }
+    where
+        charToObject n = Object '@' "metal" False True ("Its " <> n <> ".") (M.singleton "name" n)
 
 --------------------------------------------------------------------------------
 
 -- TODO if I use ST monad, I can get mutable state for cheap
-newtype WorldM v c a = WorldM { runWorldM ∷ State (World v c) a }
-                     deriving (Functor, Applicative, Monad, MonadState (World v c))
+newtype WorldM v a = WorldM { runWorldM ∷ State (World v) a }
+                   deriving (Functor, Applicative, Monad, MonadState (World v))
 
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
-instance WorldReadAPI Visibility c (WorldM Visibility c) where
+instance WorldReadAPI Visibility (WorldM Visibility) where
     worldMap = use w_map
 
     team = use w_team
@@ -144,7 +150,7 @@ instance WorldReadAPI Visibility c (WorldM Visibility c) where
     castVisibilityRay o d = (\m → castVisibilityRay' m o d) <$> use w_map
 
 
-instance WorldAPI Visibility c (WorldM Visibility c) where
+instance WorldAPI Visibility (WorldM Visibility) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
@@ -153,10 +159,12 @@ instance WorldAPI Visibility c (WorldM Visibility c) where
         w_map %= replaceCell v nc
 
     moveSelected v = do
-        npp     ← uses (w_active.e_position) (+v)
-        obj     ← uses w_map (valuesAt npp)
-        when (and $ fmap (view o_passable) obj) $
-            w_active %= move v
+        cp   ← use (w_active.e_position)
+        o    ← use (w_active.e_object)
+        tobj ← uses w_map (valuesAt (cp + v))
+        when (and $ fmap (view o_passable) tobj) $ do
+            w_active %= moveEntity v
+            moveObject cp o (cp + v)
 
     addObject v o = w_map %= addToCell v o
 
@@ -170,10 +178,10 @@ instance WorldAPI Visibility c (WorldM Visibility c) where
 
     selChar = use (w_active.e_object)
 
-    selectCharacter f = void $ runMaybeT $ do
-        nc ← MaybeT $ uses w_team (find (f . view e_object))
+    selectCharacter n = void $ runMaybeT $ do
+        nc ← MaybeT $ uses w_team (find ((n==) . views (e_object.o_state) (fromMaybe "" . M.lookup "name")))
         oc ← use w_active
-        w_team %= filter (not . f . view e_object)
+        w_team %= filter (not . (==nc))
         w_team %= (<> [oc])
         w_active .= nc
 
@@ -212,12 +220,12 @@ castVisibilityRay' m o d = let seeThrough = and . fmap (view o_seeThrough) . (`v
                            in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
 
 
-runWorld ∷ WorldM v c GameState → World v c → (GameState, World v c)
+runWorld ∷ WorldM v GameState → World v → (GameState, World v)
 runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
 
-changeObject_ ∷ (Applicative w, WorldAPI v c w) ⇒ V2 Int → Object → Object → w ()
+changeObject_ ∷ (Applicative w, WorldAPI v w) ⇒ V2 Int → Object → Object → w ()
 changeObject_ v oo no = changeObject v (\c → pure $ if c == oo
                                                       then no
                                                       else c)

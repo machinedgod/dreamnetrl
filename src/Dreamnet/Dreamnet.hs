@@ -17,7 +17,7 @@ import Data.Bool                 (bool)
 import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2))
 
-import qualified Data.Map    as M    (lookup, empty, singleton)
+import qualified Data.Map    as M    ((!), lookup, empty, singleton)
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
@@ -48,7 +48,7 @@ type Name = String
 --------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world        ∷ World Visibility (Character Item ConversationNode)
+      _g_world        ∷ World Visibility
     , _g_gameState    ∷ GameState
     , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -77,9 +77,9 @@ newGame dd = do
     pure Game {
         _g_world        = newWorld
                               (fromTileMap m objectFromTile)
-                              [ newCharacter "Carla"   End
-                              , newCharacter "Raj"     End
-                              , newCharacter "Delgado" End
+                              [ "Carla"
+                              , "Raj"
+                              , "Delgado"
                               ]
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
@@ -163,16 +163,16 @@ loopTheLoop dd = do
             g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
             renderNormal
         processNormal (Input.SelectTeamMember 0) = do
-            g_world %= snd . runWorld (selectCharacter (byName "Carla") $> Normal)
-            g_world.w_status .= "Carla selected."
+            g_world %= snd . runWorld (selectCharacter "Carla" $> Normal)
+            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
             renderNormal
         processNormal (Input.SelectTeamMember 1) = do
-            g_world %= snd . runWorld (selectCharacter (byName "Raj") $> Normal)
-            g_world.w_status .= "Raj selected."
+            g_world %= snd . runWorld (selectCharacter "Raj" $> Normal)
+            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
             renderNormal
         processNormal (Input.SelectTeamMember 2) = do
-            g_world %= snd . runWorld (selectCharacter (byName "Delgado") $> Normal)
-            g_world.w_status .= "Delgado selected."
+            g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
+            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
             renderNormal
         processNormal Input.Get = do
             obtainTarget >>= \case
@@ -216,23 +216,21 @@ loopTheLoop dd = do
                 Just (v, o) → do
                     runProgram v (operationProgramForSymbol (view o_symbol o) $ Talk)
                     use g_gameState >>= \case
-                        Conversation →
-                            case characterForName dd <$> M.lookup "name" (view o_state o) of
-                                Nothing → error "Character exist without a name!"
-                                Just ch → do
-                                    g_conversant .= Just ch
-                                    g_conversation .= view ch_conversation ch
-                                    g_scrollWindow %= setTitle (view ch_name ch)
-                                    use g_conversation >>= \case
-                                        (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
-                                        (TalkNode s _)      → g_scrollWindow %= setText s
-                                        (ListenNode s _)    → g_scrollWindow %= setText s
-                                        _ → pure ()
-                                    use g_conversation >>= renderConversation
+                        Conversation → do
+                            let ch = characterForName dd . (M.! "name") . view o_state $ o
+                            g_conversant .= Just ch
+                            g_conversation .= view ch_conversation ch
+                            g_scrollWindow %= setTitle (view ch_name ch)
+                            use g_conversation >>= \case
+                                (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
+                                (TalkNode s _)      → g_scrollWindow %= setText s
+                                (ListenNode s _)    → g_scrollWindow %= setText s
+                                _ → pure ()
+                            use g_conversation >>= renderConversation
                         _ →
                             renderNormal
         processNormal Input.InventorySheet = do
-            is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
+            is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
             g_scrollWindow %= setLines is
             use g_scrollWindow >>= lift . renderScrollWindow
             g_gameState .= InventoryUI
@@ -274,7 +272,7 @@ loopTheLoop dd = do
                         g_choiceWindow %= setOptions opts
                         use g_conversation >>= renderConversation
                     (TalkNode s _) → do
-                        initName ← use (g_world.w_active.e_object.ch_name)
+                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
                         g_scrollWindow %= setTitle initName
                         g_scrollWindow %= setText s
                         use g_conversation >>= renderConversation
@@ -295,7 +293,7 @@ loopTheLoop dd = do
                         g_choiceWindow %= setOptions opts
                         use g_conversation >>= renderConversation
                     (TalkNode s _) → do
-                        initName ← use (g_world.w_active.e_object.ch_name)
+                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
                         g_scrollWindow %= setTitle initName
                         g_scrollWindow %= setText s
                         use g_conversation >>= renderConversation
@@ -316,7 +314,7 @@ loopTheLoop dd = do
                         g_choiceWindow %= setOptions opts
                         use g_conversation >>= renderConversation
                     (TalkNode s _) → do
-                        initName ← use (g_world.w_active.e_object.ch_name)
+                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
                         g_scrollWindow %= setTitle initName
                         g_scrollWindow %= setText s
                         use g_conversation >>= renderConversation
@@ -346,7 +344,9 @@ loopTheLoop dd = do
             g_scrollWindow %= scrollDown
             use g_scrollWindow >>= lift . renderScrollWindow
         processInventoryUI _ = do
+            use g_scrollWindow >>= lift . clearScrollWindow
             g_gameState .= Normal
+            renderNormal
 
         processCharacterUI ∷ Input.UIEvent → StateT Game C.Curses ()
         processCharacterUI Input.MoveUp = do
@@ -356,7 +356,9 @@ loopTheLoop dd = do
             g_scrollWindow %= scrollDown
             use g_scrollWindow >>= lift . renderScrollWindow
         processCharacterUI _ = do
+            use g_scrollWindow >>= lift . clearScrollWindow
             g_gameState .= Normal
+            renderNormal
 
         processOperation ∷ Input.InteractionEvent → StateT Game C.Curses ()
         processOperation (Input.PassThrough c) = do
@@ -387,13 +389,6 @@ operationProgramForSymbol '&'  = computer
 operationProgramForSymbol '@'  = person
 operationProgramForSymbol '*'  = camera
 operationProgramForSymbol _    = generic
-
-
-nameForPosition ∷ V2 Int → Maybe String
-nameForPosition (V2 14 6)  = Just "Moe"
-nameForPosition (V2 17 13) = Just "Johnny"
-nameForPosition (V2 19 13) = Just "Sally"
-nameForPosition _          = Nothing
 
 
 characterForName ∷ DesignData → String → Character Item ConversationNode
@@ -444,17 +439,15 @@ obtainTarget = do
     t  ← lift Input.nextTargetSelectionEvent
     case t of
         (V2 0 0) → pure Nothing
-        v        → do
-            os ← uses (g_world.w_map) (drop 1 . valuesAt (ap + v))
-            case os of
-                [] → pure Nothing
-                l  → pure (Just (ap + v, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
+        v →
+            uses (g_world.w_map) (filter coolSymbols . valuesAt (ap + v)) >>=
+                \case
+                    [] → pure Nothing
+                    l  → pure (Just (ap + v, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
+    where
+        coolSymbols o = or $ fmap (view o_symbol o ==) [ '@', '*', '+', '\'' ] -- TODO BAAAD, but its going to be refactored when I figure out better way
 
 --------------------------------------------------------------------------------
-
-byName ∷ String → (Character a b) → Bool
-byName n = (==n) . view ch_name
-
 
 updateComputer ∷ Char → StateT Game C.Curses ()
 updateComputer '\n' = do
@@ -487,8 +480,8 @@ renderNormal = do
     
     doRender $ do
         sequence [ drawMap (view o_symbol) (view o_material) w d v
-                 , drawPlayer p
-                 , drawTeam t
+                 --, drawPlayer p
+                 --, drawTeam t
                  --, maybe (pure (pure ())) drawAim ma
                  ]
                  >>= updateMain . foldl1 (>>)

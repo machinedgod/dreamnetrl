@@ -22,14 +22,14 @@ module Dreamnet.ObjectMonad
 where
 
 
-import Control.Lens       (view, (.~), (%~))
+import Control.Lens       (view, views, (.~), (%~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 import Data.Bool          (bool)
 import Data.Monoid        ((<>))
 import Data.Maybe         (fromMaybe)
 
-import qualified Data.Map as M (lookup, insert)
+import qualified Data.Map as M ((!), lookup, insert)
 
 import Dreamnet.GameState (GameState(..))
 import Dreamnet.World     (Object, o_symbol, o_material, o_passable,
@@ -115,11 +115,11 @@ instance ObjectAPI (Free ObjectF) where
 
 --------------------------------------------------------------------------------
 
-runObjectMonadWorld ∷ (Monad w, WorldAPI v c w) ⇒ Free ObjectF a → V2 Int → Object → w (a, GameState)
+runObjectMonadWorld ∷ (Monad w, WorldAPI v w) ⇒ Free ObjectF a → V2 Int → Object → w (a, GameState)
 runObjectMonadWorld op v o = runWithGameState Normal (v, o) op
 
 
-runWithGameState ∷ (Monad w, WorldAPI v c w) ⇒ GameState → (V2 Int, Object) → Free ObjectF a → w (a, GameState)
+runWithGameState ∷ (Monad w, WorldAPI v w) ⇒ GameState → (V2 Int, Object) → Free ObjectF a → w (a, GameState)
 runWithGameState gs (cv, o) (Free (Move v n)) = do
     moveObject cv o v
     runWithGameState gs (v, o) n
@@ -236,11 +236,13 @@ generic AiTick =
 
 camera ∷  InteractionType → Free ObjectF ()
 camera Operate = do
-    scanRange 8 ((=='@') . view o_symbol) >>=
-        put "level" . show . length . filter isFoe . fmap snd
+    os   ← scanRange 8 ((=='@') . view o_symbol)
+    viso ← traverse (canSee . fst) os >>=
+               pure . fmap (snd . fst) . filter snd . zip os
+    put "level" . show . length . filter isFoe $ viso
     get "level" >>= message . ("Camera alarm level: " <>)
     where
-        isFoe = fromMaybe True . fmap (=="Carla") . M.lookup "name" . view o_state -- Doesn't work because player characters aren't part of the map >:-(
+        isFoe o = or $ (==) <$> ["Carla", "Raj", "Delgado"] <*> pure (views o_state (M.! "name") o)
 camera AiTick =
     pure ()
 camera _ = 

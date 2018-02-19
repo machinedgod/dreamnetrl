@@ -7,8 +7,8 @@ module Dreamnet.Entity
 , e_position
 , e_object
 
-, new
-, move
+, newEntity
+, moveEntity
 ) where
 
 
@@ -33,10 +33,10 @@ instance Monad Entity where
 
 --------------------------------------------------------------------------------
 
-new ∷ (V2 Int, a) → Entity a
-new = uncurry Entity
+newEntity ∷ (V2 Int, a) → Entity a
+newEntity = uncurry Entity
 
 
-move ∷ V2 Int → Entity a → Entity a
-move v = e_position %~ (+v)
+moveEntity ∷ V2 Int → Entity a → Entity a
+moveEntity v = e_position %~ (+v)
 

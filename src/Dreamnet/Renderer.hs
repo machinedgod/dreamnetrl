@@ -189,7 +189,6 @@ drawMap chf matf w dat vis = do
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        --drawTile _ k i ([], _) = uncurry (draw $ coordLin w i) $ ('?', k)
         drawTile u k i (c, m, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
