@@ -17,7 +17,7 @@ import Data.Bool                 (bool)
 import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2))
 
-import qualified Data.Map    as M    (lookup)
+import qualified Data.Map    as M    (lookup, empty, singleton)
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
@@ -94,15 +94,15 @@ newGame dd = do
       , _g_carlasFramebuffer = "Ready."
     }
     where -- TODO Set materials!
-        objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t)   "<base>"
-        objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) $ "Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    $ "If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)
-        objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) $ "A " <> (1 `readStringProperty` t) <> "."
-        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    $ "Its " <> (1 `readStringProperty` t) <> "."
-        objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    $ "Spawn point. You really should not be able to examine this?" -- TODO shitty hardcoding, spawns should probably be generalized somehow!
-        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                      "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." --                                        "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
-        objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                      "Your machine. You wonder if Devin mailed you about the job."
-        objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    $ "A " <> (1 `readStringProperty` t) <> "."
+        objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) "<base>" M.empty
+        objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
+        objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
+        objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) ("A " <> (1 `readStringProperty` t) <> ".") M.empty
+        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    ("Its " <> (1 `readStringProperty` t) <> ".") (M.singleton "name" (1 `readStringProperty` t))
+        objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    "Spawn point. You really should not be able to examine this?" M.empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.singleton "cam" "0")    -- "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
+        objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    "Your machine. You wonder if Devin mailed you about the job." M.empty
+        objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    ("A " <> (1 `readStringProperty` t) <> ".") M.empty
         objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
         -- TODO Errrrrr, this should be done through the tileset???
 
@@ -143,16 +143,6 @@ loopTheLoop ∷ DesignData → StateT Game C.Curses ()
 loopTheLoop dd = do
     r ← use g_keepRunning
     when r $ do
-        -- States can morph into other states
-        -- We need an 'init' function to be called when state is first changed
-        --
-        -- If state switch would fire an event type instead of just
-        -- being returned by the world, then the pipeline would still hold!
-        --
-        -- Problem is that update (maybe even render) components would need
-        -- access to the input pipeline then, which means World has to be aware
-        -- of at least certain portions of the Game.
-
         use g_gameState >>= \case
             Normal       → lift Input.nextWorldEvent       >>= processNormal
             Examination  → lift Input.nextUiEvent          >>= processExamination
@@ -174,12 +164,15 @@ loopTheLoop dd = do
             renderNormal
         processNormal (Input.SelectTeamMember 0) = do
             g_world %= snd . runWorld (selectCharacter (byName "Carla") $> Normal)
+            g_world.w_status .= "Carla selected."
             renderNormal
         processNormal (Input.SelectTeamMember 1) = do
             g_world %= snd . runWorld (selectCharacter (byName "Raj") $> Normal)
+            g_world.w_status .= "Raj selected."
             renderNormal
         processNormal (Input.SelectTeamMember 2) = do
             g_world %= snd . runWorld (selectCharacter (byName "Delgado") $> Normal)
+            g_world.w_status .= "Delgado selected."
             renderNormal
         processNormal Input.Get = do
             obtainTarget >>= \case
@@ -206,12 +199,12 @@ loopTheLoop dd = do
             g_gameState .= Examination
         processNormal Input.Operate = do
             obtainTarget >>= \case
-                Nothing → do
+                Nothing →
                     renderMessage "There's nothing here."
                 Just (v, o) → do
                     runProgram v (operationProgramForSymbol (view o_symbol o) $ Operate)
                     use g_gameState >>= \case
-                        Normal → do
+                        Normal →
                             renderNormal
                         _      → do
                             renderMessage "Need to implement rendering of other states!"
@@ -223,19 +216,20 @@ loopTheLoop dd = do
                 Just (v, o) → do
                     runProgram v (operationProgramForSymbol (view o_symbol o) $ Talk)
                     use g_gameState >>= \case
-                        Conversation → do
-                            g_conversant .= fmap (characterForName dd) (nameForPosition v)
-                            uses g_conversant (fmap (view ch_conversation)) >>= assign g_conversation . fromMaybe End
-                            use g_conversant >>= \case
-                                Nothing → pure ()
-                                Just c  → g_scrollWindow %= setTitle (view ch_name c)
-                            use g_conversation >>= \case
-                                (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
-                                (TalkNode s _)      → g_scrollWindow %= setText s
-                                (ListenNode s _)    → g_scrollWindow %= setText s
-                                _ → pure ()
-                            use g_conversation >>= renderConversation
-                        _ → do
+                        Conversation →
+                            case characterForName dd <$> M.lookup "name" (view o_state o) of
+                                Nothing → error "Character exist without a name!"
+                                Just ch → do
+                                    g_conversant .= Just ch
+                                    g_conversation .= view ch_conversation ch
+                                    g_scrollWindow %= setTitle (view ch_name ch)
+                                    use g_conversation >>= \case
+                                        (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
+                                        (TalkNode s _)      → g_scrollWindow %= setText s
+                                        (ListenNode s _)    → g_scrollWindow %= setText s
+                                        _ → pure ()
+                                    use g_conversation >>= renderConversation
+                        _ →
                             renderNormal
         processNormal Input.InventorySheet = do
             is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
@@ -391,6 +385,7 @@ operationProgramForSymbol '+'  = door
 operationProgramForSymbol '\'' = door
 operationProgramForSymbol '&'  = computer
 operationProgramForSymbol '@'  = person
+operationProgramForSymbol '*'  = camera
 operationProgramForSymbol _    = generic
 
 

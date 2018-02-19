@@ -43,11 +43,10 @@ import Dreamnet.TileMap
 
 --------------------------------------------------------------------------------
 
-type Range    = Word
+type Range = Word
 
 -- | Type variables
 --   a: gameplay data
---   b: visibility data
 data WorldMap a = WorldMap {
       _wm_width   ∷ Width
     , _wm_height  ∷ Height

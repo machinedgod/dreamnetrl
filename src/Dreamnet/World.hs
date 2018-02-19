@@ -13,6 +13,7 @@ module Dreamnet.World
 , o_passable
 , o_seeThrough
 , o_description
+, o_state
 
 , WorldReadAPI(..)
 
@@ -44,8 +45,9 @@ import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.List                  (find)
 
-import qualified Data.Set            as S  (fromList, member)
-import qualified Data.Vector         as V  (Vector, imap, toList, replicate)
+import qualified Data.Set    as S  (fromList, member)
+import qualified Data.Vector as V  (Vector, imap, toList, replicate)
+import qualified Data.Map    as M  (Map)
 
 
 import Dreamnet.Entity
@@ -63,6 +65,9 @@ data Object = Object {
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
     , _o_description ∷ String
+
+    -- TODO figure a better way, eventually
+    , _o_state ∷ M.Map String String
     }
     deriving (Eq, Show)
 

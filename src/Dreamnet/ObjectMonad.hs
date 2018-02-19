@@ -16,28 +16,34 @@ module Dreamnet.ObjectMonad
 , computer
 , person
 , generic
+, camera
 
 )
 where
 
 
-import Control.Lens       (view, (.~))
+import Control.Lens       (view, (.~), (%~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 import Data.Bool          (bool)
 import Data.Monoid        ((<>))
+import Data.Maybe         (fromMaybe)
+
+import qualified Data.Map as M (lookup, insert)
 
 import Dreamnet.GameState (GameState(..))
-import Dreamnet.World     (Object, o_symbol, o_material, o_passable, o_seeThrough, 
-                           changeObject_,
-                           WorldReadAPI(castVisibilityRay),
+import Dreamnet.World     (Object, o_symbol, o_material, o_passable,
+                           o_seeThrough, o_state, changeObject_,
+                           WorldReadAPI(castVisibilityRay, worldMap),
                            WorldAPI(moveObject, setStatus))
+import Dreamnet.WorldMap  (valuesAt, interestingObjects)
 
 --------------------------------------------------------------------------------
 
 data InteractionType = Operate
                      | Talk
                      | OperateOn
+                     | AiTick
 
 --------------------------------------------------------------------------------
 
@@ -54,6 +60,9 @@ class ObjectAPI o where
     changeChar       ∷ Char → o ()
     changeMat        ∷ String → o ()
     message          ∷ String → o ()
+    put              ∷ String → String → o ()
+    get              ∷ String → o String
+    scanRange        ∷ Word → (Object → Bool) → o [(V2 Int, Object)]
     -- Keep adding primitives until you can describe all Map Objects as programs
 
 --------------------------------------------------------------------------------
@@ -69,6 +78,9 @@ data ObjectF a = Move (V2 Int) a
                | ChangeChar Char a
                | ChangeMat String a
                | Message String a
+               | Put String String a
+               | Get String (String → a)
+               | ScanRange Word (Object → Bool) ([(V2 Int, Object)] → a)
                deriving(Functor) -- TODO Derive binary can't work with functions
 
 
@@ -94,6 +106,12 @@ instance ObjectAPI (Free ObjectF) where
     changeMat s = Free $ ChangeMat s (Pure ())
 
     message m = Free $ Message m (Pure ())
+
+    put k v = Free $ Put k v (Pure ())
+
+    get k = Free $ Get k Pure
+
+    scanRange r f = Free $ ScanRange r f Pure
 
 --------------------------------------------------------------------------------
 
@@ -133,16 +151,33 @@ runWithGameState gs (cv, o) (Free (CanSee v fs)) = do
     runWithGameState gs (cv, o) (fs seesV)
 
 runWithGameState gs (cv, o) (Free (ChangeChar c n)) = do
-    changeObject_ cv o (o_symbol .~ c $ o)
-    runWithGameState gs (cv, o) n
+    let no = o_symbol .~ c $ o
+    changeObject_ cv o no
+    runWithGameState gs (cv, no) n
 
 runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
-    changeObject_ cv o (o_material .~ m $ o)
-    runWithGameState gs (cv, o) n
+    let no = o_material .~ m $ o
+    changeObject_ cv o no
+    runWithGameState gs (cv, no) n
 
 runWithGameState gs (cv, o) (Free (Message m n)) = do
     setStatus m
     runWithGameState gs (cv, o) n
+
+runWithGameState gs (cv, o) (Free (Put k v n)) = do
+    let no = o_state %~ M.insert k v $ o
+    changeObject_ cv o no
+    runWithGameState gs (cv, no) n
+
+runWithGameState gs (cv, o) (Free (Get k fn)) = do
+    let v = fromMaybe "" $ M.lookup k $ view o_state o
+    runWithGameState gs (cv, o) (fn v)
+
+runWithGameState gs (cv, o) (Free (ScanRange r f fn)) = do
+    m ← worldMap
+    let points = interestingObjects cv r f m
+    let v      = zip points (last . (`valuesAt` m) <$> points)
+    runWithGameState gs (cv, o) (fn v)
 
 runWithGameState gs _ (Pure x) = pure (x, gs)
 
@@ -160,6 +195,8 @@ door Talk =
     message "\"Open sesame!\" you yell, but doors are deaf and numb to your pleas."
 door OperateOn =
     message "Operating door on something else..."
+door AiTick =
+    pure ()
 
 
 computer ∷ InteractionType → Free ObjectF ()
@@ -169,15 +206,21 @@ computer Talk =
     message "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
 computer OperateOn =
     message "Operating computer on something else. Yikes."
+computer AiTick =
+    pure ()
 
 
 person ∷ InteractionType → Free ObjectF ()
-person Operate =
-    message "Unsure yourself about what exactly you're trying to pull off, ??? meets your 'operation' attempts with suspicious look."
+person Operate = do
+    name ← get "name"
+    message $ "Unsure yourself about what exactly you're trying to pull off, " <> name <> " meets your 'operation' attempts with suspicious look."
 person Talk =
     requestGameState Conversation
-person OperateOn =
-    message "You try and operate ??? on whatever. Lol."
+person OperateOn = do
+    name ← get "name"
+    message $ "You try and operate " <> name <> " on whatever. Lol."
+person AiTick =
+    pure ()
 
 
 generic ∷ InteractionType → Free ObjectF () 
@@ -187,6 +230,22 @@ generic Talk =
     message "Trying to talk to whatever."
 generic OperateOn =
     message "You try and operate whatever on whatever."
+generic AiTick =
+    pure ()
+
+
+camera ∷  InteractionType → Free ObjectF ()
+camera Operate = do
+    scanRange 8 ((=='@') . view o_symbol) >>=
+        put "level" . show . length . filter isFoe . fmap snd
+    get "level" >>= message . ("Camera alarm level: " <>)
+    where
+        isFoe = fromMaybe True . fmap (=="Carla") . M.lookup "name" . view o_state -- Doesn't work because player characters aren't part of the map >:-(
+camera AiTick =
+    pure ()
+camera _ = 
+    message "That won't work."
+
 
 --objectToChar (Stairs u)       = bool '<' '>' u
 --objectToChar (Camera l)       = intToDigit l

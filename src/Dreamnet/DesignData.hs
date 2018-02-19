@@ -33,7 +33,7 @@ defaultDesignData =
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
     , _dd_defaultRedshirt = newCharacter "?" redshirtConvo
-    , _dd_startingMap     = "res/bar"
+    , _dd_startingMap     = "res/job"
     }
     where
         toNamedTuple = (,) <$> view ch_name <*> id
@@ -41,7 +41,11 @@ defaultDesignData =
 
 characters ∷ [Character Item ConversationNode]
 characters =
-    [ newCharacter "Moe"    moeConvo
+    [ newCharacter "Carla"   End
+    , newCharacter "Raj"     rajConvo
+    , newCharacter "Delgado" delgadoConvo
+
+    , newCharacter "Moe"    moeConvo
     , newCharacter "Johnny" johnnyConvo
     , newCharacter "Sally"  sallyConvo
     ]
@@ -54,6 +58,7 @@ characters =
 redshirtConvo ∷ ConversationNode
 redshirtConvo = ListenNode "Beat it, lizzie!" End
 
+
 johnnyConvo ∷ ConversationNode
 johnnyConvo =
     ListenNode "Yea?" $
@@ -61,12 +66,26 @@ johnnyConvo =
         ListenNode "Who gives a shit? Now would you mind, we're in the middle of something."
           End
 
+
 sallyConvo ∷ ConversationNode
 sallyConvo =
     ListenNode "Mmmm, hello _there_ hot stuff." $
       TalkNode "Hi, I am..." $
         ListenNode "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?"
           End
+
+
+rajConvo ∷ ConversationNode
+rajConvo =
+    ListenNode "I believe in you, Cal."
+        End
+
+
+delgadoConvo ∷ ConversationNode
+delgadoConvo =
+    ListenNode "Cal, lets wrap this up quickly and get the fuck out of here."
+        End
+
 
 moeConvo ∷ ConversationNode
 moeConvo =
