@@ -154,40 +154,40 @@ loopTheLoop dd = do
         -- of at least certain portions of the Game.
 
         use g_gameState >>= \case
-            Normal       → use g_gameState >>= lift . Input.nextEvent >>= processNormal
-            Examination  → use g_gameState >>= lift . Input.nextEvent >>= processExamination
-            Conversation → use g_gameState >>= lift . Input.nextEvent >>= processConversation
-            InventoryUI  → use g_gameState >>= lift . Input.nextEvent >>= processInventoryUI
-            CharacterUI  → use g_gameState >>= lift . Input.nextEvent >>= processCharacterUI
-            Operation    → use g_gameState >>= lift . Input.nextEvent >>= processOperation
+            Normal       → lift Input.nextWorldEvent       >>= processNormal
+            Examination  → lift Input.nextUiEvent          >>= processExamination
+            Conversation → lift Input.nextUiEvent          >>= processConversation
+            InventoryUI  → lift Input.nextUiEvent          >>= processInventoryUI
+            CharacterUI  → lift Input.nextUiEvent          >>= processCharacterUI
+            Operation    → lift Input.nextInteractionEvent >>= processOperation
         lift C.render
         loopTheLoop dd
     where
-        processNormal ∷ Input.Event → StateT Game C.Curses ()
+        processNormal ∷ Input.WorldEvent → StateT Game C.Curses ()
         processNormal Input.Quit = do
             g_keepRunning .= False
-        processNormal (Input.WorldEv (Input.Move v)) = do
+        processNormal (Input.Move v) = do
             g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
             renderNormal
-        processNormal (Input.WorldEv Input.Wait) = do
+        processNormal Input.Wait = do
             g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
             renderNormal
-        processNormal (Input.WorldEv (Input.SelectTeamMember 0)) = do
+        processNormal (Input.SelectTeamMember 0) = do
             g_world %= snd . runWorld (selectCharacter (byName "Carla") $> Normal)
             renderNormal
-        processNormal (Input.WorldEv (Input.SelectTeamMember 1)) = do
+        processNormal (Input.SelectTeamMember 1) = do
             g_world %= snd . runWorld (selectCharacter (byName "Raj") $> Normal)
             renderNormal
-        processNormal (Input.WorldEv (Input.SelectTeamMember 2)) = do
+        processNormal (Input.SelectTeamMember 2) = do
             g_world %= snd . runWorld (selectCharacter (byName "Delgado") $> Normal)
             renderNormal
-        processNormal (Input.WorldEv Input.Get) = do
+        processNormal Input.Get = do
             obtainTarget >>= \case
                 Nothing →
                     renderMessage "There's nothing here."
                 Just (v, o) →
                     renderMessage $ "Picking up " <> show o <> " from " <> show v
-        processNormal (Input.WorldEv Input.UseHeld) = do
+        processNormal Input.UseHeld = do
             obtainTarget >>= \case
                 Nothing →
                     renderMessage "Nothing there."
@@ -195,7 +195,7 @@ loopTheLoop dd = do
                     renderMessage "Need to figure out how to run programs for held Objects."
                     --programAt v >>= maybe (pure ()) (\prg → runProgram v (prg OperateOn))
                     --renderNormal
-        processNormal (Input.WorldEv Input.Examine) = do
+        processNormal Input.Examine = do
             examineText ← obtainTarget >>= \case
                 Just t  → pure $ view o_description (snd t)
                 Nothing → uses (g_world.w_map) desc
@@ -204,7 +204,7 @@ loopTheLoop dd = do
             g_scrollWindow %= setText examineText
             use g_scrollWindow >>= lift . renderScrollWindow
             g_gameState .= Examination
-        processNormal (Input.WorldEv Input.Operate) = do
+        processNormal Input.Operate = do
             obtainTarget >>= \case
                 Nothing → do
                     renderMessage "There's nothing here."
@@ -216,7 +216,7 @@ loopTheLoop dd = do
                         _      → do
                             renderMessage "Need to implement rendering of other states!"
                             g_gameState .= Normal
-        processNormal (Input.WorldEv Input.Talk) = do
+        processNormal Input.Talk = do
             obtainTarget >>= \case
                 Nothing →
                     renderMessage "Trying to talk to someone, but there's no one there."
@@ -237,23 +237,23 @@ loopTheLoop dd = do
                             use g_conversation >>= renderConversation
                         _ → do
                             renderNormal
-        processNormal (Input.WorldEv Input.InventorySheet) = do
+        processNormal Input.InventorySheet = do
             is ← uses (g_world.w_active.e_object) (fmap show . equippedContainers)
             g_scrollWindow %= setLines is
             use g_scrollWindow >>= lift . renderScrollWindow
             g_gameState .= InventoryUI
-        processNormal (Input.WorldEv Input.CharacterSheet) = do
+        processNormal Input.CharacterSheet = do
             g_scrollWindow %= setText "Character sheet"
             use g_scrollWindow >>= lift .  renderScrollWindow
             g_gameState .= CharacterUI
         processNormal _ =
             pure ()  -- TODO Invalid event in invalid state. Oups!
 
-        processExamination ∷ Input.Event → StateT Game C.Curses ()
-        processExamination (Input.UIEv Input.MoveUp) = do
+        processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
+        processExamination Input.MoveUp = do
             g_scrollWindow %= scrollUp
             use g_scrollWindow >>= lift . renderScrollWindow
-        processExamination (Input.UIEv Input.MoveDown) = do
+        processExamination Input.MoveDown = do
             g_scrollWindow %= scrollDown
             use g_scrollWindow >>= lift . renderScrollWindow
         processExamination _ = do
@@ -261,18 +261,18 @@ loopTheLoop dd = do
             g_gameState .= Normal
             renderNormal
 
-        processConversation ∷ Input.Event → StateT Game C.Curses ()
-        processConversation (Input.UIEv Input.MoveUp) = do
+        processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
+        processConversation Input.MoveUp = do
             use g_conversation >>= \case
                 (ChoiceNode _ _) → g_choiceWindow %= selectPrevious
                 _                → g_scrollWindow %= scrollUp
             use g_conversation >>= renderConversation
-        processConversation (Input.UIEv Input.MoveDown) = do
+        processConversation Input.MoveDown = do
             use g_conversation >>= \case
                 (ChoiceNode _ _) → g_choiceWindow %= selectNext
                 _                → g_scrollWindow %= scrollDown
             use g_conversation >>= renderConversation
-        processConversation (Input.UIEv Input.SelectChoice) = use g_conversation >>= \case
+        processConversation Input.SelectChoice = use g_conversation >>= \case
             n@(ChoiceNode _ _) → do
                 use g_choiceWindow >>= assign g_conversation . pick n . commit
                 use g_conversation >>= \case
@@ -294,7 +294,6 @@ loopTheLoop dd = do
                         g_gameState .= Normal
                         use g_scrollWindow >>= lift . clearScrollWindow
                         renderNormal
-
             (TalkNode _ _) → do
                 g_conversation %= advance
                 use g_conversation >>= \case
@@ -345,27 +344,27 @@ loopTheLoop dd = do
         processConversation _ =
             pure ()
 
-        processInventoryUI ∷ Input.Event → StateT Game C.Curses ()
-        processInventoryUI (Input.UIEv Input.MoveUp) = do
+        processInventoryUI ∷ Input.UIEvent → StateT Game C.Curses ()
+        processInventoryUI Input.MoveUp = do
             g_scrollWindow %= scrollUp
             use g_scrollWindow >>= lift . renderScrollWindow
-        processInventoryUI (Input.UIEv Input.MoveDown) = do
+        processInventoryUI Input.MoveDown = do
             g_scrollWindow %= scrollDown
             use g_scrollWindow >>= lift . renderScrollWindow
         processInventoryUI _ = do
             g_gameState .= Normal
 
-        processCharacterUI ∷ Input.Event → StateT Game C.Curses ()
-        processCharacterUI (Input.UIEv Input.MoveUp) = do
+        processCharacterUI ∷ Input.UIEvent → StateT Game C.Curses ()
+        processCharacterUI Input.MoveUp = do
             g_scrollWindow %= scrollUp
             use g_scrollWindow >>= lift . renderScrollWindow
-        processCharacterUI (Input.UIEv Input.MoveDown) = do
+        processCharacterUI Input.MoveDown = do
             g_scrollWindow %= scrollDown
             use g_scrollWindow >>= lift . renderScrollWindow
         processCharacterUI _ = do
             g_gameState .= Normal
 
-        processOperation ∷ Input.Event → StateT Game C.Curses ()
+        processOperation ∷ Input.InteractionEvent → StateT Game C.Curses ()
         processOperation (Input.PassThrough c) = do
             updateComputer c
             qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
@@ -375,8 +374,6 @@ loopTheLoop dd = do
                    comp ← use g_carlasComputer
                    fbr  ← use g_carlasFramebuffer
                    doRender (renderComputer fbr (computerData comp))
-        processOperation _ = do
-            g_gameState .= Normal
 
 
 
@@ -410,16 +407,16 @@ characterForName dd name =
     in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
 
 
---pickAChoice ∷ GameState → Input.Event → StateT Game C.Curses Word
---pickAChoice gs (Input.UIEv Input.MoveUp) = do
+--pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
+--pickAChoice gs Input.MoveUp = do
 --    g_choiceWindow %= selectPrevious
 --    use g_choiceWindow >>= lift . drawChoiceWindow
 --    lift (Input.nextEvent gs) >>= pickAChoice gs
---pickAChoice gs (Input.UIEv Input.MoveDown) = do
+--pickAChoice gs Input.MoveDown = do
 --    g_choiceWindow %= selectNext
 --    use g_choiceWindow >>= lift . drawChoiceWindow
 --    lift (Input.nextEvent gs) >>= pickAChoice gs
---pickAChoice _ (Input.UIEv Input.SelectChoice) =
+--pickAChoice _ Input.SelectChoice =
 --    uses g_choiceWindow commit
 --pickAChoice gs _ = do
 --    lift (Input.nextEvent gs) >>= pickAChoice gs

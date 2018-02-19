@@ -3,11 +3,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Input
-( Event(..)
-, WorldEvent(..)
+( WorldEvent(..)
 , UIEvent(..)
+, InteractionEvent(..)
 
-, nextEvent
+, nextWorldEvent
+, nextUiEvent
+, nextInteractionEvent
 , nextTargetSelectionEvent
 ) where
 
@@ -18,7 +20,6 @@ import Linear     (V2(V2))
 import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
                                   Key(KeyBackspace))
-import Dreamnet.GameState
 
 --------------------------------------------------------------------------------
 
@@ -32,6 +33,8 @@ data WorldEvent = Move (V2 Int)
                 | InventorySheet
                 | CharacterSheet
                 | SelectTeamMember  Int
+
+                | Quit
                 deriving (Eq, Show)
 
 
@@ -42,75 +45,78 @@ data UIEvent = MoveUp
              deriving (Eq, Show)
 
 
-data Event = Quit
-           | WorldEv      WorldEvent
-           | UIEv         UIEvent
-           | PassThrough  Char
-           deriving (Eq, Show)
+data InteractionEvent = PassThrough Char
+                      deriving (Eq, Show)
 
 
--- TODO multiple 'nextEvent' functions for different types of states, so that
---      I don't have to deal with possible invalid event types (UI inside World state etc)
-nextEvent ∷ GameState → C.Curses Event
-nextEvent cst = do
-    C.defaultWindow >>= fmap (cursesToEvent cst) . event >>= \case
-        (Just e) → pure e
-        _        → nextEvent cst
+--------------------------------------------------------------------------------
+
+nextWorldEvent ∷ C.Curses WorldEvent
+nextWorldEvent = repeatUntilEvent worldEvent
+
+
+nextUiEvent ∷ C.Curses UIEvent
+nextUiEvent = repeatUntilEvent uiEvent
+
+
+nextInteractionEvent ∷ C.Curses InteractionEvent
+nextInteractionEvent = repeatUntilEvent interactionEvent
     where
-        event w = fromJust <$> C.getEvent w Nothing
+        interactionEvent (C.EventCharacter c)               = Just (PassThrough c)
+        interactionEvent (C.EventSpecialKey C.KeyBackspace) = Just (PassThrough '\b')
+        interactionEvent _                                  = Nothing
 
 
 nextTargetSelectionEvent ∷ C.Curses (V2 Int)
-nextTargetSelectionEvent = do
-    C.defaultWindow >>= fmap targetEvent . event >>= \case
+nextTargetSelectionEvent = repeatUntilEvent targetEvent
+
+
+repeatUntilEvent ∷ (C.Event → Maybe a) → C.Curses a
+repeatUntilEvent f = do
+    C.defaultWindow >>= fmap f . event >>= \case
         (Just e) → pure e
-        _        → nextTargetSelectionEvent
+        _        → repeatUntilEvent f
     where
         event w = fromJust <$> C.getEvent w Nothing
 
 
-cursesToEvent ∷ GameState → C.Event → Maybe Event
-cursesToEvent _               (C.EventCharacter '\ESC') = Just Quit
-cursesToEvent Normal          (C.EventCharacter c)      = WorldEv <$> worldEvent c
-cursesToEvent Examination     (C.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent Conversation    (C.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent InventoryUI     (C.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent CharacterUI     (C.EventCharacter c)      = UIEv <$> uiEvent c
-cursesToEvent Operation       (C.EventCharacter c)      = Just (PassThrough c)
-cursesToEvent Operation       (C.EventSpecialKey C.KeyBackspace) = Just (PassThrough '\b')
-cursesToEvent _ _                                       = Nothing
+--------------------------------------------------------------------------------
+
+--cursesToEvent _               (C.EventCharacter '\ESC') = Just Quit
 
 
-worldEvent ∷ Char → Maybe WorldEvent
-worldEvent 'h'  = Just $ Move (V2 -1  0)
-worldEvent 'j'  = Just $ Move (V2  0  1)
-worldEvent 'k'  = Just $ Move (V2  0 -1)
-worldEvent 'l'  = Just $ Move (V2  1  0)
-worldEvent 'y'  = Just $ Move (V2 -1 -1)
-worldEvent 'u'  = Just $ Move (V2  1 -1)
-worldEvent 'b'  = Just $ Move (V2 -1  1)
-worldEvent 'n'  = Just $ Move (V2  1  1)
-worldEvent 'e'  = Just   Examine
-worldEvent 'o'  = Just   Operate
-worldEvent 't'  = Just   Talk
-worldEvent 'f'  = Just   UseHeld
-worldEvent 'g'  = Just   Get
-worldEvent '.'  = Just   Wait
-worldEvent 'i'  = Just   InventorySheet
-worldEvent 'c'  = Just   CharacterSheet
-worldEvent '1'  = Just $ SelectTeamMember 0
-worldEvent '2'  = Just $ SelectTeamMember 1
-worldEvent '3'  = Just $ SelectTeamMember 2
-worldEvent '4'  = Just $ SelectTeamMember 3
-worldEvent '5'  = Just $ SelectTeamMember 4
-worldEvent '6'  = Just $ SelectTeamMember 5
-worldEvent '7'  = Just $ SelectTeamMember 6
-worldEvent '8'  = Just $ SelectTeamMember 7
-worldEvent '9'  = Just $ SelectTeamMember 8
-worldEvent '0'  = Just $ SelectTeamMember 9
-worldEvent _    = Nothing
+worldEvent ∷ C.Event → Maybe WorldEvent
+worldEvent (C.EventCharacter 'h') = Just $ Move (V2 -1  0)
+worldEvent (C.EventCharacter 'j') = Just $ Move (V2  0  1)
+worldEvent (C.EventCharacter 'k') = Just $ Move (V2  0 -1)
+worldEvent (C.EventCharacter 'l') = Just $ Move (V2  1  0)
+worldEvent (C.EventCharacter 'y') = Just $ Move (V2 -1 -1)
+worldEvent (C.EventCharacter 'u') = Just $ Move (V2  1 -1)
+worldEvent (C.EventCharacter 'b') = Just $ Move (V2 -1  1)
+worldEvent (C.EventCharacter 'n') = Just $ Move (V2  1  1)
+worldEvent (C.EventCharacter 'e') = Just   Examine
+worldEvent (C.EventCharacter 'o') = Just   Operate
+worldEvent (C.EventCharacter 't') = Just   Talk
+worldEvent (C.EventCharacter 'f') = Just   UseHeld
+worldEvent (C.EventCharacter 'g') = Just   Get
+worldEvent (C.EventCharacter '.') = Just   Wait
+worldEvent (C.EventCharacter 'i') = Just   InventorySheet
+worldEvent (C.EventCharacter 'c') = Just   CharacterSheet
+worldEvent (C.EventCharacter '1') = Just $ SelectTeamMember 0
+worldEvent (C.EventCharacter '2') = Just $ SelectTeamMember 1
+worldEvent (C.EventCharacter '3') = Just $ SelectTeamMember 2
+worldEvent (C.EventCharacter '4') = Just $ SelectTeamMember 3
+worldEvent (C.EventCharacter '5') = Just $ SelectTeamMember 4
+worldEvent (C.EventCharacter '6') = Just $ SelectTeamMember 5
+worldEvent (C.EventCharacter '7') = Just $ SelectTeamMember 6
+worldEvent (C.EventCharacter '8') = Just $ SelectTeamMember 7
+worldEvent (C.EventCharacter '9') = Just $ SelectTeamMember 8
+worldEvent (C.EventCharacter '0') = Just $ SelectTeamMember 9
+worldEvent (C.EventCharacter 'q') = Just   Quit
+worldEvent _                      = Nothing
 
 
+-- TODO upgrade to have an 'Abort' event too
 targetEvent ∷ C.Event → Maybe (V2 Int)
 targetEvent (C.EventCharacter '.') = Just (V2  0  0)
 targetEvent (C.EventCharacter 'h') = Just (V2 -1  0)
@@ -124,10 +130,10 @@ targetEvent (C.EventCharacter 'n') = Just (V2  1  1)
 targetEvent _                      = Nothing
 
 
-uiEvent ∷ Char → Maybe UIEvent
-uiEvent 'j'  = Just MoveDown
-uiEvent 'k'  = Just MoveUp
-uiEvent '\n' = Just SelectChoice
-uiEvent 'q'  = Just Back
-uiEvent _    = Nothing
+uiEvent ∷ C.Event → Maybe UIEvent
+uiEvent (C.EventCharacter 'j')  = Just MoveDown
+uiEvent (C.EventCharacter 'k')  = Just MoveUp
+uiEvent (C.EventCharacter '\n') = Just SelectChoice
+uiEvent (C.EventCharacter 'q')  = Just Back
+uiEvent _                       = Nothing
 
