@@ -5,18 +5,16 @@ module Dreamnet.Conversation
 , pick
 , advance
 
-, createConversationWindow
-, clearConversationWindow
-, drawConversationWindow
+, conversationSize
+, positionFor
 ) where
 
 
-import Safe
-
-import Linear
+import Safe       (atMay, at)
 import Data.Maybe (fromMaybe)
+import Linear     (V2(V2))
 
-import qualified UI.NCurses as C
+import qualified UI.NCurses as C (Curses, screenSize)
 
 --------------------------------------------------------------------------------
 
@@ -53,65 +51,18 @@ positions (rows, columns) =
         ]
 
 
-createConversationWindow ∷ C.Curses C.Window
-createConversationWindow = do
+conversationSize ∷ C.Curses (V2 Integer)
+conversationSize = do
     (rows, columns) ← C.screenSize
-
     let hudHeight  = 8
         mainWidth  = columns
         mainHeight = rows - hudHeight
-
     let w = mainWidth `div` 3
         h = mainHeight `div` 3
-
-    C.newWindow h w 0 0
-
-
-clearConversationWindow ∷ C.Window → C.Curses ()
-clearConversationWindow w = C.updateWindow w C.clear
+    pure (V2 w h)
 
 
--- TODO REDO as multiple ncurses windows
-drawConversationWindow ∷ Word → String → String → C.Window →  C.Curses ()
-drawConversationWindow i n s w = do
-    (V2 x y) ← (\ss → fromMaybe (positions ss `at` 0) $ (`atMay` fromIntegral i) $ positions ss) <$> C.screenSize
+positionFor ∷ Word → C.Curses (V2 Integer)
+positionFor i =
+    (\ss → fromMaybe (positions ss `at` 0) $ (`atMay` fromIntegral i) $ positions ss) <$> C.screenSize
 
-    C.updateWindow w $ do
-        C.moveWindow y x
-        C.drawBorder (Just $ C.Glyph '│' [])
-                     (Just $ C.Glyph '│' [])
-                     (Just $ C.Glyph '─' [])
-                     (Just $ C.Glyph '─' [])
-                     (Just $ C.Glyph '╭' [])
-                     (Just $ C.Glyph '╮' [])
-                     (Just $ C.Glyph '╰' [])
-                     (Just $ C.Glyph '╯' [])
-
-        (rows, columns) ← C.windowSize
-
-        drawNameBox columns
-        drawText
-        drawWidgets rows columns
-    where
-        drawNameBox cols = do
-            let trimmedName  = take (fromIntegral cols - 7) n
-            C.moveCursor 2 0
-            C.drawGlyph (C.Glyph '├' [])
-            C.moveCursor 1 2
-            C.drawString trimmedName
-            C.moveCursor 0 (fromIntegral (length trimmedName) + 3)
-            C.drawGlyph (C.Glyph '┬' [])
-            C.moveCursor 2 (fromIntegral (length trimmedName) + 3)
-            C.drawGlyph (C.Glyph '╯' [])
-            C.moveCursor 2 1
-            C.drawLineH (Just $ C.Glyph '─' []) (fromIntegral (length trimmedName) + 2)
-            C.moveCursor 1 (fromIntegral (length trimmedName) + 3)
-            C.drawGlyph (C.Glyph '│' [])
-        drawText = do
-            C.moveCursor 3 2
-            C.drawString s
-        drawWidgets rows cols = do
-            C.moveCursor 1 (cols - 3)
-            C.drawGlyph (C.Glyph '▲' [])
-            C.moveCursor (rows - 2) (cols - 3)
-            C.drawGlyph (C.Glyph '▼' [])

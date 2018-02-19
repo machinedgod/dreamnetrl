@@ -97,6 +97,7 @@ class (WorldReadAPI v c w) ⇒ WorldAPI v c w | w → v, w → c where
 -- | Type variables
 --   v: visibility data
 --   c: character data
+--   TODO place team and active in the world map
 data World v c = World {
       _w_team   ∷ [Entity c] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
     , _w_active ∷ Entity c

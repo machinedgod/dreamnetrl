@@ -5,16 +5,22 @@ module Dreamnet.Utils
 , bla
 , circle
 , floodFillRange
+
+, lines'
 ) where
 
 
-import Control.Lens
-import Control.Monad.State.Strict
-import Data.Bool                 (bool)
-import Data.List                 (unfoldr)
-import Data.Foldable             (foldr')
-import qualified Data.Set as S
-import Linear
+import Control.Lens               (use, (%=), _1, _2)
+import Control.Monad              (unless)
+import Control.Monad.State.Strict (State, execState)
+import Data.Bool                  (bool)
+import Data.List                  (unfoldr)
+import Data.Foldable              (foldr', foldl')
+import Data.Monoid                ((<>), mempty)
+import Linear                     (V2(V2), normalize, distance, (^*), (^+^))
+
+import qualified Data.Set as S (Set, empty, singleton, fromList, toList, insert,
+                                filter, member, union, null, map)
 
 --------------------------------------------------------------------------------
 
@@ -110,4 +116,21 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
                                               , V2  0  1
                                               , V2  1  1
                                               ]
+
+--------------------------------------------------------------------------------
+
+lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
+lines' l lf sep xs = let (ln, r) = line'' l lf sep xs
+                     in  if null r && ln == mempty
+                           then error "Phrase longer than limit (cannot be separated by separator!)"
+                           else if null r
+                             then ln : []
+                             else ln : lines' l lf sep r
+    where
+        line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
+        line'' l lf sep = foldl' (\(f, b) x → if b /= mempty
+                                                then (f, b <> [x])
+                                                else if lf (f <> sep <> x) < l
+                                                  then (f <> sep <> x, b)
+                                                  else (f, [x])) (mempty, [])
 

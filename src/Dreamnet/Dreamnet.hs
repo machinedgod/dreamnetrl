@@ -57,7 +57,6 @@ data Game = Game {
     -- because later on there'll be multiple 'update' places
     , _g_conversant   ∷ Maybe (Character Item ConversationNode)
     , _g_conversation ∷ ConversationNode
-    , _g_conversationWindow ∷ C.Window
     , _g_scrollWindow ∷ ScrollData
     , _g_choiceWindow ∷ ChoiceData
 
@@ -73,7 +72,6 @@ newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
     m   ← loadTileMap (view dd_startingMap dd)
-    cvw ← createConversationWindow
     sw  ← createScrollData
     cw  ← createChoiceData
     pure Game {
@@ -89,7 +87,6 @@ newGame dd = do
 
       , _g_conversant         = Nothing
       , _g_conversation       = End
-      , _g_conversationWindow = cvw
       , _g_scrollWindow       = sw
       , _g_choiceWindow       = cw
 
@@ -202,6 +199,8 @@ loopTheLoop dd = do
             examineText ← obtainTarget >>= \case
                 Just t  → pure $ view o_description (snd t)
                 Nothing → uses (g_world.w_map) desc
+            g_scrollWindow %= moveWindow (V2 2 1)
+            g_scrollWindow %= resizeWindow (V2 40 10)
             g_scrollWindow %= setText examineText
             use g_scrollWindow >>= lift . renderScrollWindow
             g_gameState .= Examination
@@ -227,7 +226,15 @@ loopTheLoop dd = do
                         Conversation → do
                             g_conversant .= fmap (characterForName dd) (nameForPosition v)
                             uses g_conversant (fmap (view ch_conversation)) >>= assign g_conversation . fromMaybe End
-                            renderConversation
+                            use g_conversant >>= \case
+                                Nothing → pure ()
+                                Just c  → g_scrollWindow %= setTitle (view ch_name c)
+                            use g_conversation >>= \case
+                                (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
+                                (TalkNode s _)      → g_scrollWindow %= setText s
+                                (ListenNode s _)    → g_scrollWindow %= setText s
+                                _ → pure ()
+                            use g_conversation >>= renderConversation
                         _ → do
                             renderNormal
         processNormal (Input.WorldEv Input.InventorySheet) = do
@@ -255,82 +262,88 @@ loopTheLoop dd = do
             renderNormal
 
         processConversation ∷ Input.Event → StateT Game C.Curses ()
-        processConversation (Input.UIEv Input.MoveUp) = use g_conversation >>= \case
-            (ChoiceNode _ _) → do
-                g_choiceWindow %= selectPrevious
-                use g_choiceWindow >>= lift . drawChoiceWindow
-            _ → pure ()
-        processConversation (Input.UIEv Input.MoveDown) = use g_conversation >>= \case
-            (ChoiceNode _ _) → do
-                g_choiceWindow %= selectNext
-                use g_choiceWindow >>= lift . drawChoiceWindow
-            _ → pure ()
+        processConversation (Input.UIEv Input.MoveUp) = do
+            use g_conversation >>= \case
+                (ChoiceNode _ _) → g_choiceWindow %= selectPrevious
+                _                → g_scrollWindow %= scrollUp
+            use g_conversation >>= renderConversation
+        processConversation (Input.UIEv Input.MoveDown) = do
+            use g_conversation >>= \case
+                (ChoiceNode _ _) → g_choiceWindow %= selectNext
+                _                → g_scrollWindow %= scrollDown
+            use g_conversation >>= renderConversation
         processConversation (Input.UIEv Input.SelectChoice) = use g_conversation >>= \case
             n@(ChoiceNode _ _) → do
                 use g_choiceWindow >>= assign g_conversation . pick n . commit
                 use g_conversation >>= \case
                     (ChoiceNode opts _) → do
                         g_choiceWindow %= setOptions opts
-                        renderConversation
+                        use g_conversation >>= renderConversation
+                    (TalkNode s _) → do
+                        initName ← use (g_world.w_active.e_object.ch_name)
+                        g_scrollWindow %= setTitle initName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
+                    (ListenNode s _) → do
+                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                        g_scrollWindow %= setTitle otherName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
                     End → do
                         g_conversant .= Nothing
                         g_gameState .= Normal
-                        use g_conversationWindow >>= lift . clearConversationWindow
+                        use g_scrollWindow >>= lift . clearScrollWindow
                         renderNormal
-                    _ → renderConversation
 
             (TalkNode _ _) → do
                 g_conversation %= advance
                 use g_conversation >>= \case
                     (ChoiceNode opts _) → do
                         g_choiceWindow %= setOptions opts
-                        renderConversation
+                        use g_conversation >>= renderConversation
+                    (TalkNode s _) → do
+                        initName ← use (g_world.w_active.e_object.ch_name)
+                        g_scrollWindow %= setTitle initName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
+                    (ListenNode s _) → do
+                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                        g_scrollWindow %= setTitle otherName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
                     End → do
                         g_conversant .= Nothing
                         g_gameState .= Normal
-                        use g_conversationWindow >>= lift . clearConversationWindow
+                        use g_scrollWindow >>= lift . clearScrollWindow
                         renderNormal
-                    _ → renderConversation
             (ListenNode _ _) → do
                 g_conversation %= advance
                 use g_conversation >>= \case
                     (ChoiceNode opts _) → do
                         g_choiceWindow %= setOptions opts
-                        renderConversation
+                        use g_conversation >>= renderConversation
+                    (TalkNode s _) → do
+                        initName ← use (g_world.w_active.e_object.ch_name)
+                        g_scrollWindow %= setTitle initName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
+                    (ListenNode s _) → do
+                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                        g_scrollWindow %= setTitle otherName
+                        g_scrollWindow %= setText s
+                        use g_conversation >>= renderConversation
                     End → do
                         g_conversant .= Nothing
                         g_gameState .= Normal
-                        use g_conversationWindow >>= lift . clearConversationWindow
+                        use g_scrollWindow >>= lift . clearScrollWindow
                         renderNormal
-                    _ → renderConversation
             End → do  -- TODO we shall never end up here, but this is because there's an event listening stuck at the beginning of conversation state management. This needs to change.
                 g_conversant .= Nothing
                 g_gameState .= Normal
-                use g_conversationWindow >>= lift . clearConversationWindow
+                use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
         processConversation _ =
             pure ()
-
-        --processConversation = do
-        --    e ← use g_gameState >>= lift . Input.nextEvent
-        --    initName  ← use  (g_world.w_active.e_object.ch_name)
-        --    otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-        --    g_conversation %= advance -- Can't advance here, because maybe its going to be a choice. Maybe I need a *choice* state, aside conversation state? Or some generic UI state?
-        --    use g_conversation >>= \case
-        --        (TalkNode text _) → do
-        --            use g_conversationWindow >>= lift . clearConversationWindow
-        --            use g_conversationWindow >>= lift . drawConversationWindow 0 initName text
-        --        (ListenNode text _) → do
-        --            use g_conversationWindow >>= lift . clearConversationWindow
-        --            use g_conversationWindow >>= lift . drawConversationWindow 1 otherName text
-        --        n@(ChoiceNode opts _) → do
-        --            g_choiceWindow %= setOptions opts
-        --            pickAChoice Conversation e >>= assign g_conversation . pick n
-        --        End → do
-        --            g_conversant .= Nothing
-        --            g_gameState .= Normal
-        --            use g_conversationWindow >>= lift . clearConversationWindow
-        --            renderNormal
 
         processInventoryUI ∷ Input.Event → StateT Game C.Curses ()
         processInventoryUI (Input.UIEv Input.MoveUp) = do
@@ -379,7 +392,7 @@ runProgram v prg = do
 operationProgramForSymbol ∷ Char → InteractionType → Free ObjectF ()
 operationProgramForSymbol '+'  = door
 operationProgramForSymbol '\'' = door
-operationProgramForSymbol '$'  = computer
+operationProgramForSymbol '&'  = computer
 operationProgramForSymbol '@'  = person
 operationProgramForSymbol _    = generic
 
@@ -494,19 +507,21 @@ renderMessage ∷ String → StateT Game C.Curses ()
 renderMessage msg = doRender (drawHud msg >>= updateHud)
 
 
-renderConversation ∷ StateT Game C.Curses ()
-renderConversation = use g_conversation >>= \case
-    (ChoiceNode _ _) → do
-        use g_choiceWindow >>= lift . drawChoiceWindow
-    (TalkNode text _) → do
-        initName  ← use  (g_world.w_active.e_object.ch_name)
-        use g_conversationWindow >>= lift . clearConversationWindow
-        use g_conversationWindow >>= lift . drawConversationWindow 0 initName text
-    (ListenNode text _) → do
-        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-        use g_conversationWindow >>= lift . clearConversationWindow
-        use g_conversationWindow >>= lift . drawConversationWindow 1 otherName text
-    _ → pure ()
+renderConversation ∷ ConversationNode → StateT Game C.Curses ()
+renderConversation (ChoiceNode _ _) =
+    use g_choiceWindow >>= lift . drawChoiceWindow
+renderConversation (TalkNode _ _) = do
+    use g_scrollWindow >>= lift . clearScrollWindow
+    lift (positionFor 0) >>= (\p → g_scrollWindow %= moveWindow p)
+    lift conversationSize >>= (\s → g_scrollWindow %= resizeWindow s)
+    use g_scrollWindow >>= lift . renderScrollWindow
+renderConversation (ListenNode _ _) = do
+    use g_scrollWindow >>= lift . clearScrollWindow
+    lift (positionFor 1) >>= (\p → g_scrollWindow %= moveWindow p)
+    lift conversationSize >>= (\s → g_scrollWindow %= resizeWindow s)
+    use g_scrollWindow >>= lift . renderScrollWindow
+renderConversation End =
+    pure ()
 
 
 renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()

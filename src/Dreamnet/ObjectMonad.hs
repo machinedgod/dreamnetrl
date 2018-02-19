@@ -170,6 +170,7 @@ computer Talk =
 computer OperateOn =
     message "Operating computer on something else. Yikes."
 
+
 person ∷ InteractionType → Free ObjectF ()
 person Operate =
     message "Unsure yourself about what exactly you're trying to pull off, ??? meets your 'operation' attempts with suspicious look."
