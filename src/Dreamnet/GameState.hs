@@ -20,6 +20,7 @@ module Dreamnet.GameState
 data GameState = Normal
                | Examination
                | Operation
+               | Hud
                | Conversation
                | InventoryUI
                | CharacterUI

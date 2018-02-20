@@ -7,7 +7,8 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens              (makeLenses, use, uses, view, (.=), assign, (%=))
+import Control.Lens              (makeLenses, use, uses, view, (.=), assign,
+                                  (%=), (+=), (-=))
 import Control.Monad             (void, when)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (StateT, lift, execStateT)
@@ -64,6 +65,9 @@ data Game = Game {
     -- TODO take this out, eventually
     , _g_carlasComputer ∷ ComputerM ()
     , _g_carlasFramebuffer ∷ String
+
+    , _g_watchTime ∷ Int
+    , _g_watchButton ∷ Int
     }
 
 makeLenses ''Game
@@ -93,6 +97,9 @@ newGame dd = do
 
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
+
+      , _g_watchTime   = 1234
+      , _g_watchButton = 0
     }
     where -- TODO Set materials!
         objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" M.empty
@@ -148,16 +155,20 @@ loopTheLoop dd = do
         use g_gameState >>= \case
             Normal       → lift Input.nextWorldEvent       >>= processNormal
             Examination  → lift Input.nextUiEvent          >>= processExamination
+            Operation    → lift Input.nextInteractionEvent >>= processOperation
+            Hud          → lift Input.nextHudEvent         >>= processHud
             Conversation → lift Input.nextUiEvent          >>= processConversation
             InventoryUI  → lift Input.nextUiEvent          >>= processInventoryUI
             CharacterUI  → lift Input.nextUiEvent          >>= processCharacterUI
-            Operation    → lift Input.nextInteractionEvent >>= processOperation
         lift C.render
         loopTheLoop dd
     where
         processNormal ∷ Input.WorldEvent → StateT Game C.Curses ()
         processNormal Input.Quit = do
             g_keepRunning .= False
+        processNormal Input.SwitchToHud = do
+            g_gameState .= Hud
+            renderNormal
         processNormal (Input.Move v) = do
             g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
             renderNormal
@@ -256,6 +267,27 @@ loopTheLoop dd = do
             use g_scrollWindow >>= lift . clearScrollWindow
             g_gameState .= Normal
             renderNormal
+
+        processHud ∷ Input.HUDEvent → StateT Game C.Curses ()
+        processHud Input.SwitchToNormal = do
+            g_gameState .= Normal
+            renderNormal
+        processHud Input.WatchUp = do
+            g_watchTime += 1
+            renderNormal
+        processHud Input.WatchDown = do
+            g_watchTime -= 1
+            renderNormal
+        processHud Input.WatchNextButton = do
+            g_watchButton %= (`mod` 3) . (+1)
+            renderNormal
+        processHud Input.WatchPrevButton = do
+            g_watchButton %= (`mod` 3) . subtract 1
+            renderNormal
+        processHud Input.WatchButtonPush = do
+            use g_watchButton >>= renderMessage . ("Pushing button: " <>) . show
+            renderNormal
+
 
         processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
         processConversation Input.MoveUp = do
@@ -479,14 +511,21 @@ renderNormal = do
     d  ← uses (g_world.w_map.wm_data) (fmap last)
     v  ← use (g_world.w_vis)
     s  ← use (g_world.w_status)
+    hudmode ← uses g_gameState (==Hud) 
+    wt  ← use g_watchTime
+    wb  ← use g_watchButton
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        updateHud (drawHud s)
+        drawHud hudmode wt wb s >>= updateHud
 
 
 renderMessage ∷ String → StateT Game C.Curses ()
-renderMessage = doRender . updateHud . drawHud
+renderMessage msg = do
+    hudmode ← uses g_gameState (==Hud) 
+    wt  ← use g_watchTime
+    wb  ← use g_watchButton
+    doRender $ drawHud hudmode wt wb msg >>= updateHud
 
 
 renderConversation ∷ ConversationNode → StateT Game C.Curses ()
@@ -504,17 +543,4 @@ renderConversation (ListenNode _ _) = do
     use g_scrollWindow >>= lift . renderScrollWindow
 renderConversation End =
     pure ()
-
-
---renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
---renderComputer a cd  = updateInteraction $ do
---    drawAnswer
---    drawPrompt
---
---    --RenderAction $ C.moveCursor 2 3
---    --RenderAction $ C.drawString (view cd_input cd <> "                                                          ") 
---    where
---        drawAnswer = RenderAction $ C.moveCursor 1 1 *> C.drawString (a <> "                                        ")
---        drawPrompt = RenderAction $ C.moveCursor 2 1 *> C.drawString "> "
-
 

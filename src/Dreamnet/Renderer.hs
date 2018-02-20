@@ -16,20 +16,18 @@ module Dreamnet.Renderer
 , runRenderer
 
 , drawMap
---, drawPlayer
---, drawTeam
---, drawAim
 , drawHud
 ) where
 
 import Control.Lens         (makeLenses, use, uses)
+import Control.Monad        (when)
 import Control.Monad.Trans  (lift)
-import Control.Monad.Reader ()
 import Control.Monad.State  (MonadState, StateT, runStateT)
 import Linear               (V2(V2))
 import Data.Semigroup       ((<>))
 import Data.Maybe           (fromMaybe)
 import Data.Foldable        (traverse_)
+import Data.Char            (digitToInt)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
@@ -52,7 +50,7 @@ data Styles = Styles {
     --, _s_visibilityVisible ∷ Material
 
     --, _s_colorRed     ∷ C.ColorID
-    --, _s_colorGreen   ∷ C.ColorID
+    , _s_colorGreen   ∷ C.ColorID
     --, _s_colorYellow  ∷ C.ColorID
     --, _s_colorBlue    ∷ C.ColorID
     --, _s_colorMagenta ∷ C.ColorID
@@ -159,7 +157,7 @@ initRenderer = do
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        --, _s_colorRed     = cRed    
-                       --, _s_colorGreen   = cGreen
+                       , _s_colorGreen   = cGreen
                        --, _s_colorYellow  = cYellow 
                        --, _s_colorBlue    = cBlue   
                        --, _s_colorMagenta = cMagenta
@@ -202,12 +200,22 @@ drawMap chf matf w dat vis = do
                                          Visible → (c, m)
 
 
-drawHud ∷ String → RenderAction ()
-drawHud s = RenderAction $ do
-    drawWatch
-    drawTime
-    drawBorders
-    drawStatus
+drawHud ∷ (MonadRender r) ⇒ Bool → Int → Int → String → r (RenderAction ())
+drawHud hudmode time button msg = do
+    green ← use (rd_styles.s_colorGreen)
+    pure $ RenderAction $ do
+        when hudmode $
+           C.setColor green
+
+        drawWatch
+        drawTime
+            (fromIntegral . digitToInt . (!!0) . show $ time)
+            (fromIntegral . digitToInt . (!!1) . show $ time)
+            (fromIntegral . digitToInt . (!!2) . show $ time)
+            (fromIntegral . digitToInt . (!!3) . show $ time)
+        --drawTime 0 7 3 8
+        drawBorders
+        drawStatus
     where
         drawWatch ∷ C.Update ()
         drawWatch = do
@@ -220,19 +228,111 @@ drawHud s = RenderAction $ do
                     , "   /                         \\   "
                     , "──/    .-----------------.    \\──"
                     , " .    /                   \\    . "
-                    , "┌|---'   ━   ━     ━   ━   '---| "
-                    , "└|   |  ┃ ┃ ┃ ┃ ' ┃ ┃ ┃ ┃  |   |┐"
-                    , " |   |   ━   ━     ━   ━   |   ||"
-                    , "┌|   |  ┃ ┃ ┃ ┃ ' ┃ ┃ ┃ ┃  |   |┘"
-                    , "└|---.   ━   ━     ━   ━   .---| "
+                    , "┌|---'                     '---| "
+                    , "└|   |                     |   |┐"
+                    , " |   |                     |   ||"
+                    , "┌|   |                     |   |┘"
+                    , "└|---.                     .---| "
                     , " '    \\                   /    ' "
                     , "──\\    '-----------------'    /──"
                     , "   \\      o     o     o      /   "
                     , "    '-----------------------'    "
                     ]
 
-        drawTime ∷ C.Update ()
-        drawTime = pure ()
+        drawTime ∷ Word → Word → Word → Word → C.Update ()
+        drawTime h1 h2 m1 m2 = do
+            originx ← subtract 34 . snd <$> C.windowSize
+            drawList (originx + 8)  4 (digit h1)
+            drawList (originx + 12) 4 (digit h2)
+            drawList (originx + 16) 4 dots
+            drawList (originx + 18) 4 (digit m1)
+            drawList (originx + 22) 4 (digit m2)
+            where
+                drawList x y =
+                    traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
+                    . zip [y..]
+
+        dots ∷ [String]
+        dots = [" "
+               ,"'"
+               ," "
+               ,"'"
+               ," "
+               ]
+
+        digit ∷ Word → [String]
+        digit 0 =
+            [ " ━ "
+            , "┃ ┃"
+            , "   "
+            , "┃ ┃"
+            , " ━ "
+            ]
+        digit 1 =
+            [ "   "
+            , "  ┃"
+            , "   "
+            , "  ┃"
+            , "   "
+            ]
+        digit 2 =
+            [ " ━ "
+            , "  ┃"
+            , " ━ "
+            , "┃  "
+            , " ━ "
+            ]
+        digit 3 =
+            [ " ━ "
+            , "  ┃"
+            , " ━ "
+            , "  ┃"
+            , " ━ "
+            ]
+        digit 4 =
+            [ "   "
+            , "┃ ┃"
+            , " ━ "
+            , "  ┃"
+            , "   "
+            ]
+        digit 5 =
+            [ " ━ "
+            , "┃  "
+            , " ━ "
+            , "  ┃"
+            , " ━ "
+            ]
+        digit 6 =
+            [ " ━ "
+            , "┃  "
+            , " ━ "
+            , "┃ ┃"
+            , " ━ "
+            ]
+        digit 7 =
+            [ " ━ "
+            , "┃ ┃"
+            , "   "
+            , "  ┃"
+            , "   "
+            ]
+        digit 8 =
+            [ " ━ "
+            , "┃ ┃"
+            , " ━ "
+            , "┃ ┃"
+            , " ━ "
+            ]
+        digit 9 =
+            [ " ━ "
+            , "┃ ┃"
+            , " ━ "
+            , "  ┃"
+            , " ━ "
+            ]
+        digit _ = digit 8
+
         drawBorders ∷ C.Update ()
         drawBorders = do
             len ← fromIntegral . subtract 34 . snd <$> C.windowSize
@@ -246,5 +346,5 @@ drawHud s = RenderAction $ do
             let start = 70
             len ← subtract (34 + length "Status: " + start + 4) . fromIntegral . snd <$> C.windowSize
             C.moveCursor 4 (fromIntegral start)
-            let st = take len $ s <> repeat '.'
+            let st = take len $ msg <> repeat '.'
             C.drawString $ "Status: " <> st

@@ -5,10 +5,12 @@
 module Dreamnet.Input
 ( WorldEvent(..)
 , UIEvent(..)
+, HUDEvent(..)
 , InteractionEvent(..)
 
 , nextWorldEvent
 , nextUiEvent
+, nextHudEvent
 , nextInteractionEvent
 , nextTargetSelectionEvent
 ) where
@@ -34,6 +36,8 @@ data WorldEvent = Move (V2 Int)
                 | CharacterSheet
                 | SelectTeamMember  Int
 
+                | SwitchToHud
+
                 | Quit
                 deriving (Eq, Show)
 
@@ -43,6 +47,15 @@ data UIEvent = MoveUp
              | SelectChoice
              | Back
              deriving (Eq, Show)
+
+
+data HUDEvent = SwitchToNormal
+              | WatchUp
+              | WatchDown
+              | WatchNextButton
+              | WatchPrevButton
+              | WatchButtonPush
+              -- TODO status scroll, etc
 
 
 data InteractionEvent = PassThrough Char
@@ -57,6 +70,10 @@ nextWorldEvent = repeatUntilEvent worldEvent
 
 nextUiEvent ∷ C.Curses UIEvent
 nextUiEvent = repeatUntilEvent uiEvent
+
+
+nextHudEvent ∷ C.Curses HUDEvent
+nextHudEvent = repeatUntilEvent hudEvent
 
 
 nextInteractionEvent ∷ C.Curses InteractionEvent
@@ -86,34 +103,35 @@ repeatUntilEvent f = do
 
 
 worldEvent ∷ C.Event → Maybe WorldEvent
-worldEvent (C.EventCharacter 'h') = Just $ Move (V2 -1  0)
-worldEvent (C.EventCharacter 'j') = Just $ Move (V2  0  1)
-worldEvent (C.EventCharacter 'k') = Just $ Move (V2  0 -1)
-worldEvent (C.EventCharacter 'l') = Just $ Move (V2  1  0)
-worldEvent (C.EventCharacter 'y') = Just $ Move (V2 -1 -1)
-worldEvent (C.EventCharacter 'u') = Just $ Move (V2  1 -1)
-worldEvent (C.EventCharacter 'b') = Just $ Move (V2 -1  1)
-worldEvent (C.EventCharacter 'n') = Just $ Move (V2  1  1)
-worldEvent (C.EventCharacter 'e') = Just   Examine
-worldEvent (C.EventCharacter 'o') = Just   Operate
-worldEvent (C.EventCharacter 't') = Just   Talk
-worldEvent (C.EventCharacter 'f') = Just   UseHeld
-worldEvent (C.EventCharacter 'g') = Just   Get
-worldEvent (C.EventCharacter '.') = Just   Wait
-worldEvent (C.EventCharacter 'i') = Just   InventorySheet
-worldEvent (C.EventCharacter 'c') = Just   CharacterSheet
-worldEvent (C.EventCharacter '1') = Just $ SelectTeamMember 0
-worldEvent (C.EventCharacter '2') = Just $ SelectTeamMember 1
-worldEvent (C.EventCharacter '3') = Just $ SelectTeamMember 2
-worldEvent (C.EventCharacter '4') = Just $ SelectTeamMember 3
-worldEvent (C.EventCharacter '5') = Just $ SelectTeamMember 4
-worldEvent (C.EventCharacter '6') = Just $ SelectTeamMember 5
-worldEvent (C.EventCharacter '7') = Just $ SelectTeamMember 6
-worldEvent (C.EventCharacter '8') = Just $ SelectTeamMember 7
-worldEvent (C.EventCharacter '9') = Just $ SelectTeamMember 8
-worldEvent (C.EventCharacter '0') = Just $ SelectTeamMember 9
-worldEvent (C.EventCharacter 'q') = Just   Quit
-worldEvent _                      = Nothing
+worldEvent (C.EventCharacter 'h')  = Just $ Move (V2 -1  0)
+worldEvent (C.EventCharacter 'j')  = Just $ Move (V2  0  1)
+worldEvent (C.EventCharacter 'k')  = Just $ Move (V2  0 -1)
+worldEvent (C.EventCharacter 'l')  = Just $ Move (V2  1  0)
+worldEvent (C.EventCharacter 'y')  = Just $ Move (V2 -1 -1)
+worldEvent (C.EventCharacter 'u')  = Just $ Move (V2  1 -1)
+worldEvent (C.EventCharacter 'b')  = Just $ Move (V2 -1  1)
+worldEvent (C.EventCharacter 'n')  = Just $ Move (V2  1  1)
+worldEvent (C.EventCharacter 'e')  = Just   Examine
+worldEvent (C.EventCharacter 'o')  = Just   Operate
+worldEvent (C.EventCharacter 't')  = Just   Talk
+worldEvent (C.EventCharacter 'f')  = Just   UseHeld
+worldEvent (C.EventCharacter 'g')  = Just   Get
+worldEvent (C.EventCharacter '.')  = Just   Wait
+worldEvent (C.EventCharacter 'i')  = Just   InventorySheet
+worldEvent (C.EventCharacter 'c')  = Just   CharacterSheet
+worldEvent (C.EventCharacter '1')  = Just $ SelectTeamMember 0
+worldEvent (C.EventCharacter '2')  = Just $ SelectTeamMember 1
+worldEvent (C.EventCharacter '3')  = Just $ SelectTeamMember 2
+worldEvent (C.EventCharacter '4')  = Just $ SelectTeamMember 3
+worldEvent (C.EventCharacter '5')  = Just $ SelectTeamMember 4
+worldEvent (C.EventCharacter '6')  = Just $ SelectTeamMember 5
+worldEvent (C.EventCharacter '7')  = Just $ SelectTeamMember 6
+worldEvent (C.EventCharacter '8')  = Just $ SelectTeamMember 7
+worldEvent (C.EventCharacter '9')  = Just $ SelectTeamMember 8
+worldEvent (C.EventCharacter '0')  = Just $ SelectTeamMember 9
+worldEvent (C.EventCharacter '\t') = Just   SwitchToHud
+worldEvent (C.EventCharacter 'q')  = Just   Quit
+worldEvent _                       = Nothing
 
 
 -- TODO upgrade to have an 'Abort' event too
@@ -137,3 +155,12 @@ uiEvent (C.EventCharacter '\n') = Just SelectChoice
 uiEvent (C.EventCharacter 'q')  = Just Back
 uiEvent _                       = Nothing
 
+
+hudEvent ∷ C.Event → Maybe HUDEvent
+hudEvent (C.EventCharacter '\t') = Just SwitchToNormal
+hudEvent (C.EventCharacter 'j')  = Just WatchDown
+hudEvent (C.EventCharacter 'k')  = Just WatchUp
+hudEvent (C.EventCharacter 'h')  = Just WatchPrevButton
+hudEvent (C.EventCharacter 'l')  = Just WatchNextButton
+hudEvent (C.EventCharacter '\n') = Just WatchButtonPush
+hudEvent _                       = Nothing
