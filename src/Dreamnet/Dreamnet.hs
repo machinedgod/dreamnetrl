@@ -17,7 +17,7 @@ import Data.Bool                 (bool)
 import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2))
 
-import qualified Data.Map    as M    ((!), lookup, empty, singleton)
+import qualified Data.Map    as M    ((!), lookup, empty, fromList)
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
@@ -98,9 +98,9 @@ newGame dd = do
         objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
         objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
         objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) ("A " <> (1 `readStringProperty` t) <> ".") M.empty
-        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    ("Its " <> (1 `readStringProperty` t) <> ".") (M.singleton "name" (1 `readStringProperty` t))
+        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    ("Its " <> (1 `readStringProperty` t) <> ".") (M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
         objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    "Spawn point. You really should not be able to examine this?" M.empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.singleton "cam" "0")    -- "A camera is frantically following your motion as you move around the room and blinking a little red LED. You pessimistically assume you must've been detected!"
+        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
         objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    "Your machine. You wonder if Devin mailed you about the job." M.empty
         objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    ("A " <> (1 `readStringProperty` t) <> ".") M.empty
         objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
@@ -474,17 +474,10 @@ renderNormal = do
     w  ← uses (g_world.w_map) width
     d  ← uses (g_world.w_map.wm_data) (fmap last)
     v  ← use (g_world.w_vis)
-    p  ← use (g_world.w_active.e_position)
-    t  ← uses (g_world.w_team) (fmap (view e_position))
     s  ← use (g_world.w_status)
     
     doRender $ do
-        sequence [ drawMap (view o_symbol) (view o_material) w d v
-                 --, drawPlayer p
-                 --, drawTeam t
-                 --, maybe (pure (pure ())) drawAim ma
-                 ]
-                 >>= updateMain . foldl1 (>>)
+        drawMap (view o_symbol) (view o_material) w d v >>= updateMain
         drawHud s >>= updateHud
 
 

@@ -1,3 +1,5 @@
+define(`PERSON', `$1,Person,$2,ALLIANCE')dnl
+define(`REDSHIRT', `$1,Person,<RS>,ALLIANCE')dnl
 .,Base,True,True
 ═,Base,False,False
 ║,Base,False,False

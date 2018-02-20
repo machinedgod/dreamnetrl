@@ -48,7 +48,7 @@ import Data.Maybe                 (fromMaybe)
 
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, toList, replicate)
-import qualified Data.Map    as M  (Map, singleton, lookup)
+import qualified Data.Map    as M  (Map, lookup, fromList)
 
 
 import Dreamnet.Entity
@@ -130,7 +130,7 @@ newWorld m chnms =
         , _w_status = ""
         }
     where
-        charToObject n = Object '@' "metal" False True ("Its " <> n <> ".") (M.singleton "name" n)
+        charToObject n = Object '@' "metal" False True ("Its " <> n <> ".") (M.fromList [("name", n), ("alliance", "player")])
 
 --------------------------------------------------------------------------------
 

@@ -15,8 +15,8 @@ module Dreamnet.Renderer
 , runRenderer
 
 , drawMap
-, drawPlayer
-, drawTeam
+--, drawPlayer
+--, drawTeam
 --, drawAim
 , drawHud
 ) where
@@ -49,10 +49,10 @@ data Styles = Styles {
     --, _s_visibilityVisible ∷ Material
 
     --, _s_colorRed     ∷ C.ColorID
-    , _s_colorGreen   ∷ C.ColorID
+    --, _s_colorGreen   ∷ C.ColorID
     --, _s_colorYellow  ∷ C.ColorID
     --, _s_colorBlue    ∷ C.ColorID
-    , _s_colorMagenta ∷ C.ColorID
+    --, _s_colorMagenta ∷ C.ColorID
     --, _s_colorCyan    ∷ C.ColorID
     --, _s_colorWhite   ∷ C.ColorID
     }
@@ -154,10 +154,10 @@ initRenderer = do
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
                        --, _s_colorRed     = cRed    
-                       , _s_colorGreen   = cGreen
+                       --, _s_colorGreen   = cGreen
                        --, _s_colorYellow  = cYellow 
                        --, _s_colorBlue    = cBlue   
-                       , _s_colorMagenta = cMagenta
+                       --, _s_colorMagenta = cMagenta
                        --, _s_colorCyan    = cCyan   
                        --, _s_colorWhite   = cWhite  
                        }
@@ -196,19 +196,19 @@ drawMap chf matf w dat vis = do
                                          Visible → (c, m)
 
 
-drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
-drawPlayer v = use (rd_styles.s_colorMagenta) >>= drawCharacter v
+--drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
+--drawPlayer v = use (rd_styles.s_colorMagenta) >>= drawCharacter v
+--
+--
+--drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r RenderAction
+--drawTeam vs = do
+--    s ← use (rd_styles.s_colorGreen)
+--    fmap sequence_ $ traverse (flip drawCharacter s) vs
 
 
-drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r RenderAction
-drawTeam vs = do
-    s ← use (rd_styles.s_colorGreen)
-    fmap sequence_ $ traverse (flip drawCharacter s) vs
-
-
-drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r RenderAction
-drawCharacter v cid = do
-    pure $ draw v '@' [C.AttributeColor cid]
+--drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r RenderAction
+--drawCharacter v cid = do
+--    pure $ draw v '@' [C.AttributeColor cid]
 
 
 --drawAim ∷ (MonadRender r) ⇒ V2 Int → r RenderAction

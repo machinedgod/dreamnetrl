@@ -239,10 +239,10 @@ camera Operate = do
     os   ← scanRange 8 ((=='@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
-    put "level" . show . length . filter isFoe $ viso
+    traverse isFoe viso >>= put "level" . show . length . filter id
     get "level" >>= message . ("Camera alarm level: " <>)
     where
-        isFoe o = or $ (==) <$> ["Carla", "Raj", "Delgado"] <*> pure (views o_state (M.! "name") o)
+        isFoe o = (views o_state (M.! "alliance") o /=) <$> get "alliance"
 camera AiTick =
     pure ()
 camera _ = 
@@ -253,16 +253,6 @@ camera _ =
 --objectToChar (Camera l)       = intToDigit l
 --objectToChar Computer         = '$'
 --objectToChar (ItemO _)        = '['
-
--- | Detects foes
---camera ∷ Free ObjectF Bool
---camera = position >>= canSee
-    --runAi v c@(Camera l) = do
-    --    pv         ← view e_position <$> active  -- TODO whole team!
-    --    seesPlayer ← and . fmap snd <$> castVisibilityRay v pv
-    --    if seesPlayer
-    --        then changeObject_ v c (Camera (min 9 (l + 1)))
-    --        else changeObject_ v c (Camera (max 0 (l - 1)))
 
 
 --isPassable (Person c)       = or . fmap nameMatches <$> team
