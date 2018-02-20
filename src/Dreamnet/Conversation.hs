@@ -43,7 +43,7 @@ advance End                = End
 
 positions ∷ (Integer, Integer) → [V2 Integer]
 positions (rows, columns) =
-    let hudHeight  = 8
+    let hudHeight  = 13
         mainWidth  = columns
         mainHeight = rows - hudHeight
     in  [ V2 0 (mainHeight `div` 3 * 2)

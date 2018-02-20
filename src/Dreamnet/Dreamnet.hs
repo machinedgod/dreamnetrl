@@ -29,7 +29,8 @@ import Dreamnet.World
 import Dreamnet.Conversation
 
 import Dreamnet.CoordVector
-import Dreamnet.TileData        (ttype, readBoolProperty, readStringProperty)
+import Dreamnet.TileData        (ttype, readBoolProperty, readWordProperty,
+                                 readStringProperty)
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.Entity
@@ -77,10 +78,10 @@ newGame dd = do
     pure Game {
         _g_world        = newWorld
                               (fromTileMap m objectFromTile)
-                              [ "Carla"
-                              , "Raj"
-                              , "Delgado"
-                              ]
+                              (playerPerson <$> [ "Carla"
+                                                , "Raj"
+                                                , "Delgado"
+                                                ])
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
@@ -94,17 +95,18 @@ newGame dd = do
       , _g_carlasFramebuffer = "Ready."
     }
     where -- TODO Set materials!
-        objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) "<base>" M.empty
-        objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
-        objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
-        objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) ("A " <> (1 `readStringProperty` t) <> ".") M.empty
-        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    ("Its " <> (1 `readStringProperty` t) <> ".") (M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
-        objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    "Spawn point. You really should not be able to examine this?" M.empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
-        objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    "Your machine. You wonder if Devin mailed you about the job." M.empty
-        objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    ("A " <> (1 `readStringProperty` t) <> ".") M.empty
+        objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" M.empty
+        objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
+        objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
+        objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".") M.empty
+        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".") (M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
+        objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?" M.empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
+        objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job." M.empty
+        objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".") M.empty
         objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
         -- TODO Errrrrr, this should be done through the tileset???
+        playerPerson  n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (M.fromList [("name", n), ("alliance", "player")])
 
 --------------------------------------------------------------------------------
 
@@ -161,6 +163,7 @@ loopTheLoop dd = do
             renderNormal
         processNormal Input.Wait = do
             g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
+            --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
             renderNormal
         processNormal (Input.SelectTeamMember 0) = do
             g_world %= snd . runWorld (selectCharacter "Carla" $> Normal)
@@ -174,6 +177,8 @@ loopTheLoop dd = do
             g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
             uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
             renderNormal
+        processNormal (Input.SelectTeamMember _) =
+            pure ()
         processNormal Input.Get = do
             obtainTarget >>= \case
                 Nothing →
@@ -231,15 +236,14 @@ loopTheLoop dd = do
                             renderNormal
         processNormal Input.InventorySheet = do
             is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
+            g_scrollWindow %= setTitle "Inventory sheet"
             g_scrollWindow %= setLines is
             use g_scrollWindow >>= lift . renderScrollWindow
             g_gameState .= InventoryUI
         processNormal Input.CharacterSheet = do
-            g_scrollWindow %= setText "Character sheet"
+            g_scrollWindow %= setTitle "Character sheet"
             use g_scrollWindow >>= lift .  renderScrollWindow
             g_gameState .= CharacterUI
-        processNormal _ =
-            pure ()  -- TODO Invalid event in invalid state. Oups!
 
         processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
         processExamination Input.MoveUp = do
@@ -333,7 +337,7 @@ loopTheLoop dd = do
                 g_gameState .= Normal
                 use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
-        processConversation _ =
+        processConversation Input.Back =
             pure ()
 
         processInventoryUI ∷ Input.UIEvent → StateT Game C.Curses ()
@@ -366,12 +370,11 @@ loopTheLoop dd = do
             qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
             if qr
               then g_gameState .= Normal
-              else do
-                   comp ← use g_carlasComputer
-                   fbr  ← use g_carlasFramebuffer
-                   doRender (renderComputer fbr (computerData comp))
-
-
+              else pure ()
+              --else do
+              --     comp ← use g_carlasComputer
+              --     fbr  ← use g_carlasFramebuffer
+                   --doRender (renderComputer fbr (computerData comp))
 
 
 runProgram ∷ V2 Int → Free ObjectF () → StateT Game C.Curses ()
@@ -382,6 +385,7 @@ runProgram v prg = do
     g_world .= w'
 
 
+-- TODO this is pretty bad, because programs can change symbols! Find a better way!
 operationProgramForSymbol ∷ Char → InteractionType → Free ObjectF ()
 operationProgramForSymbol '+'  = door
 operationProgramForSymbol '\'' = door
@@ -478,11 +482,11 @@ renderNormal = do
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        drawHud s >>= updateHud
+        updateHud (drawHud s)
 
 
 renderMessage ∷ String → StateT Game C.Curses ()
-renderMessage msg = doRender (drawHud msg >>= updateHud)
+renderMessage = doRender . updateHud . drawHud
 
 
 renderConversation ∷ ConversationNode → StateT Game C.Curses ()
@@ -502,15 +506,15 @@ renderConversation End =
     pure ()
 
 
-renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
-renderComputer a cd  = updateInteraction $ do
-    drawAnswer
-    drawPrompt
-
-    C.moveCursor 2 3
-    C.drawString (view cd_input cd <> "                                                          ") 
-    where
-        drawAnswer  = C.moveCursor 1 1 *> C.drawString (a <> "                                        ")
-        drawPrompt  = C.moveCursor 2 1 *> C.drawString "> "
+--renderComputer ∷ (MonadRender r) ⇒ String → ComputerData → r ()
+--renderComputer a cd  = updateInteraction $ do
+--    drawAnswer
+--    drawPrompt
+--
+--    --RenderAction $ C.moveCursor 2 3
+--    --RenderAction $ C.drawString (view cd_input cd <> "                                                          ") 
+--    where
+--        drawAnswer = RenderAction $ C.moveCursor 1 1 *> C.drawString (a <> "                                        ")
+--        drawPrompt = RenderAction $ C.moveCursor 2 1 *> C.drawString "> "
 
 

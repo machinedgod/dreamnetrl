@@ -1,6 +1,7 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 
@@ -21,12 +22,14 @@ module Dreamnet.Renderer
 , drawHud
 ) where
 
-import Control.Lens
-import Control.Monad.Reader
-import Control.Monad.State
+import Control.Lens         (makeLenses, use, uses)
+import Control.Monad.Trans  (lift)
+import Control.Monad.Reader ()
+import Control.Monad.State  (MonadState, StateT, runStateT)
 import Linear               (V2(V2))
 import Data.Semigroup       ((<>))
 import Data.Maybe           (fromMaybe)
+import Data.Foldable        (traverse_)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
@@ -71,12 +74,14 @@ makeLenses ''RendererEnvironment
 
 --------------------------------------------------------------------------------
 
-type RenderAction = C.Update ()
+newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
+                       deriving (Functor, Applicative, Monad)
+
 
 class (MonadState RendererEnvironment r) ⇒ MonadRender r where
-    updateMain ∷ RenderAction → r ()
-    updateHud ∷ RenderAction → r ()
-    updateInteraction ∷ RenderAction → r ()
+    updateMain ∷ RenderAction () → r ()
+    updateHud ∷ RenderAction () → r ()
+    updateInteraction ∷ RenderAction () → r ()
     
 
 -- TODO double buffering
@@ -85,11 +90,11 @@ newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.
 
 
 instance MonadRender RendererF where
-    updateMain ac = use rd_mainWindow >>=  RendererF . lift . (`C.updateWindow` ac)
+    updateMain ac = use rd_mainWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
 
-    updateHud ac = use rd_hudWindow >>= RendererF . lift . (`C.updateWindow` ac)
+    updateHud ac = use rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
 
-    updateInteraction ac = use rd_interactionWindow >>= RendererF . lift  . (`C.updateWindow` ac)
+    updateInteraction ac = use rd_interactionWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
 
 
 initRenderer ∷ C.Curses RendererEnvironment
@@ -99,7 +104,7 @@ initRenderer = do
     (rows, columns) ← C.screenSize
 
     let hudWidth   = columns
-        hudHeight  = 8
+        hudHeight  = 13
         mainWidth  = columns
         mainHeight = rows - hudHeight
     mainWin ← C.newWindow mainHeight mainWidth 0 0
@@ -173,13 +178,13 @@ lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
     uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
 
 
-draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction
-draw (V2 x y) c m = do
+draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
+draw (V2 x y) c m = RenderAction $ do 
     C.moveCursor (fromIntegral y) (fromIntegral x)
     C.drawGlyph (C.Glyph c m)
 
 
-drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r RenderAction
+drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
 drawMap chf matf w dat vis = do
     u ← use (rd_styles.s_visibilityUnknown)
     k ← use (rd_styles.s_visibilityKnown)
@@ -189,6 +194,7 @@ drawMap chf matf w dat vis = do
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
+        drawTile ∷ [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
         drawTile u k i (c, m, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
@@ -196,41 +202,49 @@ drawMap chf matf w dat vis = do
                                          Visible → (c, m)
 
 
---drawPlayer ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
---drawPlayer v = use (rd_styles.s_colorMagenta) >>= drawCharacter v
---
---
---drawTeam ∷ (Applicative r, MonadRender r) ⇒ [V2 Int] → r RenderAction
---drawTeam vs = do
---    s ← use (rd_styles.s_colorGreen)
---    fmap sequence_ $ traverse (flip drawCharacter s) vs
+drawHud ∷ String → RenderAction ()
+drawHud s = RenderAction $ do
+    drawWatch
+    drawTime
+    drawBorders
+    drawStatus
+    where
+        drawWatch ∷ C.Update ()
+        drawWatch = do
+            originx ← subtract 34 . snd <$> C.windowSize
+            traverse_
+                (\(ix, l) → C.moveCursor ix originx >> C.drawString l)
+                $ zip
+                    [0..]
+                    [ "    .-----------------------.    "
+                    , "   /                         \\   "
+                    , "──/    .-----------------.    \\──"
+                    , " .    /                   \\    . "
+                    , "┌|---'   ━   ━     ━   ━   '---| "
+                    , "└|   |  ┃ ┃ ┃ ┃ ' ┃ ┃ ┃ ┃  |   |┐"
+                    , " |   |   ━   ━     ━   ━   |   ||"
+                    , "┌|   |  ┃ ┃ ┃ ┃ ' ┃ ┃ ┃ ┃  |   |┘"
+                    , "└|---.   ━   ━     ━   ━   .---| "
+                    , " '    \\                   /    ' "
+                    , "──\\    '-----------------'    /──"
+                    , "   \\      o     o     o      /   "
+                    , "    '-----------------------'    "
+                    ]
 
-
---drawCharacter ∷ (MonadRender r) ⇒ V2 Int → C.ColorID → r RenderAction
---drawCharacter v cid = do
---    pure $ draw v '@' [C.AttributeColor cid]
-
-
---drawAim ∷ (MonadRender r) ⇒ V2 Int → r RenderAction
---drawAim v = do
---    s  ← use (rd_styles.s_playerAim)
---    pure $ draw v '×' s
-         
-
-drawHud ∷ (MonadRender r) ⇒ String → r RenderAction
-drawHud s = do
-    pure $ do
-        C.drawBorder (Just $ C.Glyph '│' [])
-                          (Just $ C.Glyph '│' [])
-                          (Just $ C.Glyph '─' [])
-                          (Just $ C.Glyph '─' [])
-                          (Just $ C.Glyph '╭' [])
-                          (Just $ C.Glyph '╮' [])
-                          (Just $ C.Glyph '╰' [])
-                          (Just $ C.Glyph '╯' [])
-
-        C.moveCursor 2 2
-        let st = take 80 $ s <> repeat '.'
-        C.drawString $ "Status: " <> st
-
---------------------------------------------------------------------------------
+        drawTime ∷ C.Update ()
+        drawTime = pure ()
+        drawBorders ∷ C.Update ()
+        drawBorders = do
+            len ← fromIntegral . subtract 34 . snd <$> C.windowSize
+            C.moveCursor 2 0
+            C.drawString $ replicate len '─'
+            C.moveCursor 10 0
+            C.drawString $ replicate len '─'
+        drawStatus ∷ C.Update ()
+        drawStatus = do
+            -- TODO add lines' here
+            let start = 70
+            len ← subtract (34 + length "Status: " + start + 4) . fromIntegral . snd <$> C.windowSize
+            C.moveCursor 4 (fromIntegral start)
+            let st = take len $ s <> repeat '.'
+            C.drawString $ "Status: " <> st

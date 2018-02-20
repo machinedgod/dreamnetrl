@@ -12,6 +12,7 @@ module Dreamnet.World
 , o_material
 , o_passable
 , o_seeThrough
+, o_height
 , o_description
 , o_state
 
@@ -44,11 +45,10 @@ import Linear                     (V2)
 import Data.Semigroup             ((<>))
 import Data.Bool                  (bool)
 import Data.List                  (find)
-import Data.Maybe                 (fromMaybe)
 
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, toList, replicate)
-import qualified Data.Map    as M  (Map, lookup, fromList)
+import qualified Data.Map    as M  (Map, (!))
 
 
 import Dreamnet.Entity
@@ -65,6 +65,7 @@ data Object = Object {
     , _o_material    ∷ String
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
+    , _o_height      ∷ Word
     , _o_description ∷ String
 
     -- TODO figure a better way, eventually
@@ -105,32 +106,27 @@ class (WorldReadAPI v w) ⇒ WorldAPI v w | w → v where
 --   c: character data
 --   TODO place team and active in the world map
 data World v = World {
-      _w_team   ∷ [Entity Object] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
-    , _w_active ∷ Entity Object
-    , _w_map    ∷ WorldMap Object
-    , _w_vis    ∷ V.Vector v
-    , _w_status ∷ String
+      _w_team    ∷ [Entity Object] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
+    , _w_active  ∷ Entity Object
+    , _w_map     ∷ WorldMap Object
+    , _w_vis     ∷ V.Vector v
+    , _w_status  ∷ String
     }
 
 makeLenses ''World
 
 
 -- TODO consolidate Player characters into the WorldMap, somehow
-newWorld ∷ (Monoid v) ⇒ WorldMap Object → [String] → World v
-newWorld m chnms =
-    let t  = newEntity <$> zip (V.toList $ m^.wm_spawns) (fmap charToObject chnms)
+newWorld ∷ (Monoid v) ⇒ WorldMap Object → [Object] → World v
+newWorld m chs =
+    let t  = newEntity <$> zip (V.toList $ m^.wm_spawns) chs
     in  World {
           _w_team   = drop 1 t
         , _w_active = head t
-        , _w_map    = execState (traverse (\e → modify (addToCell
-                                                         (view e_position e)
-                                                         (view e_object e))) t) m
-        --, _w_map    = m
+        , _w_map    = execState (traverse (modify . (addToCell <$> view e_position <*> view e_object)) t) m
         , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
         , _w_status = ""
         }
-    where
-        charToObject n = Object '@' "metal" False True ("Its " <> n <> ".") (M.fromList [("name", n), ("alliance", "player")])
 
 --------------------------------------------------------------------------------
 
@@ -179,7 +175,7 @@ instance WorldAPI Visibility (WorldM Visibility) where
     selChar = use (w_active.e_object)
 
     selectCharacter n = void $ runMaybeT $ do
-        nc ← MaybeT $ uses w_team (find ((n==) . views (e_object.o_state) (fromMaybe "" . M.lookup "name")))
+        nc ← MaybeT $ uses w_team (find ((n==) . views (e_object.o_state) (M.! "name")))
         oc ← use w_active
         w_team %= filter (not . (==nc))
         w_team %= (<> [oc])

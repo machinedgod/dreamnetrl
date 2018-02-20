@@ -1,4 +1,4 @@
-t,Prop,Toilet,False,True,ceramics
-s,Prop,Sink,False,True,ceramics
-!,Prop,Shower,False,False,metal
-w,Prop,Washer,False,True,metal
+t,Prop,Toilet,False,True,ceramics,1
+s,Prop,Sink,False,True,ceramics,1
+!,Prop,Shower,True,True,metal,3
+w,Prop,Washer,False,True,metal,2

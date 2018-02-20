@@ -3,6 +3,7 @@
 module Dreamnet.TileData
 ( ttype
 , readBoolProperty
+, readWordProperty
 , readStringProperty
 ) where
 
@@ -21,6 +22,10 @@ ttype = V.head . view t_data
 
 readBoolProperty ∷ Int → Tile → Bool
 readBoolProperty i = readNote "Failed to read Bool property " . (V.! i) . view t_data
+
+
+readWordProperty ∷ Int → Tile → Word
+readWordProperty i = readNote "Failed to read Word property " . (V.! i) . view t_data
 
 
 readStringProperty ∷ Int → Tile → String

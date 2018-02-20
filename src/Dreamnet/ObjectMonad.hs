@@ -67,6 +67,8 @@ class ObjectAPI o where
 
 --------------------------------------------------------------------------------
 
+-- TODO this object monad really doesn't have to exist. Everything could be
+--      implemented simply through WorldAPI.
 data ObjectF a = Move (V2 Int) a
                | Position (V2 Int → a)
                | RequestGameState GameState a
@@ -235,7 +237,7 @@ generic AiTick =
 
 
 camera ∷  InteractionType → Free ObjectF ()
-camera Operate = do
+camera AiTick = do
     os   ← scanRange 8 ((=='@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
@@ -243,8 +245,6 @@ camera Operate = do
     get "level" >>= message . ("Camera alarm level: " <>)
     where
         isFoe o = (views o_state (M.! "alliance") o /=) <$> get "alliance"
-camera AiTick =
-    pure ()
 camera _ = 
     message "That won't work."
 

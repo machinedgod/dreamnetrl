@@ -1,7 +1,7 @@
-▭,Prop,Booth seat,False,True,red plastic
-■,Prop,Booth table,False,True,wood
-□,Prop,Bar,False,True,wood
-o,Prop,Bar stool,False,True,red plastic
-c,Prop,Bar shelf,False,False,wood
-0,Prop,Round table,False,True,wood
-#,Prop,Chair,False,True,wood
+▭,Prop,Booth seat,False,True,red plastic,1
+■,Prop,Booth table,False,True,wood,2
+□,Prop,Bar,False,True,wood,2
+o,Prop,Bar stool,False,True,red plastic,1
+c,Prop,Bar shelf,False,False,wood,3
+0,Prop,Round table,False,True,wood,2
+#,Prop,Chair,False,True,wood,1

@@ -1,4 +1,4 @@
 define(`COMPUTER', `&,Computer,$1')dnl
-define(`COMPUTER_', `&,Computer,ALLIANCE')dnl
+define(`COMPUTER_', `COMPUTER(ALLIANCE)')dnl
 define(`CAMERA', `*,Camera,$1')dnl
-define(`CAMERA_', `*,Camera,ALLIANCE')dnl
+define(`CAMERA_', `CAMERA(ALLIANCE)')dnl
