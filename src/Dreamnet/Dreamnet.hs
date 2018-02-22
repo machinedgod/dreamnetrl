@@ -50,7 +50,8 @@ type Name = String
 --------------------------------------------------------------------------------
 
 data Game = Game {
-      _g_world        ∷ World Visibility
+      _g_turn         ∷ Word
+    , _g_world        ∷ World Visibility
     , _g_gameState    ∷ GameState
     , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
@@ -67,7 +68,7 @@ data Game = Game {
     , _g_carlasFramebuffer ∷ String
 
     , _g_hudTeamSelector ∷ Int
-    , _g_watchTime ∷ Int
+    , _g_watchAlarmTime ∷ Int
     , _g_watchButton ∷ Int
     }
 
@@ -81,31 +82,34 @@ newGame dd = do
     sw  ← createScrollData
     cw  ← createChoiceData
     pure Game {
-        _g_world        = newWorld
-                              (fromTileMap m objectFromTile)
-                              (playerPerson <$> [ "Carla"
-                                                , "Delgado"
-                                                , "Raj"
-                                                , "570rm"
-                                                ])
+        _g_turn  = 0
+      , _g_world = newWorld
+                       (fromTileMap m objectFromTile)
+                       (playerPerson <$> [ "Carla"
+                                         , "Delgado"
+                                         , "Raj"
+                                         , "570rm"
+                                         ])
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
 
-      , _g_conversant         = Nothing
-      , _g_conversation       = End
-      , _g_scrollWindow       = sw
-      , _g_choiceWindow       = cw
+      , _g_conversant   = Nothing
+      , _g_conversation = End
+      , _g_scrollWindow = sw
+      , _g_choiceWindow = cw
 
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
 
       , _g_hudTeamSelector = 0
-      , _g_watchTime       = 1234
+      , _g_watchAlarmTime  = 1234
       , _g_watchButton     = 0
     }
     where -- TODO Set materials!
+        -- TODO this *could* all be just a single thing. Object type really does not matter here.
         objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" M.empty
+        objectFromTile t@(ttype → "Grass")    = Object (view t_char t) "grass"                    (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "Grass" M.empty
         objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
         objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
         objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".") M.empty
@@ -156,7 +160,7 @@ loopTheLoop dd = do
     r ← use g_keepRunning
     when r $ do
         use g_gameState >>= \case
-            Normal       → lift Input.nextWorldEvent       >>= processNormal
+            Normal       → lift Input.nextWorldEvent       >>= processNormal dd
             Examination  → lift Input.nextUiEvent          >>= processExamination
             Operation    → lift Input.nextInteractionEvent >>= processOperation
             HudTeam      → lift Input.nextUiEvent          >>= processHudTeam
@@ -167,308 +171,333 @@ loopTheLoop dd = do
             CharacterUI  → lift Input.nextUiEvent          >>= processCharacterUI
         lift C.render
         loopTheLoop dd
-    where
-        processNormal ∷ Input.WorldEvent → StateT Game C.Curses ()
-        processNormal Input.Quit = do
-            g_keepRunning .= False
-        processNormal Input.SwitchToHud = do
-            g_gameState .= HudTeam
-            renderNormal
-        processNormal (Input.Move v) = do
-            g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
-            renderNormal
-        processNormal Input.Wait = do
-            g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
-            --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
-            renderNormal
-        processNormal (Input.SelectTeamMember 0) = do
-            g_world %= snd . runWorld (selectCharacter "Carla" $> Normal)
-            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-            renderNormal
-        processNormal (Input.SelectTeamMember 1) = do
-            g_world %= snd . runWorld (selectCharacter "Raj" $> Normal)
-            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-            renderNormal
-        processNormal (Input.SelectTeamMember 2) = do
-            g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
-            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-            renderNormal
-        processNormal (Input.SelectTeamMember 3) = do
-            g_world %= snd . runWorld (selectCharacter "570rm" $> Normal)
-            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-            renderNormal
-        processNormal (Input.SelectTeamMember _) =
-            pure ()
-        processNormal Input.Get = do
-            obtainTarget >>= \case
-                Nothing →
-                    renderMessage "There's nothing here."
-                Just (v, o) →
-                    renderMessage $ "Picking up " <> show o <> " from " <> show v
-        processNormal Input.UseHeld = do
-            obtainTarget >>= \case
-                Nothing →
-                    renderMessage "Nothing there."
-                Just (_, _) →
-                    renderMessage "Need to figure out how to run programs for held Objects."
-                    --programAt v >>= maybe (pure ()) (\prg → runProgram v (prg OperateOn))
-                    --renderNormal
-        processNormal Input.Examine = do
-            examineText ← obtainTarget >>= \case
-                Just t  → pure $ view o_description (snd t)
-                Nothing → uses (g_world.w_map) desc
-            g_scrollWindow %= moveWindow (V2 2 1)
-            g_scrollWindow %= resizeWindow (V2 40 10)
-            g_scrollWindow %= setText examineText
-            use g_scrollWindow >>= lift . renderScrollWindow
-            g_gameState .= Examination
-        processNormal Input.Operate = do
-            obtainTarget >>= \case
-                Nothing →
-                    renderMessage "There's nothing here."
-                Just (v, o) → do
-                    runProgram v (operationProgramForSymbol (view o_symbol o) $ Operate)
-                    use g_gameState >>= \case
-                        Normal →
-                            renderNormal
-                        _      → do
-                            renderMessage "Need to implement rendering of other states!"
-                            g_gameState .= Normal
-        processNormal Input.Talk = do
-            obtainTarget >>= \case
-                Nothing →
-                    renderMessage "Trying to talk to someone, but there's no one there."
-                Just (v, o) → do
-                    runProgram v (operationProgramForSymbol (view o_symbol o) $ Talk)
-                    use g_gameState >>= \case
-                        Conversation → do
-                            let ch = characterForName dd . (M.! "name") . view o_state $ o
-                            g_conversant .= Just ch
-                            g_conversation .= view ch_conversation ch
-                            g_scrollWindow %= setTitle (view ch_name ch)
-                            use g_conversation >>= \case
-                                (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
-                                (TalkNode s _)      → g_scrollWindow %= setText s
-                                (ListenNode s _)    → g_scrollWindow %= setText s
-                                _ → pure ()
-                            use g_conversation >>= renderConversation
-                        _ →
-                            renderNormal
-        processNormal Input.InventorySheet = do
-            is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
-            g_scrollWindow %= setTitle "Inventory sheet"
-            g_scrollWindow %= setLines is
-            use g_scrollWindow >>= lift . renderScrollWindow
-            g_gameState .= InventoryUI
-        processNormal Input.CharacterSheet = do
-            g_scrollWindow %= setTitle "Character sheet"
-            use g_scrollWindow >>= lift .  renderScrollWindow
-            g_gameState .= CharacterUI
 
-        processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
-        processExamination Input.MoveUp = do
-            g_scrollWindow %= scrollUp
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processExamination Input.MoveDown = do
-            g_scrollWindow %= scrollDown
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processExamination _ = do
-            use g_scrollWindow >>= lift . clearScrollWindow
-            g_gameState .= Normal
-            renderNormal
 
-        processHudTeam ∷ Input.UIEvent → StateT Game C.Curses ()
-        processHudTeam Input.TabNext = do
-            g_gameState .= HudMessages
-            renderNormal
-        processHudTeam Input.TabPrevious = do
-            g_gameState .= HudWatch
-            renderNormal
-        processHudTeam Input.MoveUp = do
-            g_hudTeamSelector %= max 0 . subtract 3
-            renderNormal
-        processHudTeam Input.MoveDown = do
-            g_hudTeamSelector %= min 5 . (+3)
-            renderNormal
-        processHudTeam Input.MoveLeft = do
-            g_hudTeamSelector %= max 0 . subtract 1
-            renderNormal
-        processHudTeam Input.MoveRight = do
-            g_hudTeamSelector %= min 5 . (+1)
-            renderNormal
-        processHudTeam Input.SelectChoice = do
-            renderMessage "Showing charcter sheet!"
-            renderNormal
-        processHudTeam Input.Back = do
-            g_gameState .= Normal
-            renderNormal
+processNormal ∷ DesignData → Input.WorldEvent → StateT Game C.Curses ()
+processNormal _ Input.Quit = do
+    g_keepRunning .= False
+processNormal _ Input.SwitchToHud = do
+    g_gameState .= HudTeam
+    renderNormal
+processNormal _ (Input.Move v) = do
+    g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
+    increaseTurn
+    renderNormal
+processNormal _ Input.Wait = do
+    g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
+    --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
+    increaseTurn
+    renderNormal
+-- TODO take these out. You can *only* control Carla directly, the rest follows orders.
+processNormal _ (Input.SelectTeamMember 0) = do
+    g_world %= snd . runWorld (selectCharacter "Carla" $> Normal)
+    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
+    renderNormal
+processNormal _ (Input.SelectTeamMember 1) = do
+    g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
+    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
+    renderNormal
+processNormal _ (Input.SelectTeamMember 2) = do
+    g_world %= snd . runWorld (selectCharacter "Raj" $> Normal)
+    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
+    renderNormal
+processNormal _ (Input.SelectTeamMember 3) = do
+    g_world %= snd . runWorld (selectCharacter "570rm" $> Normal)
+    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
+    renderNormal
+processNormal _ (Input.SelectTeamMember _) =
+    pure ()
+processNormal _ Input.Get = do
+    obtainTarget >>= \case
+        Nothing →
+            renderMessage "There's nothing here."
+        Just (v, o) →
+            renderMessage $ "Picking up " <> show o <> " from " <> show v
+    increaseTurn
+processNormal _ Input.UseHeld = do
+    obtainTarget >>= \case
+        Nothing → do
+            renderMessage "Nothing there."
+            increaseTurn
+        Just (_, _) → do
+            renderMessage "Need to figure out how to run programs for held Objects."
+            --programAt v >>= maybe (pure ()) (\prg → runProgram v (prg OperateOn))
+            --renderNormal
+            increaseTurn -- TODO as much as the device wants!
+processNormal _ Input.Examine = do
+    examineText ← obtainTarget >>= \case
+        Just t  → pure $ view o_description (snd t)
+        Nothing → uses (g_world.w_map) desc
+    increaseTurn
+    g_scrollWindow %= moveWindow (V2 2 1)
+    g_scrollWindow %= resizeWindow (V2 40 10)
+    g_scrollWindow %= setText examineText
+    g_gameState .= Examination
+    use g_scrollWindow >>= lift . renderScrollWindow
+processNormal _ Input.Operate = do
+    obtainTarget >>= \case
+        Nothing → do
+            renderMessage "There's nothing here."
+            increaseTurn
+        Just (v, o) → do
+            runProgram v (operationProgramForSymbol (view o_symbol o) $ Operate)
+            use g_gameState >>= \case
+                Normal → do
+                    renderNormal
+                _      → do
+                    renderMessage "Need to implement rendering of other states!"
+                    g_gameState .= Normal
+            increaseTurn -- TODO as much as operation program wants!
+processNormal dd Input.Talk = do
+    obtainTarget >>= \case
+        Nothing → do
+            renderMessage "Trying to talk to someone, but there's no one there."
+            increaseTurn
+        Just (v, o) → do
+            runProgram v (operationProgramForSymbol (view o_symbol o) $ Talk)
+            increaseTurn
+            use g_gameState >>= \case
+                Conversation → do
+                    let ch = characterForName dd . (M.! "name") . view o_state $ o
+                    g_conversant .= Just ch
+                    g_conversation .= view ch_conversation ch
+                    g_scrollWindow %= setTitle (view ch_name ch)
+                    use g_conversation >>= \case
+                        (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
+                        (TalkNode s _)      → g_scrollWindow %= setText s
+                        (ListenNode s _)    → g_scrollWindow %= setText s
+                        _ → pure ()
+                    use g_conversation >>= renderConversation
+                _ →
+                    renderNormal
+processNormal dd Input.InventorySheet = do
+    is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
+    g_scrollWindow %= setTitle "Inventory sheet"
+    g_scrollWindow %= setLines is
+    use g_scrollWindow >>= lift . renderScrollWindow
+    g_gameState .= InventoryUI
+processNormal _ Input.CharacterSheet = do
+    g_scrollWindow %= setTitle "Character sheet"
+    use g_scrollWindow >>= lift .  renderScrollWindow
+    g_gameState .= CharacterUI
 
-        processHudMessages ∷ Input.UIEvent → StateT Game C.Curses ()
-        processHudMessages Input.TabNext = do
-            g_gameState .= HudWatch
-            renderNormal
-        processHudMessages Input.TabPrevious = do
-            g_gameState .= HudTeam
-            renderNormal
-        processHudMessages Input.MoveUp = do
-            -- TODO scroll
-            renderNormal
-        processHudMessages Input.MoveDown = do
-            -- TODO scroll
-            renderNormal
-        processHudMessages Input.SelectChoice = do
-            -- TODO use scroll window to show log
-            renderNormal
-        processHudMessages Input.Back = do
-            g_gameState .= Normal
-            renderNormal
-        processHudMessages _ =
-            pure ()
 
-        processHudWatch ∷ Input.UIEvent → StateT Game C.Curses ()
-        processHudWatch Input.TabNext = do
-            g_gameState .= HudTeam
-            renderNormal
-        processHudWatch Input.TabPrevious = do
-            g_gameState .= HudMessages
-            renderNormal
-        processHudWatch Input.MoveUp = do
-            g_watchTime += 1
-            renderNormal
-        processHudWatch Input.MoveDown = do
-            g_watchTime -= 1
-            renderNormal
-        processHudWatch Input.MoveLeft = do
-            g_watchButton %= (`mod` 3) . subtract 1
-            renderNormal
-        processHudWatch Input.MoveRight = do
-            g_watchButton %= (`mod` 3) . (+1)
-            renderNormal
-        processHudWatch Input.SelectChoice = do
-            use g_watchButton >>= renderMessage . ("Pushing button: " <>) . show
-            renderNormal
-        processHudWatch Input.Back = do
-            g_gameState .= Normal
-            renderNormal
+processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
+processExamination Input.MoveUp = do
+    g_scrollWindow %= scrollUp
+    use g_scrollWindow >>= lift . renderScrollWindow
+processExamination Input.MoveDown = do
+    g_scrollWindow %= scrollDown
+    use g_scrollWindow >>= lift . renderScrollWindow
+processExamination _ = do
+    use g_scrollWindow >>= lift . clearScrollWindow
+    g_gameState .= Normal
+    renderNormal
 
-        processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
-        processConversation Input.MoveUp = do
-            use g_conversation >>= \case
-                (ChoiceNode _ _) → g_choiceWindow %= selectPrevious
-                _                → g_scrollWindow %= scrollUp
-            use g_conversation >>= renderConversation
-        processConversation Input.MoveDown = do
-            use g_conversation >>= \case
-                (ChoiceNode _ _) → g_choiceWindow %= selectNext
-                _                → g_scrollWindow %= scrollDown
-            use g_conversation >>= renderConversation
-        processConversation Input.SelectChoice = use g_conversation >>= \case
-            n@(ChoiceNode _ _) → do
-                use g_choiceWindow >>= assign g_conversation . pick n . commit
-                use g_conversation >>= \case
-                    (ChoiceNode opts _) → do
-                        g_choiceWindow %= setOptions opts
-                        use g_conversation >>= renderConversation
-                    (TalkNode s _) → do
-                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
-                        g_scrollWindow %= setTitle initName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    (ListenNode s _) → do
-                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                        g_scrollWindow %= setTitle otherName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    End → do
-                        g_conversant .= Nothing
-                        g_gameState .= Normal
-                        use g_scrollWindow >>= lift . clearScrollWindow
-                        renderNormal
-            (TalkNode _ _) → do
-                g_conversation %= advance
-                use g_conversation >>= \case
-                    (ChoiceNode opts _) → do
-                        g_choiceWindow %= setOptions opts
-                        use g_conversation >>= renderConversation
-                    (TalkNode s _) → do
-                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
-                        g_scrollWindow %= setTitle initName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    (ListenNode s _) → do
-                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                        g_scrollWindow %= setTitle otherName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    End → do
-                        g_conversant .= Nothing
-                        g_gameState .= Normal
-                        use g_scrollWindow >>= lift . clearScrollWindow
-                        renderNormal
-            (ListenNode _ _) → do
-                g_conversation %= advance
-                use g_conversation >>= \case
-                    (ChoiceNode opts _) → do
-                        g_choiceWindow %= setOptions opts
-                        use g_conversation >>= renderConversation
-                    (TalkNode s _) → do
-                        initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
-                        g_scrollWindow %= setTitle initName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    (ListenNode s _) → do
-                        otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                        g_scrollWindow %= setTitle otherName
-                        g_scrollWindow %= setText s
-                        use g_conversation >>= renderConversation
-                    End → do
-                        g_conversant .= Nothing
-                        g_gameState .= Normal
-                        use g_scrollWindow >>= lift . clearScrollWindow
-                        renderNormal
-            End → do  -- TODO we shall never end up here, but this is because there's an event listening stuck at the beginning of conversation state management. This needs to change.
+
+processHudTeam ∷ Input.UIEvent → StateT Game C.Curses ()
+processHudTeam Input.TabNext = do
+    g_gameState .= HudMessages
+    renderNormal
+processHudTeam Input.TabPrevious = do
+    g_gameState .= HudWatch
+    renderNormal
+processHudTeam Input.MoveUp = do
+    g_hudTeamSelector %= max 0 . subtract 3
+    renderNormal
+processHudTeam Input.MoveDown = do
+    g_hudTeamSelector %= min 5 . (+3)
+    renderNormal
+processHudTeam Input.MoveLeft = do
+    g_hudTeamSelector %= max 0 . subtract 1
+    renderNormal
+processHudTeam Input.MoveRight = do
+    g_hudTeamSelector %= min 5 . (+1)
+    renderNormal
+processHudTeam Input.SelectChoice = do
+    renderMessage "Showing charcter sheet!"
+    renderNormal
+processHudTeam Input.Back = do
+    g_gameState .= Normal
+    renderNormal
+
+
+processHudMessages ∷ Input.UIEvent → StateT Game C.Curses ()
+processHudMessages Input.TabNext = do
+    g_gameState .= HudWatch
+    renderNormal
+processHudMessages Input.TabPrevious = do
+    g_gameState .= HudTeam
+    renderNormal
+processHudMessages Input.MoveUp = do
+    -- TODO scroll
+    renderNormal
+processHudMessages Input.MoveDown = do
+    -- TODO scroll
+    renderNormal
+processHudMessages Input.SelectChoice = do
+    -- TODO use scroll window to show log
+    renderNormal
+processHudMessages Input.Back = do
+    g_gameState .= Normal
+    renderNormal
+processHudMessages _ =
+    pure ()
+
+
+processHudWatch ∷ Input.UIEvent → StateT Game C.Curses ()
+processHudWatch Input.TabNext = do
+    g_gameState .= HudTeam
+    renderNormal
+processHudWatch Input.TabPrevious = do
+    g_gameState .= HudMessages
+    renderNormal
+processHudWatch Input.MoveUp = do
+    g_watchAlarmTime += 1
+    renderNormal
+processHudWatch Input.MoveDown = do
+    g_watchAlarmTime -= 1
+    renderNormal
+processHudWatch Input.MoveLeft = do
+    g_watchButton %= (`mod` 3) . subtract 1
+    renderNormal
+processHudWatch Input.MoveRight = do
+    g_watchButton %= (`mod` 3) . (+1)
+    renderNormal
+processHudWatch Input.SelectChoice = do
+    use g_watchButton >>= renderMessage . ("Pushing button: " <>) . show
+    renderNormal
+processHudWatch Input.Back = do
+    g_gameState .= Normal
+    renderNormal
+
+
+processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
+processConversation Input.MoveUp = do
+    use g_conversation >>= \case
+        (ChoiceNode _ _) → g_choiceWindow %= selectPrevious
+        _                → g_scrollWindow %= scrollUp
+    use g_conversation >>= renderConversation
+processConversation Input.MoveDown = do
+    use g_conversation >>= \case
+        (ChoiceNode _ _) → g_choiceWindow %= selectNext
+        _                → g_scrollWindow %= scrollDown
+    use g_conversation >>= renderConversation
+processConversation Input.SelectChoice = use g_conversation >>= \case
+    n@(ChoiceNode _ _) → do
+        use g_choiceWindow >>= assign g_conversation . pick n . commit
+        use g_conversation >>= \case
+            (ChoiceNode opts _) → do
+                g_choiceWindow %= setOptions opts
+                use g_conversation >>= renderConversation
+            (TalkNode s _) → do
+                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            (ListenNode s _) → do
+                otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            End → do
                 g_conversant .= Nothing
                 g_gameState .= Normal
                 use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
-        processConversation Input.Back =
-            pure ()
+    (TalkNode _ _) → do
+        g_conversation %= advance
+        use g_conversation >>= \case
+            (ChoiceNode opts _) → do
+                g_choiceWindow %= setOptions opts
+                use g_conversation >>= renderConversation
+            (TalkNode s _) → do
+                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            (ListenNode s _) → do
+                otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            End → do
+                g_conversant .= Nothing
+                g_gameState .= Normal
+                use g_scrollWindow >>= lift . clearScrollWindow
+                renderNormal
+    (ListenNode _ _) → do
+        g_conversation %= advance
+        use g_conversation >>= \case
+            (ChoiceNode opts _) → do
+                g_choiceWindow %= setOptions opts
+                use g_conversation >>= renderConversation
+            (TalkNode s _) → do
+                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            (ListenNode s _) → do
+                otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
+                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setText s
+                use g_conversation >>= renderConversation
+            End → do
+                g_conversant .= Nothing
+                g_gameState .= Normal
+                use g_scrollWindow >>= lift . clearScrollWindow
+                renderNormal
+    End → do  -- TODO we shall never end up here, but this is because there's an event listening stuck at the beginning of conversation state management. This needs to change.
+        g_conversant .= Nothing
+        g_gameState .= Normal
+        use g_scrollWindow >>= lift . clearScrollWindow
+        renderNormal
+processConversation Input.Back =
+    pure ()
 
-        processInventoryUI ∷ Input.UIEvent → StateT Game C.Curses ()
-        processInventoryUI Input.MoveUp = do
-            g_scrollWindow %= scrollUp
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processInventoryUI Input.MoveDown = do
-            g_scrollWindow %= scrollDown
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processInventoryUI _ = do
-            use g_scrollWindow >>= lift . clearScrollWindow
-            g_gameState .= Normal
-            renderNormal
 
-        processCharacterUI ∷ Input.UIEvent → StateT Game C.Curses ()
-        processCharacterUI Input.MoveUp = do
-            g_scrollWindow %= scrollUp
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processCharacterUI Input.MoveDown = do
-            g_scrollWindow %= scrollDown
-            use g_scrollWindow >>= lift . renderScrollWindow
-        processCharacterUI _ = do
-            use g_scrollWindow >>= lift . clearScrollWindow
-            g_gameState .= Normal
-            renderNormal
+processInventoryUI ∷ Input.UIEvent → StateT Game C.Curses ()
+processInventoryUI Input.MoveUp = do
+    g_scrollWindow %= scrollUp
+    use g_scrollWindow >>= lift . renderScrollWindow
+processInventoryUI Input.MoveDown = do
+    g_scrollWindow %= scrollDown
+    use g_scrollWindow >>= lift . renderScrollWindow
+processInventoryUI _ = do
+    use g_scrollWindow >>= lift . clearScrollWindow
+    g_gameState .= Normal
+    renderNormal
 
-        processOperation ∷ Input.InteractionEvent → StateT Game C.Curses ()
-        processOperation (Input.PassThrough c) = do
-            updateComputer c
-            qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
-            if qr
-              then g_gameState .= Normal
-              else pure ()
-              --else do
-              --     comp ← use g_carlasComputer
-              --     fbr  ← use g_carlasFramebuffer
-                   --doRender (renderComputer fbr (computerData comp))
+
+processCharacterUI ∷ Input.UIEvent → StateT Game C.Curses ()
+processCharacterUI Input.MoveUp = do
+    g_scrollWindow %= scrollUp
+    use g_scrollWindow >>= lift . renderScrollWindow
+processCharacterUI Input.MoveDown = do
+    g_scrollWindow %= scrollDown
+    use g_scrollWindow >>= lift . renderScrollWindow
+processCharacterUI _ = do
+    use g_scrollWindow >>= lift . clearScrollWindow
+    g_gameState .= Normal
+    renderNormal
+
+
+processOperation ∷ Input.InteractionEvent → StateT Game C.Curses ()
+processOperation (Input.PassThrough c) = do
+    updateComputer c
+    qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
+    if qr
+      then g_gameState .= Normal
+      else pure ()
+      --else do
+      --     comp ← use g_carlasComputer
+      --     fbr  ← use g_carlasFramebuffer
+           --doRender (renderComputer fbr (computerData comp))
+
+--------------------------------------------------------------------------------
+
+increaseTurn ∷ StateT Game C.Curses ()
+increaseTurn = g_turn += 1
 
 
 runProgram ∷ V2 Int → Free ObjectF () → StateT Game C.Curses ()
@@ -582,12 +611,13 @@ renderNormal = do
             _         → error "Impossible active selection!"
     ts ← use g_hudTeamSelector
     gs ← use g_gameState
-    wt ← use g_watchTime
+    t  ← use g_turn
+    --wat ← use g_watchAlarmTime
     wb ← use g_watchButton
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        drawHud gs ts at wt wb s >>= updateHud
+        drawHud gs ts at t wb s >>= updateHud
 
 
 renderMessage ∷ String → StateT Game C.Curses ()
@@ -600,9 +630,10 @@ renderMessage msg = do
             _         → error "Impossible active selection!"
     gs ← use g_gameState
     ts ← use g_hudTeamSelector
-    wt ← use g_watchTime
+    t  ← use g_turn
+    --wat ← use g_watchAlarmTime
     wb ← use g_watchButton
-    doRender $ drawHud gs ts at wt wb msg >>= updateHud
+    doRender $ drawHud gs ts at t wb msg >>= updateHud
 
 
 renderConversation ∷ ConversationNode → StateT Game C.Curses ()

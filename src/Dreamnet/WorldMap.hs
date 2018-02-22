@@ -80,7 +80,7 @@ fromTileMap tm t2o =
       _wm_width   = width tm
     , _wm_height  = height tm
     , _wm_data    = let mapData           = transposeAndMerge $ layerToObject (tm^.m_tileset) <$> (tm^.m_layers)
-                        maybeObjects i    = coordLin tm i `M.lookup` (tm^.m_positioned)
+                        maybeObjects  i   = coordLin tm i `M.lookup` (tm^.m_positioned)
                         addPositioned i o = maybe o ((o<>) . fmap t2o) (maybeObjects i)
                     in  V.imap addPositioned mapData
     , _wm_desc    = tm^.m_desc

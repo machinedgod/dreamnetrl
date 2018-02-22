@@ -21,8 +21,8 @@ module Dreamnet.ScrollWindow
 
 
 import Control.Lens   (makeLenses, view, views, (%~), (+~), (.~))
-import Control.Monad  (when, unless)
 import Data.List      (intercalate)
+import Data.Bool      (bool)
 import Linear         (V2(V2), _x, _y)
 
 import qualified Data.Vector as V (fromList, imapM_)
@@ -117,7 +117,7 @@ renderScrollWindow sd =
         (V2 x y)     = view sd_position sd
         (V2 w h)     = view sd_size sd
     in  C.updateWindow win $ do
-            C.clear
+            -- C.clear -- TODO only clear scroll lines
             C.moveWindow y x
             C.resizeWindow h w
             C.drawBorder (Just $ C.Glyph '│' [])
@@ -131,8 +131,8 @@ renderScrollWindow sd =
             (rows, columns) ← C.windowSize
             drawTitle columns
             V.imapM_ drawLine visibleLines
-            unless isAtTop $ drawUpWidget columns
-            when hasMoreLines $ drawDownWidget rows columns
+            drawUpWidget columns (not isAtTop)
+            drawDownWidget rows columns hasMoreLines
     where
         drawLine ∷ Int → String → C.Update ()
         drawLine i s = case view sd_title sd of
@@ -143,15 +143,15 @@ renderScrollWindow sd =
                 C.moveCursor (fromIntegral i + 4) 2 -- +4 to account for the title
                 C.drawString s
 
-        drawUpWidget ∷ Integer → C.Update ()
-        drawUpWidget cols = do
+        drawUpWidget ∷ Integer → Bool → C.Update ()
+        drawUpWidget cols b = do
             C.moveCursor 1 (cols - 3)
-            C.drawGlyph (C.Glyph '▲' [])
+            C.drawGlyph (C.Glyph (bool ' ' '▲' b) [])
 
-        drawDownWidget ∷ Integer → Integer →  C.Update ()
-        drawDownWidget rows cols = do
+        drawDownWidget ∷ Integer → Integer → Bool → C.Update ()
+        drawDownWidget rows cols b = do
             C.moveCursor (rows - 2) (cols - 3)
-            C.drawGlyph (C.Glyph '▼' [])
+            C.drawGlyph (C.Glyph (bool ' ' '▼' b) [])
 
         drawTitle ∷ Integer → C.Update ()
         drawTitle cols = do

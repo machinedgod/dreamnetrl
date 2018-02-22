@@ -19,6 +19,7 @@ module Dreamnet.Renderer
 , drawHud
 ) where
 
+import Safe                 (atDef)
 import Control.Lens         (makeLenses, use, uses)
 import Control.Monad.Trans  (lift)
 import Control.Monad.State  (MonadState, StateT, runStateT)
@@ -140,6 +141,7 @@ initRenderer = do
                 return Styles {
                          _s_materials = M.fromList
                             [ ("concrete"       , [ C.AttributeColor cWhite ])
+                            , ("grass"          , [ C.AttributeColor cGreen,  C.AttributeDim  ])
                             , ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
                             , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
                             , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
@@ -205,16 +207,18 @@ drawMap chf matf w dat vis = do
                                          Visible → (c, m)
 
 
-drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → Int → Int → String → r (RenderAction ())
-drawHud gs hms am time button msg = do
+drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → Word → Int → String → r (RenderAction ())
+drawHud gs hms am turns button msg = do
     white   ← use (rd_styles.s_colorWhite)
     green   ← use (rd_styles.s_colorGreen)
     blue ← use (rd_styles.s_colorBlue)
     pure $ RenderAction $ do
+        let watchLength = 42
+            --watchLength = 34
         C.setColor white
-        ox ← subtract 34 . snd <$> C.windowSize
+        ox ← subtract watchLength . snd <$> C.windowSize
 
-        drawBorders
+        drawBorders watchLength
         drawList 0 1 teamBoxes
 
         setDataColor gs 0 white green blue
@@ -233,7 +237,7 @@ drawHud gs hms am time button msg = do
         C.setColor $ if gs == HudMessages
                         then green
                         else white
-        drawStatus
+        drawStatus watchLength
 
         C.setColor white
         drawList ox 0 watch
@@ -241,23 +245,23 @@ drawHud gs hms am time button msg = do
         C.setColor $ if gs == HudWatch
                         then green
                         else white
-        drawTime
-            (fromIntegral . digitToInt . (!!0) . show $ time)
-            (fromIntegral . digitToInt . (!!1) . show $ time)
-            (fromIntegral . digitToInt . (!!2) . show $ time)
-            (fromIntegral . digitToInt . (!!3) . show $ time)
+        let s = turns `mod` 60
+            m = turns `div` 60 `mod` 60
+            h = m `div` 60 `mod` 60
+            
+        drawTime watchLength
+            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ h)
+            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ h)
+            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ m)
+            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ m)
+            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ s)
+            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ s)
     where
         setDataColor ∷ GameState → Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
-        setDataColor gs i none hud active = C.setColor $
-            if gs == HudTeam
-                then if hms == i
-                     then hud
-                     else if am == i
-                         then active
-                         else none
-                else if am == i
-                     then active
-                     else none
+        setDataColor gs i none hud active
+            | gs == HudTeam && hms == i = C.setColor hud
+            |                   am == i = C.setColor active
+            | otherwise                 = C.setColor none
 
         drawData ∷ Word → Word → String → (String, Int, Int) → (Int, Int) → C.Update ()
         drawData ox oy n (wn, cl, mcl) (hp, mhp) = do
@@ -288,29 +292,31 @@ drawHud gs hms am time button msg = do
         --shorten l = (++".") . take (l-1)
 
         watch ∷ [String]
-        watch = [ "    .-----------------------.    "
-                , "   /                         \\   "
-                , "━━/    .-----------------.    \\━━"
-                , " .    /                   \\    . "
-                , "┌|---'                     '---| "
-                , "└|   |                     |   |┐"
-                , " |   |                     |   |│"
-                , "┌|   |                     |   |┘"
-                , "└|---.                     .---| "
-                , " '    \\                   /    ' "
-                , "━━\\    '-----------------'    /━━"
-                , "   \\      o     o     o      /   "
-                , "    '-----------------------'    "
+        watch = [ "    .-------------------------------.    "
+                , "   /                                 \\   "
+                , "━━/    .-------------------------.    \\━━"
+                , " .    /                           \\    . "
+                , "┌|---'                             '---| "
+                , "└|   |                             |   |┐"
+                , " |   |                             |   |│"
+                , "┌|   |                             |   |┘"
+                , "└|---.                             .---| "
+                , " '    \\                           /    ' "
+                , "━━\\    '-------------------------'    /━━"
+                , "   \\      o      o     o      o      /   "
+                , "    '-------------------------------'    "
                 ]
 
-        drawTime ∷ Word → Word → Word → Word → C.Update ()
-        drawTime h1 h2 m1 m2 = do
-            ox ← subtract 34 . snd <$> C.windowSize
+        drawTime ∷ Integer → Word → Word → Word → Word → Word → Word → C.Update ()
+        drawTime watchLength h1 h2 m1 m2 s1 s2 = do
+            ox ← subtract watchLength . snd <$> C.windowSize
             drawList (ox + 8)  4 (digit h1)
             drawList (ox + 12) 4 (digit h2)
             drawList (ox + 16) 4 dots
             drawList (ox + 18) 4 (digit m1)
             drawList (ox + 22) 4 (digit m2)
+            drawList (ox + 27) 6 (smallDigit s1)
+            drawList (ox + 30) 6 (smallDigit s2)
 
         drawList ∷ Integer → Integer → [String] → C.Update ()
         drawList x y =
@@ -398,9 +404,53 @@ drawHud gs hms am time button msg = do
             ]
         digit _ = digit 8
 
-        drawBorders ∷ C.Update ()
-        drawBorders = do
-            len ← fromIntegral . subtract 34 . snd <$> C.windowSize
+        smallDigit ∷ Word → [String]
+        smallDigit 0 = ["|̅‾|"
+                       ,"|̅ |"
+                       ,"|_|"
+                       ]
+        smallDigit 1 = ["  |"
+                       ,"  |"
+                       ,"  |"
+                       ]
+        smallDigit 2 = [" ‾|"
+                       ," / "
+                       ,"|_ "
+                       ]
+        smallDigit 3 = [" ‾|"
+                       ," ─|"
+                       ," _|"
+                       ]
+        smallDigit 4 = ["|̅ |"
+                       ," \\|"
+                       ,"  |"
+                       ]
+        smallDigit 5 = ["|̅‾ "
+                       ," \\ "
+                       ," _|"
+                       ]
+        smallDigit 6 = ["|̅‾ "
+                       ,"|\\ "
+                       ,"|_|"
+                       ]
+        smallDigit 7 = ["|̅‾|"
+                       ," / "
+                       ,"/  "
+                       ]
+        smallDigit 8 = ["|̅‾|"
+                       ,"|─|"
+                       ,"|_|"
+                       ]
+        smallDigit 9 = ["|̅‾|"
+                       ," \\|"
+                       ," _|"
+                       ]
+        smallDigit _ = smallDigit 8
+
+
+        drawBorders ∷ Integer → C.Update ()
+        drawBorders watchLength = do
+            len ← fromIntegral . subtract watchLength . snd <$> C.windowSize
             C.moveCursor 2 0
             C.drawString $ replicate len '-'
             C.moveCursor 10 0
@@ -426,10 +476,9 @@ drawHud gs hms am time button msg = do
                       , "//  //  //  //  "
                       ]
 
-        drawStatus ∷ C.Update ()
-        drawStatus = do
+        drawStatus ∷ Integer → C.Update ()
+        drawStatus watchLength = do
             let start       = 54 -- Team boxes length
-                watchLength = 34
                 padding     = 4
             
             C.moveCursor 3 (fromIntegral start)

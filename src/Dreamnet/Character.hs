@@ -11,6 +11,8 @@ module Dreamnet.Character
 , Slot(..)
 , SlotWrapper(..)
 
+, Stance(..)
+
 , CombatSkills
 , ElectronicsSkills
 , CommunicationSkills
@@ -19,11 +21,13 @@ module Dreamnet.Character
 , ch_leftHand
 , ch_rightHand
 , ch_torso
+, ch_stance
 , ch_conversation
 , ch_experience
 , ch_combat
 , ch_electronics
 , ch_social
+, ch_infiltration
 , newCharacter
 
 , equipmentSlots
@@ -68,18 +72,32 @@ instance (Eq a) ⇒ Eq (SlotWrapper a) where
 
 --------------------------------------------------------------------------------
 
+data Stance = Upright
+            | Crouch
+            | Prone
+            deriving(Show)
+
+--------------------------------------------------------------------------------
+
 -- All combat-related skills
 data CombatSkills = CombatSkills {
       _cs_remainingPoints ∷ Word
 
+    -- General melee skill, applied everywhere where hand-to-hand combat is
+    -- involved, with or without weapons
     , _cs_melee      ∷ Word
+    -- Specific added bonuses applied when fighting barehanded
     , _cs_barehanded ∷ Word
+    -- Specific added bonuses applied when utilizing one of the weapons listed
     , _cs_knives     ∷ Word
     , _cs_swords     ∷ Word
     , _cs_staves     ∷ Word
     , _cs_maces      ∷ Word
 
+    -- General ranged combat skill, applied everywhere where aiming and
+    -- shooting is involved, from bows to firearms
     , _cs_ranged    ∷ Word
+    -- Specific added bonuses applied when fighting with specified weapon group
     , _cs_guns      ∷ Word
     , _cs_smgs      ∷ Word
     , _cs_shotguns  ∷ Word
@@ -89,6 +107,10 @@ data CombatSkills = CombatSkills {
     , _cs_crossbows ∷ Word
     , _cs_plasma    ∷ Word
     , _cs_lasers    ∷ Word
+
+    -- General throwing combat skill, applied everywhere where throwing
+    -- an explosive or a device is used
+    , _cs_throwing ∷ Word
     }
     deriving (Eq, Show)
 
@@ -122,12 +144,30 @@ data CommunicationSkills = CommunicationSkills {
 --makeLenses ''CommunicationSkills
 
 
+data InfiltrationSkills = InfiltrationSkills {
+      _is_remainingPoints ∷ Word
+
+    -- Remaining visually undetected when outside light radius
+    , _is_blendInShadows      ∷ Word
+    -- Remaining visually undetected when taking cover behind an object
+    , _is_useOfCover          ∷ Word
+    -- Remaining audibly undetected while moving (add groups for running, walking, and prone)
+    , _is_silentMovement      ∷ Word
+    -- Remaining audibly and visually undetected while switching covers with a roll
+    -- Also affects max maneuvering distance
+    , _is_coverSwitchManeuver ∷ Word
+    }
+    deriving(Eq, Show)
+
+--------------------------------------------------------------------------------
+
 data Character a b = Character {
       _ch_name      ∷ String
 
     , _ch_leftHand  ∷ Slot 'Hand a
     , _ch_rightHand ∷ Slot 'Hand a
     , _ch_torso     ∷ Slot 'Torso a
+    , _ch_stance    ∷ Stance
 
     , _ch_conversation ∷ b
 
@@ -140,9 +180,21 @@ data Character a b = Character {
     -- To train to a certain level, you need to purchase skillpoints
     -- by spending general experience, and then find a person willing to
     -- train you, who has that skill equal or above desired level
-    , _ch_combat      ∷ CombatSkills
-    , _ch_electronics ∷ ElectronicsSkills
-    , _ch_social      ∷ CommunicationSkills
+    -- 
+    -- Additionally, abilities are *not* acquired through skills! They are
+    -- either "innate", meaning *everyone* can try to perform them once learned,
+    -- or they're applied through usage of certain items.
+    -- For example, there's no innate lockpicking ability: you need to purchase
+    -- and use lockpicking tools in order to try and pick a lock, and this is
+    -- what engages lockpicking skill to modify success roll.
+    -- For a second example, cover swtich maneuver is an innate skill. Unskilled
+    -- characters will simply run or walk to next cover. Highly skilled characters
+    -- will perform fast and silent maneuver at the right time not to be seen
+    -- by NPC's or cameras.
+    , _ch_combat       ∷ CombatSkills
+    , _ch_electronics  ∷ ElectronicsSkills
+    , _ch_social       ∷ CommunicationSkills
+    , _ch_infiltration ∷ InfiltrationSkills
     }
     deriving (Show)
 
@@ -154,12 +206,13 @@ instance Eq (Character a b) where
 
 
 newCharacter ∷ String → b → Character a b
-newCharacter n cn = Character n empty empty empty cn 0 cs es ss
+newCharacter n cn = Character n empty empty empty Upright cn 0 cs es ss is
     where
         empty = Slot Nothing
-        cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+        cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
         es    = ElectronicsSkills 0 0 0 0
         ss    = CommunicationSkills 0 0 0 0 0 0 0
+        is    = InfiltrationSkills 0 0 0 0 0
 
 
 equipmentSlots ∷ Character a b → [SlotWrapper a]
