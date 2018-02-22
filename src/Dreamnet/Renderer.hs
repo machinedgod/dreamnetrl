@@ -20,7 +20,6 @@ module Dreamnet.Renderer
 ) where
 
 import Control.Lens         (makeLenses, use, uses)
-import Control.Monad        (when)
 import Control.Monad.Trans  (lift)
 import Control.Monad.State  (MonadState, StateT, runStateT)
 import Linear               (V2(V2))
@@ -34,6 +33,7 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
+import Dreamnet.GameState
 import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
@@ -50,7 +50,6 @@ data Styles = Styles {
     , _s_visibilityUnknown ∷ Material
     , _s_visibilityKnown   ∷ Material
     --, _s_visibilityVisible ∷ Material
-
 
     , _s_colorBlack   ∷ C.ColorID
     , _s_colorRed     ∷ C.ColorID
@@ -161,13 +160,14 @@ initRenderer = do
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite ]
                        --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
-                       --, _s_colorRed     = cRed    
+                       , _s_colorBlack   = cBlack
+                       , _s_colorRed     = cRed
                        , _s_colorGreen   = cGreen
-                       --, _s_colorYellow  = cYellow 
-                       --, _s_colorBlue    = cBlue   
-                       --, _s_colorMagenta = cMagenta
-                       --, _s_colorCyan    = cCyan   
-                       , _s_colorWhite   = cWhite  
+                       , _s_colorYellow  = cYellow
+                       , _s_colorBlue    = cBlue
+                       , _s_colorMagenta = cMagenta
+                       , _s_colorCyan    = cCyan
+                       , _s_colorWhite   = cWhite
                        }
 
 
@@ -205,28 +205,40 @@ drawMap chf matf w dat vis = do
                                          Visible → (c, m)
 
 
-drawHud ∷ (MonadRender r) ⇒ Bool → Int → Int → String → r (RenderAction ())
-drawHud hudmode time button msg = do
-    white ← use (rd_styles.s_colorWhite)
-    green ← use (rd_styles.s_colorGreen)
+drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → Int → Int → String → r (RenderAction ())
+drawHud gs hms am time button msg = do
+    white   ← use (rd_styles.s_colorWhite)
+    green   ← use (rd_styles.s_colorGreen)
+    blue ← use (rd_styles.s_colorBlue)
     pure $ RenderAction $ do
         C.setColor white
         ox ← subtract 34 . snd <$> C.windowSize
 
         drawBorders
         drawList 0 1 teamBoxes
-        drawData (0 * 17 + 2) (0 * 5 + 2) "Carla"   ("Handgun",  8, 10) (10, 15)
-        drawData (1 * 17 + 2) (0 * 5 + 2) "Delgado" ("Rifle",   21, 21) (2, 20)
-        drawList (2 * 17 + 1) (0 * 5 + 2) emptyMember
 
+        setDataColor gs 0 white green blue
+        drawData (0 * 17 + 2) (0 * 5 + 2) "Carla"   ("Handgun",  8, 10) (10, 15)
+        setDataColor gs 1 white green blue
+        drawData (1 * 17 + 2) (0 * 5 + 2) "Delgado" ("Rifle",   21, 21) (2, 20)
+        setDataColor gs 2 white green blue
+        drawList (2 * 17 + 1) (0 * 5 + 2) emptyMember
+        setDataColor gs 3 white green blue
         drawData (0 * 17 + 2) (1 * 5 + 2) "Raj"     ("Railgun",  7,  8) (8, 12)
+        setDataColor gs 4 white green blue
         drawData (1 * 17 + 2) (1 * 5 + 2) "570rm"   ("P.Blas.", 11, 11) (8, 16)
+        setDataColor gs 5 white green blue
         drawList (2 * 17 + 1) (1 * 5 + 2) emptyMember
 
+        C.setColor $ if gs == HudMessages
+                        then green
+                        else white
         drawStatus
+
+        C.setColor white
         drawList ox 0 watch
 
-        C.setColor $ if hudmode
+        C.setColor $ if gs == HudWatch
                         then green
                         else white
         drawTime
@@ -235,6 +247,18 @@ drawHud hudmode time button msg = do
             (fromIntegral . digitToInt . (!!2) . show $ time)
             (fromIntegral . digitToInt . (!!3) . show $ time)
     where
+        setDataColor ∷ GameState → Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
+        setDataColor gs i none hud active = C.setColor $
+            if gs == HudTeam
+                then if hms == i
+                     then hud
+                     else if am == i
+                         then active
+                         else none
+                else if am == i
+                     then active
+                     else none
+
         drawData ∷ Word → Word → String → (String, Int, Int) → (Int, Int) → C.Update ()
         drawData ox oy n (wn, cl, mcl) (hp, mhp) = do
             let boxWidth = 14

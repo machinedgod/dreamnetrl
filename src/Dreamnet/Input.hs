@@ -5,12 +5,10 @@
 module Dreamnet.Input
 ( WorldEvent(..)
 , UIEvent(..)
-, HUDEvent(..)
 , InteractionEvent(..)
 
 , nextWorldEvent
 , nextUiEvent
-, nextHudEvent
 , nextInteractionEvent
 , nextTargetSelectionEvent
 ) where
@@ -21,7 +19,7 @@ import Linear     (V2(V2))
 
 import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
-                                  Key(KeyBackspace))
+                                  Key(KeyBackspace, KeyBackTab))
 
 --------------------------------------------------------------------------------
 
@@ -44,18 +42,13 @@ data WorldEvent = Move (V2 Int)
 
 data UIEvent = MoveUp
              | MoveDown
+             | MoveLeft
+             | MoveRight
+             | TabNext
+             | TabPrevious
              | SelectChoice
              | Back
              deriving (Eq, Show)
-
-
-data HUDEvent = SwitchToNormal
-              | WatchUp
-              | WatchDown
-              | WatchNextButton
-              | WatchPrevButton
-              | WatchButtonPush
-              -- TODO status scroll, etc
 
 
 data InteractionEvent = PassThrough Char
@@ -70,10 +63,6 @@ nextWorldEvent = repeatUntilEvent worldEvent
 
 nextUiEvent ∷ C.Curses UIEvent
 nextUiEvent = repeatUntilEvent uiEvent
-
-
-nextHudEvent ∷ C.Curses HUDEvent
-nextHudEvent = repeatUntilEvent hudEvent
 
 
 nextInteractionEvent ∷ C.Curses InteractionEvent
@@ -149,18 +138,13 @@ targetEvent _                      = Nothing
 
 
 uiEvent ∷ C.Event → Maybe UIEvent
-uiEvent (C.EventCharacter 'j')  = Just MoveDown
-uiEvent (C.EventCharacter 'k')  = Just MoveUp
-uiEvent (C.EventCharacter '\n') = Just SelectChoice
-uiEvent (C.EventCharacter 'q')  = Just Back
-uiEvent _                       = Nothing
+uiEvent (C.EventCharacter '\t')          = Just TabNext
+uiEvent (C.EventSpecialKey C.KeyBackTab) = Just TabPrevious
+uiEvent (C.EventCharacter 'h')           = Just MoveLeft
+uiEvent (C.EventCharacter 'j')           = Just MoveDown
+uiEvent (C.EventCharacter 'k')           = Just MoveUp
+uiEvent (C.EventCharacter 'l')           = Just MoveRight
+uiEvent (C.EventCharacter '\n')          = Just SelectChoice
+uiEvent (C.EventCharacter 'q')           = Just Back
+uiEvent _                                = Nothing
 
-
-hudEvent ∷ C.Event → Maybe HUDEvent
-hudEvent (C.EventCharacter '\t') = Just SwitchToNormal
-hudEvent (C.EventCharacter 'j')  = Just WatchDown
-hudEvent (C.EventCharacter 'k')  = Just WatchUp
-hudEvent (C.EventCharacter 'h')  = Just WatchPrevButton
-hudEvent (C.EventCharacter 'l')  = Just WatchNextButton
-hudEvent (C.EventCharacter '\n') = Just WatchButtonPush
-hudEvent _                       = Nothing

@@ -66,6 +66,7 @@ data Game = Game {
     , _g_carlasComputer ∷ ComputerM ()
     , _g_carlasFramebuffer ∷ String
 
+    , _g_hudTeamSelector ∷ Int
     , _g_watchTime ∷ Int
     , _g_watchButton ∷ Int
     }
@@ -99,8 +100,9 @@ newGame dd = do
       , _g_carlasComputer    = newComputer
       , _g_carlasFramebuffer = "Ready."
 
-      , _g_watchTime   = 1234
-      , _g_watchButton = 0
+      , _g_hudTeamSelector = 0
+      , _g_watchTime       = 1234
+      , _g_watchButton     = 0
     }
     where -- TODO Set materials!
         objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" M.empty
@@ -157,7 +159,9 @@ loopTheLoop dd = do
             Normal       → lift Input.nextWorldEvent       >>= processNormal
             Examination  → lift Input.nextUiEvent          >>= processExamination
             Operation    → lift Input.nextInteractionEvent >>= processOperation
-            Hud          → lift Input.nextHudEvent         >>= processHud
+            HudTeam      → lift Input.nextUiEvent          >>= processHudTeam
+            HudMessages  → lift Input.nextUiEvent          >>= processHudMessages
+            HudWatch     → lift Input.nextUiEvent          >>= processHudWatch
             Conversation → lift Input.nextUiEvent          >>= processConversation
             InventoryUI  → lift Input.nextUiEvent          >>= processInventoryUI
             CharacterUI  → lift Input.nextUiEvent          >>= processCharacterUI
@@ -168,7 +172,7 @@ loopTheLoop dd = do
         processNormal Input.Quit = do
             g_keepRunning .= False
         processNormal Input.SwitchToHud = do
-            g_gameState .= Hud
+            g_gameState .= HudTeam
             renderNormal
         processNormal (Input.Move v) = do
             g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
@@ -273,26 +277,79 @@ loopTheLoop dd = do
             g_gameState .= Normal
             renderNormal
 
-        processHud ∷ Input.HUDEvent → StateT Game C.Curses ()
-        processHud Input.SwitchToNormal = do
+        processHudTeam ∷ Input.UIEvent → StateT Game C.Curses ()
+        processHudTeam Input.TabNext = do
+            g_gameState .= HudMessages
+            renderNormal
+        processHudTeam Input.TabPrevious = do
+            g_gameState .= HudWatch
+            renderNormal
+        processHudTeam Input.MoveUp = do
+            g_hudTeamSelector %= max 0 . subtract 3
+            renderNormal
+        processHudTeam Input.MoveDown = do
+            g_hudTeamSelector %= min 5 . (+3)
+            renderNormal
+        processHudTeam Input.MoveLeft = do
+            g_hudTeamSelector %= max 0 . subtract 1
+            renderNormal
+        processHudTeam Input.MoveRight = do
+            g_hudTeamSelector %= min 5 . (+1)
+            renderNormal
+        processHudTeam Input.SelectChoice = do
+            renderMessage "Showing charcter sheet!"
+            renderNormal
+        processHudTeam Input.Back = do
             g_gameState .= Normal
             renderNormal
-        processHud Input.WatchUp = do
+
+        processHudMessages ∷ Input.UIEvent → StateT Game C.Curses ()
+        processHudMessages Input.TabNext = do
+            g_gameState .= HudWatch
+            renderNormal
+        processHudMessages Input.TabPrevious = do
+            g_gameState .= HudTeam
+            renderNormal
+        processHudMessages Input.MoveUp = do
+            -- TODO scroll
+            renderNormal
+        processHudMessages Input.MoveDown = do
+            -- TODO scroll
+            renderNormal
+        processHudMessages Input.SelectChoice = do
+            -- TODO use scroll window to show log
+            renderNormal
+        processHudMessages Input.Back = do
+            g_gameState .= Normal
+            renderNormal
+        processHudMessages _ =
+            pure ()
+
+        processHudWatch ∷ Input.UIEvent → StateT Game C.Curses ()
+        processHudWatch Input.TabNext = do
+            g_gameState .= HudTeam
+            renderNormal
+        processHudWatch Input.TabPrevious = do
+            g_gameState .= HudMessages
+            renderNormal
+        processHudWatch Input.MoveUp = do
             g_watchTime += 1
             renderNormal
-        processHud Input.WatchDown = do
+        processHudWatch Input.MoveDown = do
             g_watchTime -= 1
             renderNormal
-        processHud Input.WatchNextButton = do
-            g_watchButton %= (`mod` 3) . (+1)
-            renderNormal
-        processHud Input.WatchPrevButton = do
+        processHudWatch Input.MoveLeft = do
             g_watchButton %= (`mod` 3) . subtract 1
             renderNormal
-        processHud Input.WatchButtonPush = do
+        processHudWatch Input.MoveRight = do
+            g_watchButton %= (`mod` 3) . (+1)
+            renderNormal
+        processHudWatch Input.SelectChoice = do
             use g_watchButton >>= renderMessage . ("Pushing button: " <>) . show
             renderNormal
-
+        processHudWatch Input.Back = do
+            g_gameState .= Normal
+            renderNormal
 
         processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
         processConversation Input.MoveUp = do
@@ -516,21 +573,36 @@ renderNormal = do
     d  ← uses (g_world.w_map.wm_data) (fmap last)
     v  ← use (g_world.w_vis)
     s  ← use (g_world.w_status)
-    hudmode ← uses g_gameState (==Hud) 
-    wt  ← use g_watchTime
-    wb  ← use g_watchButton
+
+    at ← uses (g_world.w_active.e_object.o_state) (M.! "name") >>= pure . \case
+            "Carla"   → 0
+            "Delgado" → 1
+            "Raj"     → 3
+            "570rm"   → 4
+            _         → error "Impossible active selection!"
+    ts ← use g_hudTeamSelector
+    gs ← use g_gameState
+    wt ← use g_watchTime
+    wb ← use g_watchButton
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        drawHud hudmode wt wb s >>= updateHud
+        drawHud gs ts at wt wb s >>= updateHud
 
 
 renderMessage ∷ String → StateT Game C.Curses ()
 renderMessage msg = do
-    hudmode ← uses g_gameState (==Hud) 
-    wt  ← use g_watchTime
-    wb  ← use g_watchButton
-    doRender $ drawHud hudmode wt wb msg >>= updateHud
+    at ← uses (g_world.w_active.e_object.o_state) (M.! "name") >>= pure . \case
+            "Carla"   → 0
+            "Delgado" → 1
+            "Raj"     → 3
+            "570rm"   → 4
+            _         → error "Impossible active selection!"
+    gs ← use g_gameState
+    ts ← use g_hudTeamSelector
+    wt ← use g_watchTime
+    wb ← use g_watchButton
+    doRender $ drawHud gs ts at wt wb msg >>= updateHud
 
 
 renderConversation ∷ ConversationNode → StateT Game C.Curses ()
