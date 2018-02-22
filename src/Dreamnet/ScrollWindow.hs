@@ -73,8 +73,9 @@ setTitle t = sd_title .~ Just t
 
 
 setText ∷ String → ScrollData → ScrollData
-setText s sd = let ls  = intercalate [""] $ lines' (fromIntegral $ lineWidth sd) length " " . words <$> lines s
-               in  setLines ls sd
+setText s sd =
+    let ls = intercalate [""] $ lines' (fromIntegral $ lineWidth sd) length " " . words <$> lines s
+    in  setLines ls sd
 
 
 setLines ∷ [String] → ScrollData → ScrollData

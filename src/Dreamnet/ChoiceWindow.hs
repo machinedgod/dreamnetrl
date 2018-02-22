@@ -34,7 +34,7 @@ createChoiceData ∷ C.Curses ChoiceData
 createChoiceData = do
     (rows, columns) ← C.screenSize
     let mainWidth  = columns
-        mainHeight = rows - 8 -- Hud
+        mainHeight = rows - 12 -- Hud
 
     let lowLeftW = mainWidth `div` 3
         lowLeftH = mainHeight `div` 3

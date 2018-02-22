@@ -83,8 +83,9 @@ newGame dd = do
         _g_world        = newWorld
                               (fromTileMap m objectFromTile)
                               (playerPerson <$> [ "Carla"
-                                                , "Raj"
                                                 , "Delgado"
+                                                , "Raj"
+                                                , "570rm"
                                                 ])
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
@@ -186,6 +187,10 @@ loopTheLoop dd = do
             renderNormal
         processNormal (Input.SelectTeamMember 2) = do
             g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
+            uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
+            renderNormal
+        processNormal (Input.SelectTeamMember 3) = do
+            g_world %= snd . runWorld (selectCharacter "570rm" $> Normal)
             uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
             renderNormal
         processNormal (Input.SelectTeamMember _) =

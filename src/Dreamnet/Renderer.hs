@@ -28,11 +28,13 @@ import Data.Semigroup       ((<>))
 import Data.Maybe           (fromMaybe)
 import Data.Foldable        (traverse_)
 import Data.Char            (digitToInt)
+import Data.List            (intercalate)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
+import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
 
@@ -49,13 +51,15 @@ data Styles = Styles {
     , _s_visibilityKnown   ∷ Material
     --, _s_visibilityVisible ∷ Material
 
-    --, _s_colorRed     ∷ C.ColorID
+
+    , _s_colorBlack   ∷ C.ColorID
+    , _s_colorRed     ∷ C.ColorID
     , _s_colorGreen   ∷ C.ColorID
-    --, _s_colorYellow  ∷ C.ColorID
-    --, _s_colorBlue    ∷ C.ColorID
-    --, _s_colorMagenta ∷ C.ColorID
-    --, _s_colorCyan    ∷ C.ColorID
-    --, _s_colorWhite   ∷ C.ColorID
+    , _s_colorYellow  ∷ C.ColorID
+    , _s_colorBlue    ∷ C.ColorID
+    , _s_colorMagenta ∷ C.ColorID
+    , _s_colorCyan    ∷ C.ColorID
+    , _s_colorWhite   ∷ C.ColorID
     }
 
 makeLenses ''Styles
@@ -125,13 +129,14 @@ initRenderer = do
                 | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
                 | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
             createStyles8Colors = do 
-                cRed     ← C.newColorID  C.ColorRed      C.ColorBlack  1
-                cGreen   ← C.newColorID  C.ColorGreen    C.ColorBlack  2
-                cYellow  ← C.newColorID  C.ColorYellow   C.ColorBlack  3
-                cBlue    ← C.newColorID  C.ColorBlue     C.ColorBlack  4
-                cMagenta ← C.newColorID  C.ColorMagenta  C.ColorBlack  5
-                cCyan    ← C.newColorID  C.ColorCyan     C.ColorBlack  6
-                cWhite   ← C.newColorID  C.ColorWhite    C.ColorBlack  7
+                cBlack   ← C.newColorID C.ColorBlack   C.ColorBlack 1
+                cRed     ← C.newColorID C.ColorRed     C.ColorBlack 2
+                cGreen   ← C.newColorID C.ColorGreen   C.ColorBlack 3
+                cYellow  ← C.newColorID C.ColorYellow  C.ColorBlack 4
+                cBlue    ← C.newColorID C.ColorBlue    C.ColorBlack 5
+                cMagenta ← C.newColorID C.ColorMagenta C.ColorBlack 6
+                cCyan    ← C.newColorID C.ColorCyan    C.ColorBlack 7
+                cWhite   ← C.newColorID C.ColorWhite   C.ColorBlack 8
 
                 return Styles {
                          _s_materials = M.fromList
@@ -162,7 +167,7 @@ initRenderer = do
                        --, _s_colorBlue    = cBlue   
                        --, _s_colorMagenta = cMagenta
                        --, _s_colorCyan    = cCyan   
-                       --, _s_colorWhite   = cWhite  
+                       , _s_colorWhite   = cWhite  
                        }
 
 
@@ -202,55 +207,91 @@ drawMap chf matf w dat vis = do
 
 drawHud ∷ (MonadRender r) ⇒ Bool → Int → Int → String → r (RenderAction ())
 drawHud hudmode time button msg = do
+    white ← use (rd_styles.s_colorWhite)
     green ← use (rd_styles.s_colorGreen)
     pure $ RenderAction $ do
-        when hudmode $
-           C.setColor green
+        C.setColor white
+        ox ← subtract 34 . snd <$> C.windowSize
 
-        drawWatch
+        drawBorders
+        drawList 0 1 teamBoxes
+        drawData (0 * 17 + 2) (0 * 5 + 2) "Carla"   ("Handgun",  8, 10) (10, 15)
+        drawData (1 * 17 + 2) (0 * 5 + 2) "Delgado" ("Rifle",   21, 21) (2, 20)
+        drawList (2 * 17 + 1) (0 * 5 + 2) emptyMember
+
+        drawData (0 * 17 + 2) (1 * 5 + 2) "Raj"     ("Railgun",  7,  8) (8, 12)
+        drawData (1 * 17 + 2) (1 * 5 + 2) "570rm"   ("P.Blas.", 11, 11) (8, 16)
+        drawList (2 * 17 + 1) (1 * 5 + 2) emptyMember
+
+        drawStatus
+        drawList ox 0 watch
+
+        C.setColor $ if hudmode
+                        then green
+                        else white
         drawTime
             (fromIntegral . digitToInt . (!!0) . show $ time)
             (fromIntegral . digitToInt . (!!1) . show $ time)
             (fromIntegral . digitToInt . (!!2) . show $ time)
             (fromIntegral . digitToInt . (!!3) . show $ time)
-        --drawTime 0 7 3 8
-        drawBorders
-        drawStatus
     where
-        drawWatch ∷ C.Update ()
-        drawWatch = do
-            originx ← subtract 34 . snd <$> C.windowSize
-            traverse_
-                (\(ix, l) → C.moveCursor ix originx >> C.drawString l)
-                $ zip
-                    [0..]
-                    [ "    .-----------------------.    "
-                    , "   /                         \\   "
-                    , "──/    .-----------------.    \\──"
-                    , " .    /                   \\    . "
-                    , "┌|---'                     '---| "
-                    , "└|   |                     |   |┐"
-                    , " |   |                     |   ||"
-                    , "┌|   |                     |   |┘"
-                    , "└|---.                     .---| "
-                    , " '    \\                   /    ' "
-                    , "──\\    '-----------------'    /──"
-                    , "   \\      o     o     o      /   "
-                    , "    '-----------------------'    "
-                    ]
+        drawData ∷ Word → Word → String → (String, Int, Int) → (Int, Int) → C.Update ()
+        drawData ox oy n (wn, cl, mcl) (hp, mhp) = do
+            let boxWidth = 14
+            -- Name
+            C.moveCursor (fromIntegral oy) (fromIntegral ox)
+            C.drawString n
+            -- Stance
+            C.moveCursor (fromIntegral oy) (fromIntegral ox + boxWidth - 1)
+            C.drawGlyph (C.Glyph '_' [])
+            -- Weapon
+            C.moveCursor (fromIntegral oy + 1) (fromIntegral ox)
+            C.drawString wn
+            -- Clip
+            let clipStr = show cl <> "/" <> show mcl
+            C.moveCursor (fromIntegral oy + 1) (fromIntegral ox + boxWidth - fromIntegral (length clipStr))
+            C.drawString clipStr
+            -- Health bar
+            let hBars = floor ((fromIntegral hp / fromIntegral mhp) * fromIntegral boxWidth)
+                hDots = fromIntegral boxWidth - hBars
+            C.moveCursor (fromIntegral oy + 3) (fromIntegral ox)
+            C.drawString (concat [ replicate hBars '|'
+                                 , replicate hDots '.'
+                                 ])
+            
+
+        --shorten ∷ Word → String → String
+        --shorten l = (++".") . take (l-1)
+
+        watch ∷ [String]
+        watch = [ "    .-----------------------.    "
+                , "   /                         \\   "
+                , "━━/    .-----------------.    \\━━"
+                , " .    /                   \\    . "
+                , "┌|---'                     '---| "
+                , "└|   |                     |   |┐"
+                , " |   |                     |   |│"
+                , "┌|   |                     |   |┘"
+                , "└|---.                     .---| "
+                , " '    \\                   /    ' "
+                , "━━\\    '-----------------'    /━━"
+                , "   \\      o     o     o      /   "
+                , "    '-----------------------'    "
+                ]
 
         drawTime ∷ Word → Word → Word → Word → C.Update ()
         drawTime h1 h2 m1 m2 = do
-            originx ← subtract 34 . snd <$> C.windowSize
-            drawList (originx + 8)  4 (digit h1)
-            drawList (originx + 12) 4 (digit h2)
-            drawList (originx + 16) 4 dots
-            drawList (originx + 18) 4 (digit m1)
-            drawList (originx + 22) 4 (digit m2)
-            where
-                drawList x y =
-                    traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
-                    . zip [y..]
+            ox ← subtract 34 . snd <$> C.windowSize
+            drawList (ox + 8)  4 (digit h1)
+            drawList (ox + 12) 4 (digit h2)
+            drawList (ox + 16) 4 dots
+            drawList (ox + 18) 4 (digit m1)
+            drawList (ox + 22) 4 (digit m2)
+
+        drawList ∷ Integer → Integer → [String] → C.Update ()
+        drawList x y =
+            traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
+            . zip [y..]
 
         dots ∷ [String]
         dots = [" "
@@ -337,14 +378,53 @@ drawHud hudmode time button msg = do
         drawBorders = do
             len ← fromIntegral . subtract 34 . snd <$> C.windowSize
             C.moveCursor 2 0
-            C.drawString $ replicate len '─'
+            C.drawString $ replicate len '-'
             C.moveCursor 10 0
-            C.drawString $ replicate len '─'
+            C.drawString $ replicate len '-'
+
+        teamBoxes ∷ [String]
+        teamBoxes = [ "┏----------------┳----------------┳----------------┓"
+                    , "|                |                |                ┣"
+                    , "|                |                |                |"
+                    , "|                |                |                |"
+                    , "|                |                |                |"
+                    , "┣----------------╋----------------╋----------------┫"
+                    , "|                |                |                |"
+                    , "|                |                |                |"
+                    , "|                |                |                |"
+                    , "|                |                |                ┣"
+                    , "┗----------------┻----------------┻----------------┛"
+                    ]
+        emptyMember ∷ [String]
+        emptyMember = [ "/  //  //  //  /"
+                      , "  //  //  //  //"
+                      , " //  //  //  // "
+                      , "//  //  //  //  "
+                      ]
+
         drawStatus ∷ C.Update ()
         drawStatus = do
+            let start       = 54 -- Team boxes length
+                watchLength = 34
+                padding     = 4
+            
+            C.moveCursor 3 (fromIntegral start)
+            C.drawGlyph (C.Glyph '▲' [])
+            C.moveCursor 9 (fromIntegral start)
+            C.drawGlyph (C.Glyph '▼' [])
+            
             -- TODO add lines' here
-            let start = 70
-            len ← subtract (34 + length "Status: " + start + 4) . fromIntegral . snd <$> C.windowSize
-            C.moveCursor 4 (fromIntegral start)
-            let st = take len $ msg <> repeat '.'
-            C.drawString $ "Status: " <> st
+            len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
+            let lns = lines' (fromIntegral len) length " " (words loremIpsum)
+            drawList (fromIntegral start) padding lns
+
+        loremIpsum ∷ String
+        loremIpsum = intercalate " "
+            [ "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
+            , "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis"
+            , "nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+            , "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu"
+            , "fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in"
+            , "culpa qui officia deserunt mollit anim id est laborum"
+            ]
+
