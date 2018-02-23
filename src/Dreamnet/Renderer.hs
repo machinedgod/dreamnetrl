@@ -20,7 +20,7 @@ module Dreamnet.Renderer
 ) where
 
 import Safe                 (atDef)
-import Control.Lens         (makeLenses, use, uses, view)
+import Control.Lens         (makeLenses, use, uses, view, views)
 import Control.Monad.Trans  (lift)
 import Control.Monad.State  (MonadState, StateT, runStateT)
 import Linear               (V2(V2))
@@ -34,7 +34,7 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.GameState
+import Dreamnet.DesignData  (GameState(..))
 import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
@@ -71,7 +71,7 @@ fromSeconds t =
 
 numberToDigits ∷ Word → (Word, Word)
 numberToDigits i =
-    let f i = fromIntegral . digitToInt . flip (atDef '0') i . reverse . show
+    let f ix = fromIntegral . digitToInt . flip (atDef '0') ix . reverse . show
     in  (f 1 i, f 0 i)
 
 --------------------------------------------------------------------------------
@@ -245,17 +245,17 @@ drawHud gs hms am turns button msg = do
         drawBorders watchLength
         drawList 0 1 teamBoxes
 
-        setDataColor gs 0 white green blue
+        setDataColor 0 white green blue
         drawData (0 * 17 + 2) (0 * 5 + 2) "Carla"   ("Handgun",  8, 10) (10, 15)
-        setDataColor gs 1 white green blue
+        setDataColor 1 white green blue
         drawData (1 * 17 + 2) (0 * 5 + 2) "Delgado" ("Rifle",   21, 21) (2, 20)
-        setDataColor gs 2 white green blue
+        setDataColor 2 white green blue
         drawList (2 * 17 + 1) (0 * 5 + 2) emptyMember
-        setDataColor gs 3 white green blue
+        setDataColor 3 white green blue
         drawData (0 * 17 + 2) (1 * 5 + 2) "Raj"     ("Railgun",  7,  8) (8, 12)
-        setDataColor gs 4 white green blue
+        setDataColor 4 white green blue
         drawData (1 * 17 + 2) (1 * 5 + 2) "570rm"   ("P.Blas.", 11, 11) (8, 16)
-        setDataColor gs 5 white green blue
+        setDataColor 5 white green blue
         drawList (2 * 17 + 1) (1 * 5 + 2) emptyMember
 
         C.setColor $ if gs == HudMessages
@@ -272,8 +272,8 @@ drawHud gs hms am turns button msg = do
             
         drawTime watchLength (fromSeconds turns)
     where
-        setDataColor ∷ GameState → Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
-        setDataColor gs i none hud active
+        setDataColor ∷ Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
+        setDataColor i none hud active
             | gs == HudTeam && hms == i = C.setColor hud
             |                   am == i = C.setColor active
             | otherwise                 = C.setColor none
@@ -295,7 +295,7 @@ drawHud gs hms am turns button msg = do
             C.moveCursor (fromIntegral oy + 1) (fromIntegral ox + boxWidth - fromIntegral (length clipStr))
             C.drawString clipStr
             -- Health bar
-            let hBars = floor ((fromIntegral hp / fromIntegral mhp) * fromIntegral boxWidth)
+            let hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
                 hDots = fromIntegral boxWidth - hBars
             C.moveCursor (fromIntegral oy + 3) (fromIntegral ox)
             C.drawString (concat [ replicate hBars '|'
@@ -333,9 +333,9 @@ drawHud gs hms am turns button msg = do
             drawList (ox + 27) 6 (smallDigit . fst . numberToDigits . view wd_seconds $ wd)
             drawList (ox + 30) 6 (smallDigit . snd . numberToDigits . view wd_seconds $ wd)
             C.moveCursor 3 (ox + 27)
-            C.drawString "Mon 12"
+            C.drawString (view wd_weekDay wd <> " " <> views wd_day show wd)
             C.moveCursor 4 (ox + 27)
-            C.drawString "04-2183"
+            C.drawString (views wd_month show wd <> "-" <> views wd_year show wd)
 
         dots ∷ [String]
         dots = [" "
@@ -385,18 +385,10 @@ drawHud gs hms am turns button msg = do
             
             -- TODO add lines' here
             len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
-            let lns = lines' (fromIntegral len) length " " (words loremIpsum)
+            let lns = if null msg
+                        then [msg]
+                        else lines' (fromIntegral len) length " " (words msg)
             drawList (fromIntegral start) padding lns
-
-        loremIpsum ∷ String
-        loremIpsum = intercalate " "
-            [ "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
-            , "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis"
-            , "nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
-            , "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu"
-            , "fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in"
-            , "culpa qui officia deserunt mollit anim id est laborum"
-            ]
 
 --------------------------------------------------------------------------------
 
@@ -523,3 +515,15 @@ smallDigit 9 = ["|̅‾|"
                ," _|"
                ]
 smallDigit _ = smallDigit 8
+
+
+loremIpsum ∷ String
+loremIpsum = intercalate " "
+    [ "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
+    , "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis"
+    , "nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+    , "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu"
+    , "fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in"
+    , "culpa qui officia deserunt mollit anim id est laborum"
+    ]
+

@@ -120,12 +120,13 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
 --------------------------------------------------------------------------------
 
 lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
-lines' l lf sep xs = let (ln, r) = line'' l lf sep xs
-                     in  if null r && ln == mempty
-                           then error "Phrase longer than limit (cannot be separated by separator!)"
-                           else if null r
-                             then ln : []
-                             else ln : lines' l lf sep r
+lines' l lf sep xs =
+    let (ln, r) = line'' l lf sep xs
+    in  if null r && ln == mempty
+          then error "Phrase longer than limit (cannot be separated by separator!)"
+          else if null r
+            then ln : []
+            else ln : lines' l lf sep r
     where
         line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
         line'' l lf sep = foldl' (\(f, b) x → if b /= mempty

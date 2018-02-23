@@ -64,7 +64,6 @@ executable dreamnetrl
                        Dreamnet.Renderer
                        Dreamnet.ChoiceWindow
                        Dreamnet.Visibility
-                       Dreamnet.GameState
                        Dreamnet.TileMap
                        Dreamnet.Dreamnet
                        Dreamnet.ComputerModel
@@ -82,6 +81,7 @@ executable dreamnetrl
   build-depends:       base,
                        safe,
                        transformers,
+                       MonadRandom,
                        mtl,
                        containers,
                        vector,

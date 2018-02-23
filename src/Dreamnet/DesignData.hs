@@ -1,54 +1,282 @@
 {-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.DesignData
-( DesignData
+( GameState(..)
+
+, Faction(Faction)
+, DreamnetCharacter
+
+, DesignData
 , dd_characters
 , dd_defaultRedshirt
 , dd_startingMap
 
 , defaultDesignData
+, characterForName
+
+, InteractionType(..)
+, States
+, queryGeneric
+
+, ObjectAPI(..)
+, door
+, computer
+, person
+, generic
+, camera
+
+, objectFromTile
+, playerPerson
+
 ) where
 
 
-import Control.Lens
-import qualified Data.Map as M
+import Control.Lens         (makeLenses, view, views)
+import Control.Monad.Random (MonadRandom)
+import Data.Semigroup       ((<>))
+import Data.Maybe           (fromMaybe)
+import Data.Bool            (bool)
+import Linear               (V2)
 
-import Dreamnet.Conversation
+import qualified Data.Map as M (Map, empty, singleton, fromList, (!), lookup,
+                                insert)
+
+import Dreamnet.TileMap      (Tile, t_char)
+import Dreamnet.TileData     (ttype, readStringProperty, readBoolProperty,
+                              readWordProperty)
+import Dreamnet.World        (Object(Object), o_symbol, o_state)
+import Dreamnet.Conversation (ConversationNode(ChoiceNode, TalkNode, ListenNode, End))
 import Dreamnet.Character
 
 --------------------------------------------------------------------------------
 
+-- TODO this could be a Character state,
+--      this way it circularly ties back into the game
+--      (when rendering characters), rather than World
+--      having to produce a new GameState
+--
+--      Dunno what's better
+--
+--      After 30 seconds - its the same. *direction* of data
+--      is the same.
+--
+--      Bottomline is, changes in the world dictate changes in the
+--      player's domain (UI, controls, etc)
+data GameState = Normal
+               | Examination
+               | Operation
+               | HudTeam
+               | HudMessages
+               | HudWatch
+               | Conversation
+               | InventoryUI
+               | CharacterUI
+               deriving (Eq, Show)
+
+--------------------------------------------------------------------------------
+
+newtype Faction = Faction String
+                deriving (Eq, Show)
+
+facGenpop ∷ Faction
+facGenpop = Faction "genpop"
+facCarla ∷ Faction
+facCarla = Faction "carla"
+
+--------------------------------------------------------------------------------
+
+type DreamnetCharacter = Character Item ConversationNode Faction 
+
+--------------------------------------------------------------------------------
+
 data DesignData = DesignData {
-      _dd_characters      ∷ M.Map String (Character Item ConversationNode) 
-    , _dd_defaultRedshirt ∷ Character Item ConversationNode
+      _dd_characters      ∷ M.Map String DreamnetCharacter 
+    , _dd_defaultRedshirt ∷ DreamnetCharacter
     , _dd_startingMap     ∷ String
     }
 
 makeLenses ''DesignData
 
 
-defaultDesignData ∷ DesignData
-defaultDesignData =
+defaultDesignData ∷ (MonadRandom r) ⇒ r DesignData
+defaultDesignData = pure $
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
-    , _dd_defaultRedshirt = newCharacter "?" redshirtConvo
+    , _dd_defaultRedshirt = newCharacter "?" facGenpop redshirtConvo
     , _dd_startingMap     = "res/bar"
     }
     where
         toNamedTuple = (,) <$> view ch_name <*> id
 
+        characters ∷ [DreamnetCharacter]
+        characters =
+            [ newCharacter "Carla"   facCarla End
+            , newCharacter "Raj"     facCarla rajConvo
+            , newCharacter "Delgado" facCarla delgadoConvo
 
-characters ∷ [Character Item ConversationNode]
-characters =
-    [ newCharacter "Carla"   End
-    , newCharacter "Raj"     rajConvo
-    , newCharacter "Delgado" delgadoConvo
+            , newCharacter "Moe"    facGenpop moeConvo
+            , newCharacter "Johnny" facGenpop johnnyConvo
+            , newCharacter "Sally"  facGenpop sallyConvo
+            ]
 
-    , newCharacter "Moe"    moeConvo
-    , newCharacter "Johnny" johnnyConvo
-    , newCharacter "Sally"  sallyConvo
-    ]
+
+
+characterForName ∷ DesignData → String → DreamnetCharacter
+characterForName dd name =
+    let maybeChar = M.lookup name (view dd_characters dd)
+    in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
+
+
+
+
+--------------------------------------------------------------------------------
+-- Object API and objects
+
+-- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
+class ObjectAPI o where
+    position         ∷ o (V2 Int)
+    move             ∷ V2 Int → o ()
+    requestGameState ∷ GameState → o ()
+    passable         ∷ o Bool
+    setPassable      ∷ Bool → o () -- Creates a state, creates and object. NO!
+    seeThrough       ∷ o Bool
+    setSeeThrough    ∷ Bool → o ()
+    canSee           ∷ V2 Int → o Bool
+    changeChar       ∷ Char → o ()
+    changeMat        ∷ String → o ()
+    message          ∷ String → o ()
+    put              ∷ States → o ()
+    get              ∷ o States
+    scanRange        ∷ Word → (Object States → Bool) → o [(V2 Int, Object States)]
+    -- Keep adding primitives until you can describe all Map Objects as programs
+
+modify ∷ (ObjectAPI o, Monad o) ⇒ (States → States) → o ()
+modify f = get >>= put . f 
+
+--------------------------------------------------------------------------------
+
+-- TODO implement Examine as one of interaction types, through making ObjectAPI
+-- able to summon UI - this can work if we just change game state
+data InteractionType = Operate
+                     | Talk
+                     | OperateOn
+                     | AiTick
+
+--------------------------------------------------------------------------------
+
+data States = Person  DreamnetCharacter
+            | Generic (M.Map String String)
+            deriving (Eq, Show) -- TODO just for Debug of UseHeld
+
+
+insertGeneric ∷ String → String → States → States
+insertGeneric k v (Generic m) = Generic $ M.insert k v m
+insertGeneric k v _ = Generic $ M.singleton k v
+
+
+queryGeneric ∷ String → States → String
+queryGeneric k (Generic m) = m M.! k
+queryGeneric _ _           = ""
+
+--------------------------------------------------------------------------------
+
+-- | Toggles collision and character on interaction
+door ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+door Operate = do
+    c ← passable >>= setPassable . not >> passable
+    setSeeThrough c
+    changeChar $ bool '+' '\'' c
+    --passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
+    message $ "Doors are now " <>  bool "closed." "opened." c
+door Talk =
+    message "\"Open sesame!\" you yell, but doors are deaf and numb to your pleas."
+door OperateOn =
+    message "Operating door on something else..."
+door AiTick =
+    pure ()
+
+
+computer ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+computer Operate =
+    message "You can't login to this machine."
+computer Talk =
+    message "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
+computer OperateOn =
+    message "Operating computer on something else. Yikes."
+computer AiTick =
+    pure ()
+
+
+person ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+person Operate = do
+    name ← queryGeneric "name" <$> get
+    message $ "Unsure yourself about what exactly you're trying to pull off, " <> name <> " meets your 'operation' attempts with suspicious look."
+person Talk =
+    requestGameState Conversation
+person OperateOn = do
+    name ← queryGeneric "name" <$> get
+    message $ "You try and operate " <> name <> " on whatever. Lol."
+person AiTick =
+    pure ()
+
+
+generic ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o () 
+generic Operate =
+    message "Trying to interact with whatever."
+generic Talk =
+    message "Trying to talk to whatever."
+generic OperateOn =
+    message "You try and operate whatever on whatever."
+generic AiTick =
+    pure ()
+
+
+camera ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+camera AiTick = do
+    os   ← scanRange 8 ((=='@') . view o_symbol)
+    viso ← traverse (canSee . fst) os >>=
+               pure . fmap (snd . fst) . filter snd . zip os
+    traverse isFoe viso >>= (\v → modify (insertGeneric "level" v)) . show . length . filter id
+    get >>= message . ("Camera alarm level: " <>) . queryGeneric "level"
+    where
+        isFoe o = (views o_state (queryGeneric "alliance") o /=) . queryGeneric "alliance" <$> get
+camera _ = 
+    message "That won't work."
+
+
+--objectToChar (Stairs u)       = bool '<' '>' u
+--objectToChar (Camera l)       = intToDigit l
+--objectToChar Computer         = '$'
+--objectToChar (ItemO _)        = '['
+
+
+--isPassable (Person c)       = or . fmap nameMatches <$> team
+--    where
+--        nameMatches c' = view ch_name c == view (e_object.ch_name) c'
+
+
+-- TODO this *could* all be just a single thing. Object type really does not matter here.
+objectFromTile ∷ Tile → Object States
+objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" (Generic M.empty)
+objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) (Generic M.empty)
+objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) (Generic M.empty)
+objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".") (Generic M.empty)
+objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".") (Generic $ M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
+objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?" (Generic M.empty) -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (Generic $ M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
+objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job." (Generic M.empty)
+objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".") (Generic M.empty)
+objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
+-- TODO Errrrrr, this should be done through the tileset???
+
+playerPerson ∷ String → Object States
+playerPerson n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (Generic $ M.fromList [("name", n), ("alliance", "player")])
+
+
+
+
 
 --------------------------------------------------------------------------------
 -- Conversations

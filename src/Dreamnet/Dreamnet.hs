@@ -7,31 +7,26 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens              (makeLenses, use, uses, view, views, (.=),
+import Control.Lens              (makeLenses, use, uses, view, (.=),
                                   assign, (%=), (+=), (-=))
 import Control.Monad             (void, when)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.Functor              (($>))
-import Data.Bool                 (bool)
 import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2))
 
-import qualified Data.Map    as M    ((!), lookup, empty, fromList)
 import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
 import Dreamnet.DesignData
-import Dreamnet.GameState
 import qualified Dreamnet.Input as Input
 import Dreamnet.World
 import Dreamnet.Conversation
 
 import Dreamnet.CoordVector
-import Dreamnet.TileData        (ttype, readBoolProperty, readWordProperty,
-                                 readStringProperty)
 import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.Entity
@@ -53,14 +48,14 @@ type Name = String
 -- then runs and produces WorldAPI state values
 data Game = Game {
       _g_turn         ∷ Word
-    , _g_world        ∷ World Visibility
+    , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
     , _g_gameState    ∷ GameState
     , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
 
     -- This is a correct place to put it for now,
     -- because later on there'll be multiple 'update' places
-    , _g_conversant   ∷ Maybe (Character Item ConversationNode)
+    , _g_conversant   ∷ Maybe DreamnetCharacter
     , _g_conversation ∷ ConversationNode
     , _g_scrollWindow ∷ ScrollData
     , _g_choiceWindow ∷ ChoiceData
@@ -108,21 +103,6 @@ newGame dd = do
       , _g_watchAlarmTime  = 1234
       , _g_watchButton     = 0
     }
-    where -- TODO Set materials!
-        -- TODO this *could* all be just a single thing. Object type really does not matter here.
-        objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" M.empty
-        objectFromTile t@(ttype → "Grass")    = Object (view t_char t) "grass"                    (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "Grass" M.empty
-        objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) M.empty
-        objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) M.empty
-        objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".") M.empty
-        objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".") (M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
-        objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?" M.empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-        objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
-        objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job." M.empty
-        objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".") M.empty
-        objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
-        -- TODO Errrrrr, this should be done through the tileset???
-        playerPerson  n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (M.fromList [("name", n), ("alliance", "player")])
 
 --------------------------------------------------------------------------------
 
@@ -190,35 +170,16 @@ processNormal _ Input.Wait = do
     --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
     increaseTurn
     renderNormal
-processNormal dd Input.NextStance = do
+processNormal _ Input.NextStance = do
     --activeName ← fst . runWorld (active >>= pure . views (e_object.o_state) (M.! "name")) <$> use g_world
     --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
     ---- succ currentStance -- TODO now we would like to set this stance
     renderNormal
-processNormal dd Input.PreviousStance = do
+processNormal _ Input.PreviousStance = do
     --activeName ← fst . runWorld (active >>= views (e_object.o_state) (M.! "name")) <$> use g_world
     --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
     ---- succ currentStance -- TODO now we would like to set this stance
     renderNormal
--- TODO take these out. You can *only* control Carla directly, the rest follows orders.
-processNormal _ (Input.SelectTeamMember 0) = do
-    g_world %= snd . runWorld (selectCharacter "Carla" $> Normal)
-    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-    renderNormal
-processNormal _ (Input.SelectTeamMember 1) = do
-    g_world %= snd . runWorld (selectCharacter "Delgado" $> Normal)
-    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-    renderNormal
-processNormal _ (Input.SelectTeamMember 2) = do
-    g_world %= snd . runWorld (selectCharacter "Raj" $> Normal)
-    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-    renderNormal
-processNormal _ (Input.SelectTeamMember 3) = do
-    g_world %= snd . runWorld (selectCharacter "570rm" $> Normal)
-    uses (g_world.w_active.e_object.o_state) (M.! "name") >>= \n → g_world.w_status .= n <> " selected."
-    renderNormal
-processNormal _ (Input.SelectTeamMember _) =
-    pure ()
 processNormal _ Input.Get = do
     obtainTarget >>= \case
         Nothing →
@@ -270,7 +231,7 @@ processNormal dd Input.Talk = do
             increaseTurn
             use g_gameState >>= \case
                 Conversation → do
-                    let ch = characterForName dd . (M.! "name") . view o_state $ o
+                    let ch = characterForName dd . queryGeneric "name" . view o_state $ o
                     g_conversant .= Just ch
                     g_conversation .= view ch_conversation ch
                     g_scrollWindow %= setTitle (view ch_name ch)
@@ -282,10 +243,10 @@ processNormal dd Input.Talk = do
                     use g_conversation >>= renderConversation
                 _ →
                     renderNormal
-processNormal dd Input.InventorySheet = do
-    is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
+processNormal _ Input.InventorySheet = do
+    --is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
     g_scrollWindow %= setTitle "Inventory sheet"
-    g_scrollWindow %= setLines is
+    --g_scrollWindow %= setLines is
     use g_scrollWindow >>= lift . renderScrollWindow
     g_gameState .= InventoryUI
 processNormal _ Input.CharacterSheet = do
@@ -403,7 +364,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -424,7 +385,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -445,7 +406,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (M.! "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -530,12 +491,6 @@ operationProgramForSymbol '*'  = camera
 operationProgramForSymbol _    = generic
 
 
-characterForName ∷ DesignData → String → Character Item ConversationNode
-characterForName dd name =
-    let maybeChar = M.lookup name (view dd_characters dd)
-    in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
-
-
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do
 --    g_choiceWindow %= selectPrevious
@@ -569,7 +524,7 @@ characterForName dd name =
 --    | otherwise              = True
 
 
-obtainTarget ∷ StateT Game C.Curses (Maybe (V2 Int, Object))
+obtainTarget ∷ StateT Game C.Curses (Maybe (V2 Int, Object States))
 obtainTarget = do
     renderMessage "Select direction:"
     lift C.render
@@ -615,7 +570,7 @@ renderNormal = do
     v  ← use (g_world.w_vis)
     s  ← use (g_world.w_status)
 
-    at ← uses (g_world.w_active.e_object.o_state) (M.! "name") >>= pure . \case
+    at ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name") >>= pure . \case
             "Carla"   → 0
             "Delgado" → 1
             "Raj"     → 3
@@ -634,7 +589,7 @@ renderNormal = do
 
 renderMessage ∷ String → StateT Game C.Curses ()
 renderMessage msg = do
-    at ← uses (g_world.w_active.e_object.o_state) (M.! "name") >>= pure . \case
+    at ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name") >>= pure . \case
             "Carla"   → 0
             "Delgado" → 1
             "Raj"     → 3

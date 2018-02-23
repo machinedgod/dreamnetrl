@@ -33,6 +33,8 @@ module Dreamnet.Character
 , equipmentSlots
 , equippedSlots
 , equippedContainers
+
+, isFriend
 ) where
 
 
@@ -56,18 +58,18 @@ data SlotType = Hand
               | Torso
 
 
-newtype Slot (t ∷ SlotType) a = Slot (Maybe a)
+newtype Slot (t ∷ SlotType) i = Slot (Maybe i)
 
-deriving instance (Show a) ⇒ Show (Slot t a)
-deriving instance (Eq a) ⇒ Eq (Slot t a)
+deriving instance (Show i) ⇒ Show (Slot t i)
+deriving instance (Eq i) ⇒ Eq (Slot t i)
 
 
 -- Cannot use record syntax due to escaped type variables
-data SlotWrapper a = forall t. SlotWrapper (Slot t a)
+data SlotWrapper i = forall t. SlotWrapper (Slot t i)
 
-deriving instance (Show a) ⇒ Show (SlotWrapper a)
+deriving instance (Show i) ⇒ Show (SlotWrapper i)
 
-instance (Eq a) ⇒ Eq (SlotWrapper a) where
+instance (Eq i) ⇒ Eq (SlotWrapper i) where
     (SlotWrapper (Slot i)) == (SlotWrapper (Slot i')) = i == i'
 
 --------------------------------------------------------------------------------
@@ -161,15 +163,16 @@ data InfiltrationSkills = InfiltrationSkills {
 
 --------------------------------------------------------------------------------
 
-data Character a b = Character {
+data Character i c f = Character {
       _ch_name      ∷ String
 
-    , _ch_leftHand  ∷ Slot 'Hand a
-    , _ch_rightHand ∷ Slot 'Hand a
-    , _ch_torso     ∷ Slot 'Torso a
+    , _ch_leftHand  ∷ Slot 'Hand i
+    , _ch_rightHand ∷ Slot 'Hand i
+    , _ch_torso     ∷ Slot 'Torso i
     , _ch_stance    ∷ Stance
 
-    , _ch_conversation ∷ b
+    , _ch_faction      ∷ f
+    , _ch_conversation ∷ c
 
     -- Earned only through missions and combat,
     -- represents general experience
@@ -201,12 +204,12 @@ data Character a b = Character {
 makeLenses ''Character
 
 
-instance Eq (Character a b) where
+instance Eq (Character i c f) where
     ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
 
 
-newCharacter ∷ String → b → Character a b
-newCharacter n cn = Character n empty empty empty Upright cn 0 cs es ss is
+newCharacter ∷ String → f → c → Character i c f
+newCharacter n fac cn = Character n empty empty empty Upright fac cn 0 cs es ss is
     where
         empty = Slot Nothing
         cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -215,21 +218,25 @@ newCharacter n cn = Character n empty empty empty Upright cn 0 cs es ss is
         is    = InfiltrationSkills 0 0 0 0 0
 
 
-equipmentSlots ∷ Character a b → [SlotWrapper a]
+equipmentSlots ∷ Character i c f → [SlotWrapper i]
 equipmentSlots ch = [ SlotWrapper (ch ^. ch_leftHand)
                     , SlotWrapper (ch ^. ch_rightHand)
                     , SlotWrapper (ch ^. ch_torso)
                     ]
 
 
-equippedSlots ∷ Character a b → [SlotWrapper a]
+equippedSlots ∷ Character i c f → [SlotWrapper i]
 equippedSlots = filter hasItem . equipmentSlots
     where
         hasItem (SlotWrapper (Slot mi)) = isJust mi
 
 
-equippedContainers ∷ (ItemTraits a) ⇒ Character a b → [SlotWrapper a]
+equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
 equippedContainers = filter containers . equippedSlots
     where
         containers (SlotWrapper (Slot i)) = maybe False isContainer i
+
+
+isFriend ∷ (Eq f) ⇒ Character i c f → Character i c f → Bool
+isFriend c1 c2 = c1 ^. ch_faction == c2 ^. ch_faction
 

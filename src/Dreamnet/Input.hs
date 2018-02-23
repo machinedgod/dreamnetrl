@@ -34,7 +34,7 @@ data WorldEvent = Move (V2 Int)
                 | PreviousStance
                 | InventorySheet
                 | CharacterSheet
-                | SelectTeamMember  Int
+                -- | SelectTeamMember  Int -- TODO replace with giving commands
 
                 | SwitchToHud
 
@@ -112,16 +112,16 @@ worldEvent (C.EventCharacter '[')  = Just   PreviousStance
 worldEvent (C.EventCharacter ']')  = Just   NextStance
 worldEvent (C.EventCharacter 'i')  = Just   InventorySheet
 worldEvent (C.EventCharacter 'c')  = Just   CharacterSheet
-worldEvent (C.EventCharacter '1')  = Just $ SelectTeamMember 0
-worldEvent (C.EventCharacter '2')  = Just $ SelectTeamMember 1
-worldEvent (C.EventCharacter '3')  = Just $ SelectTeamMember 2
-worldEvent (C.EventCharacter '4')  = Just $ SelectTeamMember 3
-worldEvent (C.EventCharacter '5')  = Just $ SelectTeamMember 4
-worldEvent (C.EventCharacter '6')  = Just $ SelectTeamMember 5
-worldEvent (C.EventCharacter '7')  = Just $ SelectTeamMember 6
-worldEvent (C.EventCharacter '8')  = Just $ SelectTeamMember 7
-worldEvent (C.EventCharacter '9')  = Just $ SelectTeamMember 8
-worldEvent (C.EventCharacter '0')  = Just $ SelectTeamMember 9
+--worldEvent (C.EventCharacter '1')  = Just $ SelectTeamMember 0
+--worldEvent (C.EventCharacter '2')  = Just $ SelectTeamMember 1
+--worldEvent (C.EventCharacter '3')  = Just $ SelectTeamMember 2
+--worldEvent (C.EventCharacter '4')  = Just $ SelectTeamMember 3
+--worldEvent (C.EventCharacter '5')  = Just $ SelectTeamMember 4
+--worldEvent (C.EventCharacter '6')  = Just $ SelectTeamMember 5
+--worldEvent (C.EventCharacter '7')  = Just $ SelectTeamMember 6
+--worldEvent (C.EventCharacter '8')  = Just $ SelectTeamMember 7
+--worldEvent (C.EventCharacter '9')  = Just $ SelectTeamMember 8
+--worldEvent (C.EventCharacter '0')  = Just $ SelectTeamMember 9
 worldEvent (C.EventCharacter '\t') = Just   SwitchToHud
 worldEvent (C.EventCharacter 'q')  = Just   Quit
 worldEvent _                       = Nothing
