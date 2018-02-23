@@ -17,8 +17,7 @@ module Dreamnet.DesignData
 , characterForName
 
 , InteractionType(..)
-, States
-, queryGeneric
+, States(..) -- If I close this, then all conversation code needs to be handled here
 
 , ObjectAPI(..)
 , door
@@ -40,8 +39,7 @@ import Data.Maybe           (fromMaybe)
 import Data.Bool            (bool)
 import Linear               (V2)
 
-import qualified Data.Map as M (Map, empty, singleton, fromList, (!), lookup,
-                                insert)
+import qualified Data.Map as M (Map, fromList, lookup)
 
 import Dreamnet.TileMap      (Tile, t_char)
 import Dreamnet.TileData     (ttype, readStringProperty, readBoolProperty,
@@ -166,19 +164,30 @@ data InteractionType = Operate
 
 --------------------------------------------------------------------------------
 
-data States = Person  DreamnetCharacter
+data States = Camera  Faction Word
+            | Person  DreamnetCharacter
             | Generic (M.Map String String)
+            | Empty
             deriving (Eq, Show) -- TODO just for Debug of UseHeld
 
 
-insertGeneric ∷ String → String → States → States
-insertGeneric k v (Generic m) = Generic $ M.insert k v m
-insertGeneric k v _ = Generic $ M.singleton k v
+-- 1) This *could* all be just a single thing. Object type really does not matter here.
+-- 2) Actually, it does, because Object carries a specific state, later used by object programs
+objectFromTile ∷ Tile → Object States
+objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>"                                                                                                              Empty
+objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t))                                 Empty
+objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) Empty
+objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".")                                                                           Empty
+objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".")                                                                         (Person $ let n = 1 `readStringProperty` t in newCharacter n (Faction $ 2 `readStringProperty` t) (conversationForName n))
+objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?"                                                         Empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."                          (Camera (Faction $ 1 `readStringProperty` t) 0)
+objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job."                                                         Empty
+objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".")                                                                           Empty
+objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
+-- TODO Errrrrr, this should be done through the tileset???
 
-
-queryGeneric ∷ String → States → String
-queryGeneric k (Generic m) = m M.! k
-queryGeneric _ _           = ""
+playerPerson ∷ String → Object States
+playerPerson n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (Person $ newCharacter n facCarla (conversationForName n))
 
 --------------------------------------------------------------------------------
 
@@ -211,12 +220,12 @@ computer AiTick =
 
 person ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
 person Operate = do
-    name ← queryGeneric "name" <$> get
+    name ← (\(Person ch) → view ch_name ch) <$> get
     message $ "Unsure yourself about what exactly you're trying to pull off, " <> name <> " meets your 'operation' attempts with suspicious look."
 person Talk =
     requestGameState Conversation
 person OperateOn = do
-    name ← queryGeneric "name" <$> get
+    name ← (\(Person ch) → view ch_name ch) <$> get
     message $ "You try and operate " <> name <> " on whatever. Lol."
 person AiTick =
     pure ()
@@ -238,10 +247,10 @@ camera AiTick = do
     os   ← scanRange 8 ((=='@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
-    traverse isFoe viso >>= (\v → modify (insertGeneric "level" v)) . show . length . filter id
-    get >>= message . ("Camera alarm level: " <>) . queryGeneric "level"
+    traverse isFoe viso >>= (\v → modify (\(Camera f _) → Camera f (fromIntegral v))) . length . filter id
+    get >>= message . ("Camera alarm level: " <>) . (\(Camera l _) → show l)
     where
-        isFoe o = (views o_state (queryGeneric "alliance") o /=) . queryGeneric "alliance" <$> get
+        isFoe o = (views o_state (\(Person ch) → view ch_faction ch) o /=) . (\(Camera f _) → f) <$> get
 camera _ = 
     message "That won't work."
 
@@ -257,24 +266,6 @@ camera _ =
 --        nameMatches c' = view ch_name c == view (e_object.ch_name) c'
 
 
--- TODO this *could* all be just a single thing. Object type really does not matter here.
-objectFromTile ∷ Tile → Object States
-objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>" (Generic M.empty)
-objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t)) (Generic M.empty)
-objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) (Generic M.empty)
-objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".") (Generic M.empty)
-objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".") (Generic $ M.fromList [ ("name", 1 `readStringProperty` t), ("alliance", 2 `readStringProperty` t)])
-objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?" (Generic M.empty) -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." (Generic $ M.fromList [ ("level", "0"), ("alliance", 1 `readStringProperty` t)])
-objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job." (Generic M.empty)
-objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".") (Generic M.empty)
-objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
--- TODO Errrrrr, this should be done through the tileset???
-
-playerPerson ∷ String → Object States
-playerPerson n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (Generic $ M.fromList [("name", n), ("alliance", "player")])
-
-
 
 
 
@@ -282,6 +273,17 @@ playerPerson n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (Generic $
 -- Conversations
 -- TODO add some conversation builder monad, to make this easier to enter
 -- TODO do not really explain stuff. Let player figure it out by playing.
+
+conversationForName ∷ String → ConversationNode
+conversationForName "Johnny"  = johnnyConvo
+conversationForName "Sally"   = sallyConvo
+conversationForName "Moe"     = moeConvo
+conversationForName "Raj"     = rajConvo
+conversationForName "Delgado" = delgadoConvo
+conversationForName _         = redshirtConvo
+
+
+
 
 redshirtConvo ∷ ConversationNode
 redshirtConvo = ListenNode "Beat it, lizzie!" End

@@ -7,8 +7,9 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens              (makeLenses, use, uses, view, (.=),
-                                  assign, (%=), (+=), (-=))
+import Safe                      (succSafe, predSafe)
+import Control.Lens              (makeLenses, use, uses, view, views, (.=),
+                                  assign, (%=), (+=), (-=), (%~))
 import Control.Monad             (void, when)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (StateT, lift, execStateT)
@@ -162,23 +163,21 @@ processNormal _ Input.SwitchToHud = do
     g_gameState .= HudTeam
     renderNormal
 processNormal _ (Input.Move v) = do
-    g_world %= snd . runWorld (moveActive v >> updateVisible $> Normal)
+    g_world %= snd . runWorld (moveActive v >> updateVisible)
     increaseTurn
     renderNormal
 processNormal _ Input.Wait = do
-    g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
+    g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible)
     --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
     increaseTurn
     renderNormal
-processNormal _ Input.NextStance = do
-    --activeName ← fst . runWorld (active >>= pure . views (e_object.o_state) (M.! "name")) <$> use g_world
-    --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
-    ---- succ currentStance -- TODO now we would like to set this stance
+processNormal _ Input.HigherStance = do
+    g_world %= snd . runWorld
+        (changeActive (o_state %~ (\(Person ch) → Person (ch_stance %~ predSafe $ ch))))
     renderNormal
-processNormal _ Input.PreviousStance = do
-    --activeName ← fst . runWorld (active >>= views (e_object.o_state) (M.! "name")) <$> use g_world
-    --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
-    ---- succ currentStance -- TODO now we would like to set this stance
+processNormal _ Input.LowerStance = do
+    g_world %= snd . runWorld
+        (changeActive (o_state %~ (\(Person ch) → Person (ch_stance %~ succSafe $ ch))))
     renderNormal
 processNormal _ Input.Get = do
     obtainTarget >>= \case
@@ -221,7 +220,7 @@ processNormal _ Input.Operate = do
                     renderMessage "Need to implement rendering of other states!"
                     g_gameState .= Normal
             increaseTurn -- TODO as much as operation program wants!
-processNormal dd Input.Talk = do
+processNormal _ Input.Talk = do
     obtainTarget >>= \case
         Nothing → do
             renderMessage "Trying to talk to someone, but there's no one there."
@@ -231,7 +230,7 @@ processNormal dd Input.Talk = do
             increaseTurn
             use g_gameState >>= \case
                 Conversation → do
-                    let ch = characterForName dd . queryGeneric "name" . view o_state $ o
+                    let ch = views o_state (\(Person ch') → ch') $ o
                     g_conversant .= Just ch
                     g_conversation .= view ch_conversation ch
                     g_scrollWindow %= setTitle (view ch_name ch)
@@ -364,7 +363,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -385,7 +384,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -406,7 +405,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 g_choiceWindow %= setOptions opts
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
-                initName ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name")
+                initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
                 g_scrollWindow %= setTitle initName
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
@@ -570,7 +569,7 @@ renderNormal = do
     v  ← use (g_world.w_vis)
     s  ← use (g_world.w_status)
 
-    at ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name") >>= pure . \case
+    at ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch) >>= pure . \case
             "Carla"   → 0
             "Delgado" → 1
             "Raj"     → 3
@@ -581,26 +580,18 @@ renderNormal = do
     t  ← use g_turn
     --wat ← use g_watchAlarmTime
     wb ← use g_watchButton
+    tm ← use (g_world.w_team) >>= \t → uses (g_world.w_active) (fmap (views (e_object.o_state)  (\(Person ch) → ch)). (:t))
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        drawHud gs ts at t wb s >>= updateHud
+        drawHud gs ts at tm t wb >>= updateHud
+        drawStatus gs s >>= updateHud
 
 
 renderMessage ∷ String → StateT Game C.Curses ()
 renderMessage msg = do
-    at ← uses (g_world.w_active.e_object.o_state) (queryGeneric "name") >>= pure . \case
-            "Carla"   → 0
-            "Delgado" → 1
-            "Raj"     → 3
-            "570rm"   → 4
-            _         → error "Impossible active selection!"
     gs ← use g_gameState
-    ts ← use g_hudTeamSelector
-    t  ← use g_turn
-    --wat ← use g_watchAlarmTime
-    wb ← use g_watchButton
-    doRender $ drawHud gs ts at t wb msg >>= updateHud
+    doRender $ drawStatus gs msg >>= updateHud
 
 
 renderConversation ∷ ConversationNode → StateT Game C.Curses ()

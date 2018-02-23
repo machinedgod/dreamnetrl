@@ -88,6 +88,7 @@ class (WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
     changeObject ∷ V2 Int → (Object o → w (Object o)) → w ()
     selectCharacter ∷ o → w ()
     moveActive ∷ V2 Int → w ()
+    changeActive ∷ (Object o → Object o) → w ()
     addObject ∷ V2 Int → Object o → w ()
     deleteObject ∷ V2 Int → Object o → w ()
     moveObject ∷ V2 Int → Object o → V2 Int → w ()
@@ -95,6 +96,7 @@ class (WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
     updateVisible ∷ w ()
     -- TODO not really happy with 'update*' anything. Provide a primitive!
     --updateAi ∷ w ()
+
 
 --------------------------------------------------------------------------------
  
@@ -158,6 +160,12 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
         when (and $ fmap (view o_passable) tobj) $ do
             w_active %= moveEntity v
             moveObject cp o (cp + v)
+
+    changeActive f = do
+        cp ← use (w_active.e_position)
+        o  ← use (w_active.e_object)
+        w_active %= fmap f
+        use (w_active.e_object) >>= changeObject_ cp o
 
     addObject v o = w_map %= addToCell v o
 

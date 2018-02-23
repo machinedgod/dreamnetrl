@@ -30,8 +30,8 @@ data WorldEvent = Move (V2 Int)
                 | UseHeld
                 | Get
                 | Wait
-                | NextStance
-                | PreviousStance
+                | HigherStance
+                | LowerStance
                 | InventorySheet
                 | CharacterSheet
                 -- | SelectTeamMember  Int -- TODO replace with giving commands
@@ -108,8 +108,8 @@ worldEvent (C.EventCharacter 't')  = Just   Talk
 worldEvent (C.EventCharacter 'f')  = Just   UseHeld
 worldEvent (C.EventCharacter 'g')  = Just   Get
 worldEvent (C.EventCharacter '.')  = Just   Wait
-worldEvent (C.EventCharacter '[')  = Just   PreviousStance
-worldEvent (C.EventCharacter ']')  = Just   NextStance
+worldEvent (C.EventCharacter '[')  = Just   LowerStance
+worldEvent (C.EventCharacter ']')  = Just   HigherStance
 worldEvent (C.EventCharacter 'i')  = Just   InventorySheet
 worldEvent (C.EventCharacter 'c')  = Just   CharacterSheet
 --worldEvent (C.EventCharacter '1')  = Just $ SelectTeamMember 0

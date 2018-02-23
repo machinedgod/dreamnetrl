@@ -17,24 +17,29 @@ module Dreamnet.Renderer
 
 , drawMap
 , drawHud
+, drawStatus
 ) where
 
-import Safe                 (atDef)
-import Control.Lens         (makeLenses, use, uses, view, views)
-import Control.Monad.Trans  (lift)
-import Control.Monad.State  (MonadState, StateT, runStateT)
-import Linear               (V2(V2))
-import Data.Semigroup       ((<>))
-import Data.Maybe           (fromMaybe)
-import Data.Foldable        (traverse_)
-import Data.Char            (digitToInt)
-import Data.List            (intercalate)
+import Safe                      (atDef)
+import Control.Lens              (makeLenses, use, uses, view, views)
+import Control.Monad.Trans       (lift)
+import Control.Monad.State       (MonadState, StateT, runStateT)
+import Linear                    (V2(V2))
+import Data.Semigroup            ((<>))
+import Data.Maybe                (fromMaybe)
+import Data.Foldable             (traverse_, forM_)
+import Data.Char                 (digitToInt)
+import Data.List                 (intercalate)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.DesignData  (GameState(..))
+import Dreamnet.DesignData  (GameState(..), DreamnetCharacter)
+import Dreamnet.Character   (ch_name, ch_healthPoints, ch_maxHealthPoints,
+                             ch_stance,
+                             Item(Item), primaryHand, Slot(slottedItem),
+                             Stance(..))
 import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
@@ -230,38 +235,65 @@ drawMap chf matf w dat vis = do
                                          Known   → (c, k)
                                          Visible → (c, m)
 
+watch ∷ [String]
+watch = [ "    .-------------------------------.    "
+        , "   /                                 \\   "
+        , "━━/    .-------------------------.    \\━━"
+        , " .    /                           \\    . "
+        , "┌|---'                             '---| "
+        , "└|   |                             |   |┐"
+        , " |   |                             |   |│"
+        , "┌|   |                             |   |┘"
+        , "└|---.                             .---| "
+        , " '    \\                           /    ' "
+        , "━━\\    '-------------------------'    /━━"
+        , "   \\      o      o     o      o      /   "
+        , "    '-------------------------------'    "
+        ]
 
-drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → Word → Int → String → r (RenderAction ())
-drawHud gs hms am turns button msg = do
+
+watchLength ∷ Integer
+watchLength = fromIntegral . (+1) . length . head $ watch
+
+
+teamBoxes ∷ [String]
+teamBoxes = [ "┏----------------┳----------------┳----------------┓"
+            , "|/  //  //  //  /|/  //  //  //  /|/  //  //  //  /┣"
+            , "|  //  //  //  //|  //  //  //  //|  //  //  //  //|"
+            , "| //  //  //  // | //  //  //  // | //  //  //  // |"
+            , "|//  //  //  //  |//  //  //  //  |//  //  //  //  |"
+            , "┣----------------╋----------------╋----------------┫"
+            , "|/  //  //  //  /|/  //  //  //  /|/  //  //  //  /|"
+            , "|  //  //  //  //|  //  //  //  //|  //  //  //  //|"
+            , "| //  //  //  // | //  //  //  // | //  //  //  // |"
+            , "|//  //  //  //  |//  //  //  //  |//  //  //  //  ┣"
+            , "┗----------------┻----------------┻----------------┛"
+            ]
+
+teamBoxesLength ∷ Integer
+teamBoxesLength = fromIntegral . length . head $ teamBoxes
+
+
+drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → [DreamnetCharacter] → Word → Int → r (RenderAction ())
+drawHud gs hms am team turns button = do
     white   ← use (rd_styles.s_colorWhite)
     green   ← use (rd_styles.s_colorGreen)
     blue ← use (rd_styles.s_colorBlue)
     pure $ RenderAction $ do
-        let watchLength = 42
-            --watchLength = 34
         C.setColor white
         ox ← subtract watchLength . snd <$> C.windowSize
 
-        drawBorders watchLength
+        drawBorders
         drawList 0 1 teamBoxes
 
-        setDataColor 0 white green blue
-        drawData (0 * 17 + 2) (0 * 5 + 2) "Carla"   ("Handgun",  8, 10) (10, 15)
-        setDataColor 1 white green blue
-        drawData (1 * 17 + 2) (0 * 5 + 2) "Delgado" ("Rifle",   21, 21) (2, 20)
-        setDataColor 2 white green blue
-        drawList (2 * 17 + 1) (0 * 5 + 2) emptyMember
-        setDataColor 3 white green blue
-        drawData (0 * 17 + 2) (1 * 5 + 2) "Raj"     ("Railgun",  7,  8) (8, 12)
-        setDataColor 4 white green blue
-        drawData (1 * 17 + 2) (1 * 5 + 2) "570rm"   ("P.Blas.", 11, 11) (8, 16)
-        setDataColor 5 white green blue
-        drawList (2 * 17 + 1) (1 * 5 + 2) emptyMember
+        forM_ (zip [0.. ] (take 6 team)) $ \(ix, ch) → do
+            setDataColor ix white green blue
+            drawData
+                (fromIntegral (ix `mod` 3) * 17 + 1)
+                (fromIntegral (ix `div` 3) *  5 + 2)
+                ch
+                
 
-        C.setColor $ if gs == HudMessages
-                        then green
-                        else white
-        drawStatus watchLength
 
         C.setColor white
         drawList ox 0 watch
@@ -270,7 +302,7 @@ drawHud gs hms am turns button msg = do
                         then green
                         else white
             
-        drawTime watchLength (fromSeconds turns)
+        drawTime (fromSeconds turns)
     where
         setDataColor ∷ Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
         setDataColor i none hud active
@@ -278,26 +310,39 @@ drawHud gs hms am turns button msg = do
             |                   am == i = C.setColor active
             | otherwise                 = C.setColor none
 
-        drawData ∷ Word → Word → String → (String, Int, Int) → (Int, Int) → C.Update ()
-        drawData ox oy n (wn, cl, mcl) (hp, mhp) = do
+        drawData ∷ Integer → Integer → DreamnetCharacter → C.Update ()
+        drawData ox oy ch = do
+            drawList ox oy [ "                "
+                           , "                "
+                           , "                "
+                           , "                "
+                           ]
+            -- TODO make it so that it draws strings with spaces
+            --      this way, it'll rewrite empty boxes
             let boxWidth = 14
             -- Name
-            C.moveCursor (fromIntegral oy) (fromIntegral ox)
-            C.drawString n
+            C.moveCursor oy (ox + 1)
+            C.drawString (view ch_name ch)
             -- Stance
-            C.moveCursor (fromIntegral oy) (fromIntegral ox + boxWidth - 1)
-            C.drawGlyph (C.Glyph '_' [])
+            C.moveCursor oy (ox + boxWidth)
+            C.drawGlyph (views ch_stance stanceGlyph ch)
+
             -- Weapon
-            C.moveCursor (fromIntegral oy + 1) (fromIntegral ox)
-            C.drawString wn
+            C.moveCursor (oy + 1) (ox + 1)
+            C.drawString $ 
+                maybe ("<EMPTY>") (\(Item n) → n) (slottedItem (primaryHand ch))
+            
             -- Clip
-            let clipStr = show cl <> "/" <> show mcl
-            C.moveCursor (fromIntegral oy + 1) (fromIntegral ox + boxWidth - fromIntegral (length clipStr))
-            C.drawString clipStr
+            --let clipStr = show cl <> "/" <> show mcl
+            --C.moveCursor (oy + 1) (ox + 1 + boxWidth - fromIntegral (length clipStr))
+            --C.drawString clipStr
+
             -- Health bar
-            let hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
+            let hp    = view ch_healthPoints ch
+                mhp   = view ch_maxHealthPoints ch
+                hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
                 hDots = fromIntegral boxWidth - hBars
-            C.moveCursor (fromIntegral oy + 3) (fromIntegral ox)
+            C.moveCursor (fromIntegral oy + 3) (ox + 1)
             C.drawString (concat [ replicate hBars '|'
                                  , replicate hDots '.'
                                  ])
@@ -306,24 +351,8 @@ drawHud gs hms am turns button msg = do
         --shorten ∷ Word → String → String
         --shorten l = (++".") . take (l-1)
 
-        watch ∷ [String]
-        watch = [ "    .-------------------------------.    "
-                , "   /                                 \\   "
-                , "━━/    .-------------------------.    \\━━"
-                , " .    /                           \\    . "
-                , "┌|---'                             '---| "
-                , "└|   |                             |   |┐"
-                , " |   |                             |   |│"
-                , "┌|   |                             |   |┘"
-                , "└|---.                             .---| "
-                , " '    \\                           /    ' "
-                , "━━\\    '-------------------------'    /━━"
-                , "   \\      o      o     o      o      /   "
-                , "    '-------------------------------'    "
-                ]
-
-        drawTime ∷ Integer → WatchData → C.Update ()
-        drawTime watchLength wd = do
+        drawTime ∷ WatchData → C.Update ()
+        drawTime wd = do
             ox ← subtract watchLength . snd <$> C.windowSize
             drawList (ox + 8)  4 (digit . fst . numberToDigits . view wd_hours $ wd)
             drawList (ox + 12) 4 (digit . snd . numberToDigits . view wd_hours $ wd)
@@ -345,50 +374,44 @@ drawHud gs hms am turns button msg = do
                ," "
                ]
 
-        drawBorders ∷ Integer → C.Update ()
-        drawBorders watchLength = do
+        stanceGlyph ∷ Stance → C.Glyph
+        stanceGlyph Upright = C.Glyph '^' []
+        stanceGlyph Crouch  = C.Glyph '~' []
+        stanceGlyph Prone   = C.Glyph '_' []
+
+
+        drawBorders ∷ C.Update ()
+        drawBorders = do
             len ← fromIntegral . subtract watchLength . snd <$> C.windowSize
             C.moveCursor 2 0
             C.drawString $ replicate len '-'
             C.moveCursor 10 0
             C.drawString $ replicate len '-'
 
-        teamBoxes ∷ [String]
-        teamBoxes = [ "┏----------------┳----------------┳----------------┓"
-                    , "|                |                |                ┣"
-                    , "|                |                |                |"
-                    , "|                |                |                |"
-                    , "|                |                |                |"
-                    , "┣----------------╋----------------╋----------------┫"
-                    , "|                |                |                |"
-                    , "|                |                |                |"
-                    , "|                |                |                |"
-                    , "|                |                |                ┣"
-                    , "┗----------------┻----------------┻----------------┛"
-                    ]
-        emptyMember ∷ [String]
-        emptyMember = [ "/  //  //  //  /"
-                      , "  //  //  //  //"
-                      , " //  //  //  // "
-                      , "//  //  //  //  "
-                      ]
 
-        drawStatus ∷ Integer → C.Update ()
-        drawStatus watchLength = do
-            let start       = 54 -- Team boxes length
-                padding     = 4
-            
-            C.moveCursor 3 (fromIntegral start)
-            C.drawGlyph (C.Glyph '▲' [])
-            C.moveCursor 9 (fromIntegral start)
-            C.drawGlyph (C.Glyph '▼' [])
-            
-            -- TODO add lines' here
-            len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
-            let lns = if null msg
-                        then [msg]
-                        else lines' (fromIntegral len) length " " (words msg)
-            drawList (fromIntegral start) padding lns
+drawStatus ∷ (MonadRender r) ⇒ GameState → String → r (RenderAction ())
+drawStatus gs msg = do
+    green ← use (rd_styles.s_colorGreen)
+    white ← use (rd_styles.s_colorWhite)
+    pure $ RenderAction $ do
+        let start       = teamBoxesLength
+            padding     = 4
+        
+        C.setColor $ if gs == HudMessages
+                        then green
+                        else white
+
+        C.moveCursor 3 (fromIntegral start)
+        C.drawGlyph (C.Glyph '▲' [])
+        C.moveCursor 9 (fromIntegral start)
+        C.drawGlyph (C.Glyph '▼' [])
+        
+        -- TODO add lines' here
+        len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
+        let lns = if null msg
+                    then []
+                    else lines' (fromIntegral len) length " " (words msg)
+        drawList (fromIntegral start) padding lns
 
 --------------------------------------------------------------------------------
 

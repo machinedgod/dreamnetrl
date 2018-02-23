@@ -18,11 +18,15 @@ module Dreamnet.Character
 , CommunicationSkills
 , Character
 , ch_name
+, ch_handedness
 , ch_leftHand
 , ch_rightHand
 , ch_torso
 , ch_stance
+, ch_faction
 , ch_conversation
+, ch_healthPoints
+, ch_maxHealthPoints
 , ch_experience
 , ch_combat
 , ch_electronics
@@ -30,11 +34,10 @@ module Dreamnet.Character
 , ch_infiltration
 , newCharacter
 
+, primaryHand
 , equipmentSlots
 , equippedSlots
 , equippedContainers
-
-, isFriend
 ) where
 
 
@@ -58,7 +61,7 @@ data SlotType = Hand
               | Torso
 
 
-newtype Slot (t ∷ SlotType) i = Slot (Maybe i)
+newtype Slot (t ∷ SlotType) i = Slot { slottedItem ∷ Maybe i }
 
 deriving instance (Show i) ⇒ Show (Slot t i)
 deriving instance (Eq i) ⇒ Eq (Slot t i)
@@ -77,8 +80,12 @@ instance (Eq i) ⇒ Eq (SlotWrapper i) where
 data Stance = Upright
             | Crouch
             | Prone
-            deriving(Show, Enum)
+            deriving(Eq, Ord, Bounded, Enum, Show)
 
+data Handedness = LeftHand
+                | RightHand
+                deriving (Show)
+                
 --------------------------------------------------------------------------------
 
 -- All combat-related skills
@@ -164,7 +171,8 @@ data InfiltrationSkills = InfiltrationSkills {
 --------------------------------------------------------------------------------
 
 data Character i c f = Character {
-      _ch_name      ∷ String
+      _ch_name       ∷ String
+    , _ch_handedness ∷ Handedness
 
     , _ch_leftHand  ∷ Slot 'Hand i
     , _ch_rightHand ∷ Slot 'Hand i
@@ -177,7 +185,9 @@ data Character i c f = Character {
     -- Earned only through missions and combat,
     -- represents general experience
     -- Used to earn skillpoints in each of the skill branches
-    , _ch_experience ∷ Word
+    , _ch_healthPoints    ∷ Word  -- TODO better injury sysstem!
+    , _ch_maxHealthPoints ∷ Word  -- TODO better injury sysstem!
+    , _ch_experience      ∷ Word
 
     -- Skilltrees *only* affect chances of performing a certain task
     -- To train to a certain level, you need to purchase skillpoints
@@ -209,13 +219,19 @@ instance Eq (Character i c f) where
 
 
 newCharacter ∷ String → f → c → Character i c f
-newCharacter n fac cn = Character n empty empty empty Upright fac cn 0 cs es ss is
+newCharacter n fac cn = Character n RightHand empty empty empty Upright fac cn 10 10 0 cs es ss is
     where
         empty = Slot Nothing
         cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
         es    = ElectronicsSkills 0 0 0 0
         ss    = CommunicationSkills 0 0 0 0 0 0 0
         is    = InfiltrationSkills 0 0 0 0 0
+
+
+primaryHand ∷ Character i c f → Slot 'Hand i
+primaryHand ch = slot $ ch ^. ch_handedness
+    where slot LeftHand  = ch ^. ch_leftHand
+          slot RightHand = ch ^. ch_rightHand
 
 
 equipmentSlots ∷ Character i c f → [SlotWrapper i]
@@ -235,8 +251,4 @@ equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
 equippedContainers = filter containers . equippedSlots
     where
         containers (SlotWrapper (Slot i)) = maybe False isContainer i
-
-
-isFriend ∷ (Eq f) ⇒ Character i c f → Character i c f → Bool
-isFriend c1 c2 = c1 ^. ch_faction == c2 ^. ch_faction
 
