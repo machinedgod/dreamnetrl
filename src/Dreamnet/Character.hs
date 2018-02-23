@@ -75,7 +75,7 @@ instance (Eq a) ⇒ Eq (SlotWrapper a) where
 data Stance = Upright
             | Crouch
             | Prone
-            deriving(Show)
+            deriving(Show, Enum)
 
 --------------------------------------------------------------------------------
 

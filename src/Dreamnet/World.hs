@@ -69,6 +69,7 @@ data Object = Object {
     , _o_description ∷ String
 
     -- TODO figure a better way, eventually
+    -- TODO parameterized state type that'll contain value constructors for all specialized types and general for Map string string
     , _o_state ∷ M.Map String String
     }
     deriving (Eq, Show)
@@ -88,9 +89,8 @@ class WorldReadAPI v w | w → v where
 class (WorldReadAPI v w) ⇒ WorldAPI v w | w → v where
     setStatus ∷ String → w ()
     changeObject ∷ V2 Int → (Object → w Object) → w ()
-    selChar ∷ w Object
     selectCharacter ∷ String → w ()
-    moveSelected ∷ V2 Int → w ()
+    moveActive ∷ V2 Int → w ()
     addObject ∷ V2 Int → Object → w ()
     deleteObject ∷ V2 Int → Object → w ()
     moveObject ∷ V2 Int → Object → V2 Int → w ()
@@ -154,7 +154,7 @@ instance WorldAPI Visibility (WorldM Visibility) where
         nc ← traverse fo (valuesAt v m)
         w_map %= replaceCell v nc
 
-    moveSelected v = do
+    moveActive v = do
         cp   ← use (w_active.e_position)
         o    ← use (w_active.e_object)
         tobj ← uses w_map (valuesAt (cp + v))
@@ -171,8 +171,6 @@ instance WorldAPI Visibility (WorldM Visibility) where
         objs  ← uses w_map (valuesAt cp)
         when (o `elem` objs) $ do
             w_map %= addToCell np o . deleteFromCell cp o
-
-    selChar = use (w_active.e_object)
 
     selectCharacter n = void $ runMaybeT $ do
         nc ← MaybeT $ uses w_team (find ((n==) . views (e_object.o_state) (M.! "name")))

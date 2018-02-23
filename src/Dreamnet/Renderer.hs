@@ -20,7 +20,7 @@ module Dreamnet.Renderer
 ) where
 
 import Safe                 (atDef)
-import Control.Lens         (makeLenses, use, uses)
+import Control.Lens         (makeLenses, use, uses, view)
 import Control.Monad.Trans  (lift)
 import Control.Monad.State  (MonadState, StateT, runStateT)
 import Linear               (V2(V2))
@@ -38,6 +38,41 @@ import Dreamnet.GameState
 import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
+
+--------------------------------------------------------------------------------
+
+data WatchData = WatchData {
+      _wd_hours   ∷ Word
+    , _wd_minutes ∷ Word
+    , _wd_seconds ∷ Word
+    , _wd_weekDay ∷ String
+    , _wd_day     ∷ Word
+    , _wd_month   ∷ Word
+    , _wd_year    ∷ Word
+    }
+makeLenses ''WatchData
+
+
+fromSeconds ∷ Word → WatchData
+fromSeconds t =
+    let s = t `mod` 60
+        m = t `div` 60 `mod` 60
+        h = m `div` 60 `mod` 60
+    in  WatchData {
+          _wd_hours   = h
+        , _wd_minutes = m
+        , _wd_seconds = s
+        , _wd_weekDay = "Tue"
+        , _wd_day     = 12
+        , _wd_month   = 4
+        , _wd_year    = 2183
+        }
+
+
+numberToDigits ∷ Word → (Word, Word)
+numberToDigits i =
+    let f i = fromIntegral . digitToInt . flip (atDef '0') i . reverse . show
+    in  (f 1 i, f 0 i)
 
 --------------------------------------------------------------------------------
 
@@ -178,17 +213,6 @@ runRenderer rd f = runStateT (runRendererF f) rd
     
 --------------------------------------------------------------------------------
 
-lookupMaterial ∷ (MonadRender r) ⇒ String → r Material
-lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
-    uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
-
-
-draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
-draw (V2 x y) c m = RenderAction $ do 
-    C.moveCursor (fromIntegral y) (fromIntegral x)
-    C.drawGlyph (C.Glyph c m)
-
-
 drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
 drawMap chf matf w dat vis = do
     u ← use (rd_styles.s_visibilityUnknown)
@@ -245,17 +269,8 @@ drawHud gs hms am turns button msg = do
         C.setColor $ if gs == HudWatch
                         then green
                         else white
-        let s = turns `mod` 60
-            m = turns `div` 60 `mod` 60
-            h = m `div` 60 `mod` 60
             
-        drawTime watchLength
-            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ h)
-            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ h)
-            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ m)
-            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ m)
-            (fromIntegral . digitToInt . flip (atDef '0') 1 . reverse . show $ s)
-            (fromIntegral . digitToInt . flip (atDef '0') 0 . reverse . show $ s)
+        drawTime watchLength (fromSeconds turns)
     where
         setDataColor ∷ GameState → Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
         setDataColor gs i none hud active
@@ -307,21 +322,20 @@ drawHud gs hms am turns button msg = do
                 , "    '-------------------------------'    "
                 ]
 
-        drawTime ∷ Integer → Word → Word → Word → Word → Word → Word → C.Update ()
-        drawTime watchLength h1 h2 m1 m2 s1 s2 = do
+        drawTime ∷ Integer → WatchData → C.Update ()
+        drawTime watchLength wd = do
             ox ← subtract watchLength . snd <$> C.windowSize
-            drawList (ox + 8)  4 (digit h1)
-            drawList (ox + 12) 4 (digit h2)
+            drawList (ox + 8)  4 (digit . fst . numberToDigits . view wd_hours $ wd)
+            drawList (ox + 12) 4 (digit . snd . numberToDigits . view wd_hours $ wd)
             drawList (ox + 16) 4 dots
-            drawList (ox + 18) 4 (digit m1)
-            drawList (ox + 22) 4 (digit m2)
-            drawList (ox + 27) 6 (smallDigit s1)
-            drawList (ox + 30) 6 (smallDigit s2)
-
-        drawList ∷ Integer → Integer → [String] → C.Update ()
-        drawList x y =
-            traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
-            . zip [y..]
+            drawList (ox + 18) 4 (digit . fst . numberToDigits . view wd_minutes $ wd)
+            drawList (ox + 22) 4 (digit . snd . numberToDigits . view wd_minutes $ wd)
+            drawList (ox + 27) 6 (smallDigit . fst . numberToDigits . view wd_seconds $ wd)
+            drawList (ox + 30) 6 (smallDigit . snd . numberToDigits . view wd_seconds $ wd)
+            C.moveCursor 3 (ox + 27)
+            C.drawString "Mon 12"
+            C.moveCursor 4 (ox + 27)
+            C.drawString "04-2183"
 
         dots ∷ [String]
         dots = [" "
@@ -330,123 +344,6 @@ drawHud gs hms am turns button msg = do
                ,"'"
                ," "
                ]
-
-        digit ∷ Word → [String]
-        digit 0 =
-            [ " ━ "
-            , "┃ ┃"
-            , "   "
-            , "┃ ┃"
-            , " ━ "
-            ]
-        digit 1 =
-            [ "   "
-            , "  ┃"
-            , "   "
-            , "  ┃"
-            , "   "
-            ]
-        digit 2 =
-            [ " ━ "
-            , "  ┃"
-            , " ━ "
-            , "┃  "
-            , " ━ "
-            ]
-        digit 3 =
-            [ " ━ "
-            , "  ┃"
-            , " ━ "
-            , "  ┃"
-            , " ━ "
-            ]
-        digit 4 =
-            [ "   "
-            , "┃ ┃"
-            , " ━ "
-            , "  ┃"
-            , "   "
-            ]
-        digit 5 =
-            [ " ━ "
-            , "┃  "
-            , " ━ "
-            , "  ┃"
-            , " ━ "
-            ]
-        digit 6 =
-            [ " ━ "
-            , "┃  "
-            , " ━ "
-            , "┃ ┃"
-            , " ━ "
-            ]
-        digit 7 =
-            [ " ━ "
-            , "┃ ┃"
-            , "   "
-            , "  ┃"
-            , "   "
-            ]
-        digit 8 =
-            [ " ━ "
-            , "┃ ┃"
-            , " ━ "
-            , "┃ ┃"
-            , " ━ "
-            ]
-        digit 9 =
-            [ " ━ "
-            , "┃ ┃"
-            , " ━ "
-            , "  ┃"
-            , " ━ "
-            ]
-        digit _ = digit 8
-
-        smallDigit ∷ Word → [String]
-        smallDigit 0 = ["|̅‾|"
-                       ,"|̅ |"
-                       ,"|_|"
-                       ]
-        smallDigit 1 = ["  |"
-                       ,"  |"
-                       ,"  |"
-                       ]
-        smallDigit 2 = [" ‾|"
-                       ," / "
-                       ,"|_ "
-                       ]
-        smallDigit 3 = [" ‾|"
-                       ," ─|"
-                       ," _|"
-                       ]
-        smallDigit 4 = ["|̅ |"
-                       ," \\|"
-                       ,"  |"
-                       ]
-        smallDigit 5 = ["|̅‾ "
-                       ," \\ "
-                       ," _|"
-                       ]
-        smallDigit 6 = ["|̅‾ "
-                       ,"|\\ "
-                       ,"|_|"
-                       ]
-        smallDigit 7 = ["|̅‾|"
-                       ," / "
-                       ,"/  "
-                       ]
-        smallDigit 8 = ["|̅‾|"
-                       ,"|─|"
-                       ,"|_|"
-                       ]
-        smallDigit 9 = ["|̅‾|"
-                       ," \\|"
-                       ," _|"
-                       ]
-        smallDigit _ = smallDigit 8
-
 
         drawBorders ∷ Integer → C.Update ()
         drawBorders watchLength = do
@@ -501,3 +398,128 @@ drawHud gs hms am turns button msg = do
             , "culpa qui officia deserunt mollit anim id est laborum"
             ]
 
+--------------------------------------------------------------------------------
+
+lookupMaterial ∷ (MonadRender r) ⇒ String → r Material
+lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
+    uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
+
+
+draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
+draw (V2 x y) c m = RenderAction $ do 
+    C.moveCursor (fromIntegral y) (fromIntegral x)
+    C.drawGlyph (C.Glyph c m)
+
+
+drawList ∷ Integer → Integer → [String] → C.Update ()
+drawList x y =
+    traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
+    . zip [y..]
+
+
+digit ∷ Word → [String]
+digit 0 = [ " ━ "
+          , "┃ ┃"
+          , "   "
+          , "┃ ┃"
+          , " ━ "
+          ]
+digit 1 = [ "   "
+          , "  ┃"
+          , "   "
+          , "  ┃"
+          , "   "
+          ]
+digit 2 = [ " ━ "
+          , "  ┃"
+          , " ━ "
+          , "┃  "
+          , " ━ "
+          ]
+digit 3 = [ " ━ "
+          , "  ┃"
+          , " ━ "
+          , "  ┃"
+          , " ━ "
+          ]
+digit 4 = [ "   "
+          , "┃ ┃"
+          , " ━ "
+          , "  ┃"
+          , "   "
+          ]
+digit 5 = [ " ━ "
+          , "┃  "
+          , " ━ "
+          , "  ┃"
+          , " ━ "
+          ]
+digit 6 = [ " ━ "
+          , "┃  "
+          , " ━ "
+          , "┃ ┃"
+          , " ━ "
+          ]
+digit 7 = [ " ━ "
+          , "┃ ┃"
+          , "   "
+          , "  ┃"
+          , "   "
+          ]
+digit 8 = [ " ━ "
+          , "┃ ┃"
+          , " ━ "
+          , "┃ ┃"
+          , " ━ "
+          ]
+digit 9 = [ " ━ "
+          , "┃ ┃"
+          , " ━ "
+          , "  ┃"
+          , " ━ "
+          ]
+digit _ = digit 8
+
+
+smallDigit ∷ Word → [String]
+smallDigit 0 = ["|̅‾|"
+               ,"|̅ |"
+               ,"|_|"
+               ]
+smallDigit 1 = ["  |"
+               ,"  |"
+               ,"  |"
+               ]
+smallDigit 2 = [" ‾|"
+               ," / "
+               ,"|_ "
+               ]
+smallDigit 3 = [" ‾|"
+               ," ─|"
+               ," _|"
+               ]
+smallDigit 4 = ["|̅ |"
+               ," \\|"
+               ,"  |"
+               ]
+smallDigit 5 = ["|̅‾ "
+               ," \\ "
+               ," _|"
+               ]
+smallDigit 6 = ["|̅‾ "
+               ,"|\\ "
+               ,"|_|"
+               ]
+smallDigit 7 = ["|̅‾|"
+               ," / "
+               ,"/  "
+               ]
+smallDigit 8 = ["|̅‾|"
+               ,"|─|"
+               ,"|_|"
+               ]
+smallDigit 9 = ["|̅‾|"
+               ," \\|"
+               ," _|"
+               ]
+smallDigit _ = smallDigit 8

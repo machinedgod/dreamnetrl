@@ -7,8 +7,8 @@
 module Dreamnet.Dreamnet
 where
 
-import Control.Lens              (makeLenses, use, uses, view, (.=), assign,
-                                  (%=), (+=), (-=))
+import Control.Lens              (makeLenses, use, uses, view, views, (.=),
+                                  assign, (%=), (+=), (-=))
 import Control.Monad             (void, when)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (StateT, lift, execStateT)
@@ -49,6 +49,8 @@ type Name = String
 
 --------------------------------------------------------------------------------
 
+-- TODO apply DeGoes principle here: extract everything with a neat api, that
+-- then runs and produces WorldAPI state values
 data Game = Game {
       _g_turn         ∷ Word
     , _g_world        ∷ World Visibility
@@ -180,13 +182,23 @@ processNormal _ Input.SwitchToHud = do
     g_gameState .= HudTeam
     renderNormal
 processNormal _ (Input.Move v) = do
-    g_world %= snd . runWorld (moveSelected v >> updateVisible $> Normal)
+    g_world %= snd . runWorld (moveActive v >> updateVisible $> Normal)
     increaseTurn
     renderNormal
 processNormal _ Input.Wait = do
     g_world %= snd . runWorld (setStatus "Waiting..." >> updateVisible $> Normal)
     --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
     increaseTurn
+    renderNormal
+processNormal dd Input.NextStance = do
+    --activeName ← fst . runWorld (active >>= pure . views (e_object.o_state) (M.! "name")) <$> use g_world
+    --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
+    ---- succ currentStance -- TODO now we would like to set this stance
+    renderNormal
+processNormal dd Input.PreviousStance = do
+    --activeName ← fst . runWorld (active >>= views (e_object.o_state) (M.! "name")) <$> use g_world
+    --let currentStance = view ch_stance (M.! activeName (view dd_characters dd))
+    ---- succ currentStance -- TODO now we would like to set this stance
     renderNormal
 -- TODO take these out. You can *only* control Carla directly, the rest follows orders.
 processNormal _ (Input.SelectTeamMember 0) = do
@@ -452,7 +464,7 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
         g_gameState .= Normal
         use g_scrollWindow >>= lift . clearScrollWindow
         renderNormal
-processConversation Input.Back =
+processConversation _ =
     pure ()
 
 
