@@ -396,18 +396,24 @@ drawStatus gs msg = do
     pure $ RenderAction $ do
         let start       = teamBoxesLength
             padding     = 4
-        
+        len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
+
         C.setColor $ if gs == HudMessages
                         then green
                         else white
 
-        C.moveCursor 3 (fromIntegral start)
+        C.moveCursor 3 (fromIntegral start + len `div` 2)
         C.drawGlyph (C.Glyph '▲' [])
-        C.moveCursor 9 (fromIntegral start)
+        C.moveCursor 9 (fromIntegral start + len `div` 2)
         C.drawGlyph (C.Glyph '▼' [])
         
-        -- TODO add lines' here
-        len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
+
+        -- Clear
+        drawList (fromIntegral start) padding $
+            replicate 5 $
+                replicate (fromIntegral len) ' '
+
+        -- Message
         let lns = if null msg
                     then []
                     else lines' (fromIntegral len) length " " (words msg)

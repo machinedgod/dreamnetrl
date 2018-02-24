@@ -16,7 +16,8 @@ import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 
-import Dreamnet.DesignData   (GameState(..), ObjectAPI(..), States)
+import Dreamnet.DesignData   (GameState(..), ObjectAPI(..), States,
+                              DreamnetCharacter)
 import Dreamnet.World        (Object, o_symbol, o_material, o_passable,
                               o_seeThrough, o_state, changeObject_,
                               WorldReadAPI(castVisibilityRay, worldMap),
@@ -29,7 +30,8 @@ import Dreamnet.WorldMap     (valuesAt, interestingObjects)
 --      implemented simply through WorldAPI.
 data ObjectF a = Move (V2 Int) a
                | Position (V2 Int → a)
-               | RequestGameState GameState a
+               | ShowInfoWindow String a
+               | StartConversation DreamnetCharacter a
                | Passable (Bool → a)
                | SetPassable Bool a
                | SeeThrough (Bool → a)
@@ -49,7 +51,9 @@ instance ObjectAPI (Free ObjectF) where
 
     move v = Free $ Move v (Pure ())
 
-    requestGameState gs =  Free $ RequestGameState gs (Pure ())
+    showInfoWindow s = Free $ ShowInfoWindow s (Pure ())
+
+    startConversation ch = Free $ StartConversation ch (Pure ())
 
     passable = Free $ Passable Pure
 
@@ -87,8 +91,13 @@ runWithGameState gs (cv, o) (Free (Move v n)) = do
 runWithGameState gs (cv, o) (Free (Position fv)) = do
     runWithGameState gs (cv, o) (fv cv)
 
-runWithGameState _ (cv, o) (Free (RequestGameState gs n)) = do
-    runWithGameState gs (cv, o) n
+runWithGameState _ (cv, o) (Free (ShowInfoWindow txt n)) = do
+    setStatus txt
+    runWithGameState Examination (cv, o) n
+
+runWithGameState _ (cv, o) (Free (StartConversation _ n)) = do
+    -- TODO Move some of the conversation starting code here
+    runWithGameState Conversation (cv, o) n
 
 runWithGameState gs (cv, o) (Free (Passable fn)) = do
     runWithGameState gs (cv, o) (fn $ view o_passable o)

@@ -142,6 +142,7 @@ loopTheLoop ∷ DesignData → StateT Game C.Curses ()
 loopTheLoop dd = do
     r ← use g_keepRunning
     when r $ do
+        g_world.w_status .= ""
         use g_gameState >>= \case
             Normal       → lift Input.nextWorldEvent       >>= processNormal dd
             Examination  → lift Input.nextUiEvent          >>= processExamination
@@ -197,22 +198,38 @@ processNormal _ Input.UseHeld = do
             --renderNormal
             increaseTurn -- TODO as much as the device wants!
 processNormal _ Input.Examine = do
-    examineText ← obtainTarget >>= \case
-        Just t  → pure $ view o_description (snd t)
-        Nothing → uses (g_world.w_map) desc
+    obtainTarget >>= \case
+        Just (v, o)  → do
+            onHerself ← uses (g_world.w_active.e_position) (==v)
+            if onHerself
+                then do
+                    examineText ← uses (g_world.w_map) desc
+                    g_scrollWindow %= moveWindow (V2 2 1)
+                    g_scrollWindow %= resizeWindow (V2 40 10)
+                    g_scrollWindow %= setText examineText
+                    g_gameState .= Examination
+                    use g_scrollWindow >>= lift . renderScrollWindow
+                else do
+                    runProgram v (programForObject o Examine)
+                    use g_gameState >>= \case
+                        Examination → do
+                            g_scrollWindow %= moveWindow (V2 2 1)
+                            g_scrollWindow %= resizeWindow (V2 40 10)
+                            use (g_world.w_status) >>= \et → g_scrollWindow %= setText et
+                            g_world.w_status .= ""
+                            use g_scrollWindow >>= lift . renderScrollWindow
+                        _ → renderNormal
+        Nothing → do
+            renderMessage "There's nothing there."
+            renderNormal
     increaseTurn
-    g_scrollWindow %= moveWindow (V2 2 1)
-    g_scrollWindow %= resizeWindow (V2 40 10)
-    g_scrollWindow %= setText examineText
-    g_gameState .= Examination
-    use g_scrollWindow >>= lift . renderScrollWindow
 processNormal _ Input.Operate = do
     obtainTarget >>= \case
         Nothing → do
             renderMessage "There's nothing here."
             increaseTurn
         Just (v, o) → do
-            runProgram v (operationProgramForSymbol (view o_symbol o) $ Operate)
+            runProgram v (programForObject o Operate)
             use g_gameState >>= \case
                 Normal → do
                     renderNormal
@@ -226,7 +243,7 @@ processNormal _ Input.Talk = do
             renderMessage "Trying to talk to someone, but there's no one there."
             increaseTurn
         Just (v, o) → do
-            runProgram v (operationProgramForSymbol (view o_symbol o) $ Talk)
+            runProgram v (programForObject o Talk)
             increaseTurn
             use g_gameState >>= \case
                 Conversation → do
@@ -243,7 +260,6 @@ processNormal _ Input.Talk = do
                 _ →
                     renderNormal
 processNormal _ Input.InventorySheet = do
-    --is ← uses (g_world.w_active.e_object.o_state) (fmap show . equippedContainers . characterForName dd . (M.! "name"))
     g_scrollWindow %= setTitle "Inventory sheet"
     --g_scrollWindow %= setLines is
     use g_scrollWindow >>= lift . renderScrollWindow
@@ -480,16 +496,6 @@ runProgram v prg = do
     g_world .= w'
 
 
--- TODO this is pretty bad, because programs can change symbols! Find a better way!
-operationProgramForSymbol ∷ Char → InteractionType → Free ObjectF ()
-operationProgramForSymbol '+'  = door
-operationProgramForSymbol '\'' = door
-operationProgramForSymbol '&'  = computer
-operationProgramForSymbol '@'  = person
-operationProgramForSymbol '*'  = camera
-operationProgramForSymbol _    = generic
-
-
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do
 --    g_choiceWindow %= selectPrevious
@@ -530,13 +536,10 @@ obtainTarget = do
 
     ap ← use (g_world.w_active.e_position)
     t  ← lift Input.nextTargetSelectionEvent
-    case t of
-        (V2 0 0) → pure Nothing
-        v →
-            uses (g_world.w_map) (filter coolSymbols . valuesAt (ap + v)) >>=
-                \case
-                    [] → pure Nothing
-                    l  → pure (Just (ap + v, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
+    uses (g_world.w_map) (filter coolSymbols . valuesAt (ap + t)) >>=
+        \case
+            [] → pure Nothing
+            l  → pure (Just (ap + t, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
     where
         coolSymbols o = or $ fmap (view o_symbol o ==) [ '@', '*', '+', '\'' ] -- TODO BAAAD, but its going to be refactored when I figure out better way
 

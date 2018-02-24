@@ -19,6 +19,7 @@ module Dreamnet.Character
 , Character
 , ch_name
 , ch_handedness
+, ch_description
 , ch_leftHand
 , ch_rightHand
 , ch_torso
@@ -171,8 +172,9 @@ data InfiltrationSkills = InfiltrationSkills {
 --------------------------------------------------------------------------------
 
 data Character i c f = Character {
-      _ch_name       ∷ String
-    , _ch_handedness ∷ Handedness
+      _ch_name        ∷ String
+    , _ch_handedness  ∷ Handedness
+    , _ch_description ∷ String
 
     , _ch_leftHand  ∷ Slot 'Hand i
     , _ch_rightHand ∷ Slot 'Hand i
@@ -218,8 +220,9 @@ instance Eq (Character i c f) where
     ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
 
 
-newCharacter ∷ String → f → c → Character i c f
-newCharacter n fac cn = Character n RightHand empty empty empty Upright fac cn 10 10 0 cs es ss is
+newCharacter ∷ String → String → f → c → Character i c f
+newCharacter n d fac cn =
+    Character n RightHand d empty empty empty Upright fac cn 10 10 0 cs es ss is
     where
         empty = Slot Nothing
         cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0

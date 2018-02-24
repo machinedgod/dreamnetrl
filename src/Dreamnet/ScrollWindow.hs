@@ -23,6 +23,7 @@ module Dreamnet.ScrollWindow
 import Control.Lens   (makeLenses, view, views, (%~), (+~), (.~))
 import Data.List      (intercalate)
 import Data.Bool      (bool)
+import Data.Semigroup ((<>))
 import Linear         (V2(V2), _x, _y)
 
 import qualified Data.Vector as V (fromList, imapM_)
@@ -79,7 +80,9 @@ setText s sd =
 
 
 setLines ∷ [String] → ScrollData → ScrollData
-setLines ls = (sd_startLine .~ 0) . (sd_lines .~ ls)
+setLines ls sd = (sd_startLine .~ 0) . (sd_lines .~ fmap extendToWidth ls) $ sd
+    where
+        extendToWidth s = s <> replicate (fromIntegral (lineWidth sd) - length s) ' '
 
 
 scrollUp ∷ ScrollData → ScrollData

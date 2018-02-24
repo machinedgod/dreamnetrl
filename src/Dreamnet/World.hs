@@ -13,7 +13,6 @@ module Dreamnet.World
 , o_passable
 , o_seeThrough
 , o_height
-, o_description
 , o_state
 
 , WorldReadAPI(..)
@@ -64,7 +63,6 @@ data Object a = Object {
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
     , _o_height      ∷ Word
-    , _o_description ∷ String
 
     , _o_state ∷ a
     --, _o_state ∷ M.Map String String

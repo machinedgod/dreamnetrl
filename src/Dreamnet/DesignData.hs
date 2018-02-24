@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -14,7 +14,7 @@ module Dreamnet.DesignData
 , dd_startingMap
 
 , defaultDesignData
-, characterForName
+--, characterForName
 
 , InteractionType(..)
 , States(..) -- If I close this, then all conversation code needs to be handled here
@@ -23,11 +23,11 @@ module Dreamnet.DesignData
 , door
 , computer
 , person
-, generic
 , camera
 
 , objectFromTile
 , playerPerson
+, programForObject
 
 ) where
 
@@ -35,11 +35,11 @@ module Dreamnet.DesignData
 import Control.Lens         (makeLenses, view, views)
 import Control.Monad.Random (MonadRandom)
 import Data.Semigroup       ((<>))
-import Data.Maybe           (fromMaybe)
 import Data.Bool            (bool)
+import Data.List            (intercalate)
 import Linear               (V2)
 
-import qualified Data.Map as M (Map, fromList, lookup)
+import qualified Data.Map as M (Map, fromList)
 
 import Dreamnet.TileMap      (Tile, t_char)
 import Dreamnet.TileData     (ttype, readStringProperty, readBoolProperty,
@@ -102,7 +102,7 @@ defaultDesignData ∷ (MonadRandom r) ⇒ r DesignData
 defaultDesignData = pure $
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
-    , _dd_defaultRedshirt = newCharacter "?" facGenpop redshirtConvo
+    , _dd_defaultRedshirt = newCharacter "?" redshirtDesc facGenpop redshirtConvo
     , _dd_startingMap     = "res/bar"
     }
     where
@@ -110,21 +110,21 @@ defaultDesignData = pure $
 
         characters ∷ [DreamnetCharacter]
         characters =
-            [ newCharacter "Carla"   facCarla End
-            , newCharacter "Raj"     facCarla rajConvo
-            , newCharacter "Delgado" facCarla delgadoConvo
+            [ newCharacter "Carla"   carlaDesc   facCarla End
+            , newCharacter "Raj"     rajDesc     facCarla rajConvo
+            , newCharacter "Delgado" delgadoDesc facCarla delgadoConvo
 
-            , newCharacter "Moe"    facGenpop moeConvo
-            , newCharacter "Johnny" facGenpop johnnyConvo
-            , newCharacter "Sally"  facGenpop sallyConvo
+            , newCharacter "Moe"    moeDesc    facGenpop moeConvo
+            , newCharacter "Johnny" johnnyDesc facGenpop johnnyConvo
+            , newCharacter "Sally"  sallyDesc  facGenpop sallyConvo
             ]
 
 
 
-characterForName ∷ DesignData → String → DreamnetCharacter
-characterForName dd name =
-    let maybeChar = M.lookup name (view dd_characters dd)
-    in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
+--characterForName ∷ DesignData → String → DreamnetCharacter
+--characterForName dd name =
+--    let maybeChar = M.lookup name (view dd_characters dd)
+--    in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
 
 
 
@@ -134,20 +134,21 @@ characterForName dd name =
 
 -- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
 class ObjectAPI o where
-    position         ∷ o (V2 Int)
-    move             ∷ V2 Int → o ()
-    requestGameState ∷ GameState → o ()
-    passable         ∷ o Bool
-    setPassable      ∷ Bool → o () -- Creates a state, creates and object. NO!
-    seeThrough       ∷ o Bool
-    setSeeThrough    ∷ Bool → o ()
-    canSee           ∷ V2 Int → o Bool
-    changeChar       ∷ Char → o ()
-    changeMat        ∷ String → o ()
-    message          ∷ String → o ()
-    put              ∷ States → o ()
-    get              ∷ o States
-    scanRange        ∷ Word → (Object States → Bool) → o [(V2 Int, Object States)]
+    position          ∷ o (V2 Int)
+    move              ∷ V2 Int → o ()
+    showInfoWindow    ∷ String → o ()
+    startConversation ∷ DreamnetCharacter → o ()
+    passable          ∷ o Bool
+    setPassable       ∷ Bool → o () -- Creates a state, creates and object. NO!
+    seeThrough        ∷ o Bool
+    setSeeThrough     ∷ Bool → o ()
+    canSee            ∷ V2 Int → o Bool
+    changeChar        ∷ Char → o ()
+    changeMat         ∷ String → o ()
+    message           ∷ String → o ()
+    put               ∷ States → o ()
+    get               ∷ o States
+    scanRange         ∷ Word → (Object States → Bool) → o [(V2 Int, Object States)]
     -- Keep adding primitives until you can describe all Map Objects as programs
 
 modify ∷ (ObjectAPI o, Monad o) ⇒ (States → States) → o ()
@@ -157,16 +158,17 @@ modify f = get >>= put . f
 
 -- TODO implement Examine as one of interaction types, through making ObjectAPI
 -- able to summon UI - this can work if we just change game state
-data InteractionType = Operate
+data InteractionType = Examine
+                     | Operate
                      | Talk
                      | OperateOn
                      | AiTick
 
 --------------------------------------------------------------------------------
 
-data States = Camera  Faction Word
+data States = Door
+            | Camera  Faction Word
             | Person  DreamnetCharacter
-            | Generic (M.Map String String)
             | Empty
             deriving (Eq, Show) -- TODO just for Debug of UseHeld
 
@@ -174,76 +176,73 @@ data States = Camera  Faction Word
 -- 1) This *could* all be just a single thing. Object type really does not matter here.
 -- 2) Actually, it does, because Object carries a specific state, later used by object programs
 objectFromTile ∷ Tile → Object States
-objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         "<base>"                                                                                                              Empty
-objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         ("Just a common door. They're " <> bool "closed." "opened." (1 `readBoolProperty` t))                                 Empty
-objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         ("If map changing would've been coded in, you would use these to go " <> bool "down." "up." (1 `readBoolProperty` t)) Empty
-objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  ("A " <> (1 `readStringProperty` t) <> ".")                                                                           Empty
-objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         ("Its " <> (1 `readStringProperty` t) <> ".")                                                                         (Person $ let n = 1 `readStringProperty` t in newCharacter n (Faction $ 2 `readStringProperty` t) (conversationForName n))
-objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         "Spawn point. You really should not be able to examine this?"                                                         Empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."                          (Camera (Faction $ 1 `readStringProperty` t) 0)
-objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         "Your machine. You wonder if Devin mailed you about the job."                                                         Empty
-objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         ("A " <> (1 `readStringProperty` t) <> ".")                                                                           Empty
+objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         Empty
+objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         Door
+objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         Empty
+objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  Empty
+objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         (Person $ let n = 1 `readStringProperty` t in newCharacter n (descriptionForName n) (Faction $ 2 `readStringProperty` t) (conversationForName n))
+objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         Empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         (Camera (Faction $ 1 `readStringProperty` t) 0)
+objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         Empty
+objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         Empty
 objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
 -- TODO Errrrrr, this should be done through the tileset???
 
 playerPerson ∷ String → Object States
-playerPerson n = Object '@' "metal" False True 3 ("Its " <> n <> ".") (Person $ newCharacter n facCarla (conversationForName n))
+playerPerson n = Object '@' "metal" False True 3 (Person $ newCharacter n (descriptionForName n) facCarla (conversationForName n))
+
+
+programForObject ∷ (ObjectAPI o, Monad o) ⇒ Object States → InteractionType → o ()
+programForObject (view o_state → Door)         = door
+programForObject (view o_state → (Camera _ _)) = camera
+programForObject (view o_state → (Person _))   = person
+programForObject _                             = const (pure ())
 
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
 door ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+door Examine =
+    passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
 door Operate = do
     c ← passable >>= setPassable . not >> passable
     setSeeThrough c
     changeChar $ bool '+' '\'' c
-    --passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
-    message $ "Doors are now " <>  bool "closed." "opened." c
 door Talk =
-    message "\"Open sesame!\" you yell, but doors are deaf and numb to your pleas."
-door OperateOn =
-    message "Operating door on something else..."
-door AiTick =
+    message "\"Open sesame!\""
+door _ =
     pure ()
 
 
 computer ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+computer Examine =
+    message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
 computer Operate =
-    message "You can't login to this machine."
+    message "<IMPLEMENT ME>"
 computer Talk =
-    message "You'd think that in this age, computers would actually respond to voice commands. As it is, this one actually does not."
-computer OperateOn =
-    message "Operating computer on something else. Yikes."
-computer AiTick =
+    message "*khm* \"LOGIN - CARLA\"..."
+computer _ =
     pure ()
 
 
 person ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+person Examine = do
+    desc ← (\(Person ch) → view ch_description ch) <$> get
+    showInfoWindow desc
 person Operate = do
     name ← (\(Person ch) → view ch_name ch) <$> get
-    message $ "Unsure yourself about what exactly you're trying to pull off, " <> name <> " meets your 'operation' attempts with suspicious look."
-person Talk =
-    requestGameState Conversation
-person OperateOn = do
-    name ← (\(Person ch) → view ch_name ch) <$> get
-    message $ "You try and operate " <> name <> " on whatever. Lol."
-person AiTick =
-    pure ()
-
-
-generic ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o () 
-generic Operate =
-    message "Trying to interact with whatever."
-generic Talk =
-    message "Trying to talk to whatever."
-generic OperateOn =
-    message "You try and operate whatever on whatever."
-generic AiTick =
+    message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> name <> " meets your 'operation' attempts with suspicious look."
+person Talk = do
+    ch ← (\(Person ch) → ch) <$> get
+    startConversation ch
+person _ =
     pure ()
 
 
 camera ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
-camera AiTick = do
+camera Examine =
+    message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
+camera Operate = do
     os   ← scanRange 8 ((=='@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
@@ -252,7 +251,7 @@ camera AiTick = do
     where
         isFoe o = (views o_state (\(Person ch) → view ch_faction ch) o /=) . (\(Camera f _) → f) <$> get
 camera _ = 
-    message "That won't work."
+    pure ()
 
 
 --objectToChar (Stairs u)       = bool '<' '>' u
@@ -270,32 +269,84 @@ camera _ =
 
 
 --------------------------------------------------------------------------------
--- Conversations
+-- People
 -- TODO add some conversation builder monad, to make this easier to enter
 -- TODO do not really explain stuff. Let player figure it out by playing.
 
+descriptionForName ∷ String → String
+descriptionForName "Carla"   = carlaDesc
+descriptionForName "Raj"     = rajDesc
+descriptionForName "Delgado" = delgadoDesc
+
+descriptionForName "Johnny"  = johnnyDesc
+descriptionForName "Sally"   = sallyDesc
+descriptionForName "Moe"     = moeDesc
+descriptionForName _         = redshirtDesc
+
+
 conversationForName ∷ String → ConversationNode
+conversationForName "Carla"   = carlaConvo
+conversationForName "Raj"     = rajConvo
+conversationForName "Delgado" = delgadoConvo
+
 conversationForName "Johnny"  = johnnyConvo
 conversationForName "Sally"   = sallyConvo
 conversationForName "Moe"     = moeConvo
-conversationForName "Raj"     = rajConvo
-conversationForName "Delgado" = delgadoConvo
 conversationForName _         = redshirtConvo
 
 
+--------------------------------------------------------------------------------
 
+-- What happens when Carla looks in the mirror
+carlaDesc ∷ String
+carlaDesc = intercalate "\n"
+    [ "Scrawny, beautiful, capable. You know you are. You also hope no one figures out quickly enough that you are."
+    , "In this business, being considered green has certain advantages."
+    ]
+
+-- Few conversations of Carla giving herself moral support
+carlaConvo ∷ ConversationNode
+carlaConvo = TalkNode "Hi." End
+
+
+
+rajDesc ∷ String
+rajDesc = intercalate "\n"
+    [ "Tiny, skinny and looking like she'd bolt in a second if she could."
+    , "Poor Raj, you think, wondering if she understands how much you feel out of place as well. Looking at her cute, young face, you find that she's beautiful in her own way."
+    , " If things didn't happen for her the way they did, it'd be hard to imagine her even throwing a look down your way, if you'd happen to pass her by in the street."
+    ]
+
+rajConvo ∷ ConversationNode
+rajConvo =
+    ListenNode "I believe in you, Cal."
+        End
+
+
+delgadoDesc ∷ String
+delgadoDesc = intercalate "\n"
+    [ "Scrawny, scarred and tough as nails."
+    , "When you look in his eyes without giving a tell, you see that there's unspeakable depth and pain, but as soon as he catches your eyes, an imaginary door comes slamming down, the depth disappears and and Delgado's face takes that of the one everyone knows the best: mean SOB."
+    , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
+    ]
+
+delgadoConvo ∷ ConversationNode
+delgadoConvo =
+    ListenNode "Cal, lets wrap this up quickly and get the fuck out of here."
+        End
+
+--------------------------------------------------------------------------------
+
+redshirtDesc ∷ String
+redshirtDesc = "You never saw this person in your life."
 
 redshirtConvo ∷ ConversationNode
 redshirtConvo = ListenNode "Beat it, lizzie!" End
 
 
-johnnyConvo ∷ ConversationNode
-johnnyConvo =
-    ListenNode "Yea?" $
-      TalkNode "Hey dude, I'm Carla" $
-        ListenNode "Who gives a shit? Now would you mind, we're in the middle of something."
-          End
 
+sallyDesc ∷ String
+sallyDesc = "Slim, well-built and gorgeous, this woman looks like she's packing serious hardware. Her scrawny short black hair falls just short of shiny mirrors where her eyes are supposed to be. Probably HUD augments."
 
 sallyConvo ∷ ConversationNode
 sallyConvo =
@@ -305,17 +356,24 @@ sallyConvo =
           End
 
 
-rajConvo ∷ ConversationNode
-rajConvo =
-    ListenNode "I believe in you, Cal."
-        End
+
+johnnyDesc ∷ String
+johnnyDesc = "If he'd have asian facial features, he'd look like a textbook sarariman."
+
+johnnyConvo ∷ ConversationNode
+johnnyConvo =
+    ListenNode "Yea?" $
+      TalkNode "Hey dude, I'm Carla" $
+        ListenNode "Who gives a shit? Now would you mind, we're in the middle of something."
+          End
 
 
-delgadoConvo ∷ ConversationNode
-delgadoConvo =
-    ListenNode "Cal, lets wrap this up quickly and get the fuck out of here."
-        End
 
+moeDesc ∷ String
+moeDesc = intercalate "\n"
+    [ "You never met anyone whose name fit them better. Black side hair and shiny dome, white sleeveless shirt covered with beer and fat stains, covering his giant belly - somehow, you are *sure* Moe would present a formidable opponent in close quarters."
+    , "Its common knowledge that he used to run, but Devin told you bits and pieces of his past that make you feel tremendous respect towards this relic of the old age."
+    ]
 
 moeConvo ∷ ConversationNode
 moeConvo =
