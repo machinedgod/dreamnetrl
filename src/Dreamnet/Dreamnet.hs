@@ -197,7 +197,7 @@ processNormal _ Input.UseHeld = do
             --programAt v >>= maybe (pure ()) (\prg → runProgram v (prg OperateOn))
             --renderNormal
             increaseTurn -- TODO as much as the device wants!
-processNormal _ Input.Examine = do
+processNormal dd Input.Examine = do
     obtainTarget >>= \case
         Just (v, o)  → do
             onHerself ← uses (g_world.w_active.e_position) (==v)
@@ -210,7 +210,7 @@ processNormal _ Input.Examine = do
                     g_gameState .= Examination
                     use g_scrollWindow >>= lift . renderScrollWindow
                 else do
-                    runProgram v (programForObject o Examine)
+                    runProgram dd v (programForObject o Examine)
                     use g_gameState >>= \case
                         Examination → do
                             g_scrollWindow %= moveWindow (V2 2 1)
@@ -223,13 +223,13 @@ processNormal _ Input.Examine = do
             renderMessage "There's nothing there."
             renderNormal
     increaseTurn
-processNormal _ Input.Operate = do
+processNormal dd Input.Operate = do
     obtainTarget >>= \case
         Nothing → do
             renderMessage "There's nothing here."
             increaseTurn
         Just (v, o) → do
-            runProgram v (programForObject o Operate)
+            runProgram dd v (programForObject o Operate)
             use g_gameState >>= \case
                 Normal → do
                     renderNormal
@@ -237,13 +237,13 @@ processNormal _ Input.Operate = do
                     renderMessage "Need to implement rendering of other states!"
                     g_gameState .= Normal
             increaseTurn -- TODO as much as operation program wants!
-processNormal _ Input.Talk = do
+processNormal dd Input.Talk = do
     obtainTarget >>= \case
         Nothing → do
             renderMessage "Trying to talk to someone, but there's no one there."
             increaseTurn
         Just (v, o) → do
-            runProgram v (programForObject o Talk)
+            runProgram dd v (programForObject o Talk)
             increaseTurn
             use g_gameState >>= \case
                 Conversation → do
@@ -488,10 +488,10 @@ increaseTurn ∷ StateT Game C.Curses ()
 increaseTurn = g_turn += 1
 
 
-runProgram ∷ V2 Int → Free ObjectF () → StateT Game C.Curses ()
-runProgram v prg = do
+runProgram ∷ DesignData → V2 Int → Free ObjectF () → StateT Game C.Curses ()
+runProgram dd v prg = do
     o ← uses (g_world.w_map) (last . valuesAt v)
-    (gs, w') ← uses g_world (runWorld (snd <$> runObjectMonadWorld prg v o >>= \gs → updateVisible *> pure gs)) -- TODO run program should probably return useful values for interactions???
+    (gs, w') ← uses g_world (runWorld (snd <$> runObjectMonadWorld dd prg v o >>= \gs → updateVisible *> pure gs)) -- TODO run program should probably return useful values for interactions???
     g_gameState .= gs
     g_world .= w'
 
@@ -536,12 +536,14 @@ obtainTarget = do
 
     ap ← use (g_world.w_active.e_position)
     t  ← lift Input.nextTargetSelectionEvent
-    uses (g_world.w_map) (filter coolSymbols . valuesAt (ap + t)) >>=
+    uses (g_world.w_map) (valuesAt (ap + t)) >>=
+    --uses (g_world.w_map) (filter (not . base) . valuesAt (ap + t)) >>=
         \case
-            [] → pure Nothing
-            l  → pure (Just (ap + t, last l))  -- TODO find a way to deal with noninteresting objects (<base>)
-    where
-        coolSymbols o = or $ fmap (view o_symbol o ==) [ '@', '*', '+', '\'' ] -- TODO BAAAD, but its going to be refactored when I figure out better way
+            []  → error "Obtaining target on non-existent tile :-O"
+            --[_] → pure Nothing
+            l   → pure (Just (ap + t, last l))
+    --where
+    --    base o = or $ fmap (view o_symbol o ==) [ '@', '*', '+', '\'' ]
 
 --------------------------------------------------------------------------------
 
@@ -583,7 +585,7 @@ renderNormal = do
     t  ← use g_turn
     --wat ← use g_watchAlarmTime
     wb ← use g_watchButton
-    tm ← use (g_world.w_team) >>= \t → uses (g_world.w_active) (fmap (views (e_object.o_state)  (\(Person ch) → ch)). (:t))
+    tm ← use (g_world.w_team) >>= \t → uses (g_world.w_active) (fmap (views (e_object.o_state)  (\(Person ch) → ch)) . (:t))
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain

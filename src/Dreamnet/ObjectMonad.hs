@@ -16,7 +16,7 @@ import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 
-import Dreamnet.DesignData   (GameState(..), ObjectAPI(..), States,
+import Dreamnet.DesignData   (DesignData, GameState(..), ObjectAPI(..), States,
                               DreamnetCharacter)
 import Dreamnet.World        (Object, o_symbol, o_material, o_passable,
                               o_seeThrough, o_state, changeObject_,
@@ -28,7 +28,8 @@ import Dreamnet.WorldMap     (valuesAt, interestingObjects)
 
 -- TODO this object monad really doesn't have to exist. Everything could be
 --      implemented simply through WorldAPI.
-data ObjectF a = Move (V2 Int) a
+data ObjectF a = GetDesignData (DesignData → a)
+               | Move (V2 Int) a
                | Position (V2 Int → a)
                | ShowInfoWindow String a
                | StartConversation DreamnetCharacter a
@@ -47,6 +48,8 @@ data ObjectF a = Move (V2 Int) a
 
 
 instance ObjectAPI (Free ObjectF) where
+    designData = Free $ GetDesignData Pure
+
     position = Free $ Position Pure
 
     move v = Free $ Move v (Pure ())
@@ -79,73 +82,77 @@ instance ObjectAPI (Free ObjectF) where
 
 --------------------------------------------------------------------------------
 
-runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ Free ObjectF a → V2 Int → Object States → w (a, GameState)
-runObjectMonadWorld op v o = runWithGameState Normal (v, o) op
+runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → Free ObjectF a → V2 Int → Object States → w (a, GameState)
+runObjectMonadWorld dd op v o = runWithGameState dd Normal (v, o) op
 
 
-runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ GameState → (V2 Int, Object States) → Free ObjectF a → w (a, GameState)
-runWithGameState gs (cv, o) (Free (Move v n)) = do
+runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → GameState → (V2 Int, Object States) → Free ObjectF a → w (a, GameState)
+runWithGameState dd gs (cv, o) (Free (GetDesignData fn)) = do
+    runWithGameState dd gs (cv, o) (fn dd)
+
+runWithGameState dd gs (cv, o) (Free (Move v n)) = do
     moveObject cv o v
-    runWithGameState gs (v, o) n
+    runWithGameState dd gs (v, o) n
 
-runWithGameState gs (cv, o) (Free (Position fv)) = do
-    runWithGameState gs (cv, o) (fv cv)
+runWithGameState dd gs (cv, o) (Free (Position fv)) = do
+    runWithGameState dd gs (cv, o) (fv cv)
 
-runWithGameState _ (cv, o) (Free (ShowInfoWindow txt n)) = do
+runWithGameState dd _ (cv, o) (Free (ShowInfoWindow txt n)) = do
     setStatus txt
-    runWithGameState Examination (cv, o) n
+    runWithGameState dd Examination (cv, o) n
 
-runWithGameState _ (cv, o) (Free (StartConversation _ n)) = do
+runWithGameState dd _ (cv, o) (Free (StartConversation _ n)) = do
     -- TODO Move some of the conversation starting code here
-    runWithGameState Conversation (cv, o) n
+    runWithGameState dd Conversation (cv, o) n
 
-runWithGameState gs (cv, o) (Free (Passable fn)) = do
-    runWithGameState gs (cv, o) (fn $ view o_passable o)
+runWithGameState dd gs (cv, o) (Free (Passable fn)) = do
+    runWithGameState dd gs (cv, o) (fn $ view o_passable o)
 
-runWithGameState gs (cv, o) (Free (SetPassable cl n)) = do
+runWithGameState dd gs (cv, o) (Free (SetPassable cl n)) = do
     let no = o_passable .~ cl $ o
     changeObject_ cv o no
-    runWithGameState gs (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState gs (cv, o) (Free (SeeThrough fn)) = do
-    runWithGameState gs (cv, o) (fn $ view o_seeThrough o)
+runWithGameState dd gs (cv, o) (Free (SeeThrough fn)) = do
+    runWithGameState dd gs (cv, o) (fn $ view o_seeThrough o)
 
-runWithGameState gs (cv, o) (Free (SetSeeThrough st n)) = do
+runWithGameState dd gs (cv, o) (Free (SetSeeThrough st n)) = do
     let no = o_seeThrough .~ st $ o
     changeObject_ cv o no
-    runWithGameState gs (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState gs (cv, o) (Free (CanSee v fs)) = do
+runWithGameState dd gs (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
-    runWithGameState gs (cv, o) (fs seesV)
+    runWithGameState dd gs (cv, o) (fs seesV)
 
-runWithGameState gs (cv, o) (Free (ChangeChar c n)) = do
+runWithGameState dd gs (cv, o) (Free (ChangeChar c n)) = do
     let no = o_symbol .~ c $ o
     changeObject_ cv o no
-    runWithGameState gs (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
+runWithGameState dd gs (cv, o) (Free (ChangeMat m n)) = do
     let no = o_material .~ m $ o
     changeObject_ cv o no
-    runWithGameState gs (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState gs (cv, o) (Free (Message m n)) = do
+runWithGameState dd gs (cv, o) (Free (Message m n)) = do
     setStatus m
-    runWithGameState gs (cv, o) n
+    runWithGameState dd gs (cv, o) n
 
-runWithGameState gs (cv, o) (Free (Put v n)) = do
+runWithGameState dd gs (cv, o) (Free (Put v n)) = do
     let no = o_state .~ v $ o
     changeObject_ cv o no
-    runWithGameState gs (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState gs (cv, o) (Free (Get fn)) = do
-    runWithGameState gs (cv, o) (fn . view o_state $ o)
+runWithGameState dd gs (cv, o) (Free (Get fn)) = do
+    runWithGameState dd gs (cv, o) (fn . view o_state $ o)
 
-runWithGameState gs (cv, o) (Free (ScanRange r f fn)) = do
+runWithGameState dd gs (cv, o) (Free (ScanRange r f fn)) = do
     m ← worldMap
     let points = interestingObjects cv r f m
     let v      = zip points (last . (`valuesAt` m) <$> points)
-    runWithGameState gs (cv, o) (fn v)
+    runWithGameState dd gs (cv, o) (fn v)
 
-runWithGameState gs _ (Pure x) = pure (x, gs)
+runWithGameState _ gs _ (Pure x) =
+    pure (x, gs)
 

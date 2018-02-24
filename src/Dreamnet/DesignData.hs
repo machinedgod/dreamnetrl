@@ -20,10 +20,6 @@ module Dreamnet.DesignData
 , States(..) -- If I close this, then all conversation code needs to be handled here
 
 , ObjectAPI(..)
-, door
-, computer
-, person
-, camera
 
 , objectFromTile
 , playerPerson
@@ -39,7 +35,7 @@ import Data.Bool            (bool)
 import Data.List            (intercalate)
 import Linear               (V2)
 
-import qualified Data.Map as M (Map, fromList)
+import qualified Data.Map as M (Map, fromList, (!))
 
 import Dreamnet.TileMap      (Tile, t_char)
 import Dreamnet.TileData     (ttype, readStringProperty, readBoolProperty,
@@ -103,7 +99,7 @@ defaultDesignData = pure $
     DesignData {
       _dd_characters      = M.fromList $ toNamedTuple <$> characters
     , _dd_defaultRedshirt = newCharacter "?" redshirtDesc facGenpop redshirtConvo
-    , _dd_startingMap     = "res/bar"
+    , _dd_startingMap     = "res/apartment0"
     }
     where
         toNamedTuple = (,) <$> view ch_name <*> id
@@ -121,19 +117,15 @@ defaultDesignData = pure $
 
 
 
---characterForName ∷ DesignData → String → DreamnetCharacter
---characterForName dd name =
---    let maybeChar = M.lookup name (view dd_characters dd)
---    in  (fromMaybe (view dd_defaultRedshirt dd) maybeChar)
-
-
-
+characterForName ∷ String → DesignData → DreamnetCharacter
+characterForName name = views dd_characters (M.! name)
 
 --------------------------------------------------------------------------------
 -- Object API and objects
 
 -- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
 class ObjectAPI o where
+    designData        ∷ o DesignData
     position          ∷ o (V2 Int)
     move              ∷ V2 Int → o ()
     showInfoWindow    ∷ String → o ()
@@ -167,8 +159,10 @@ data InteractionType = Examine
 --------------------------------------------------------------------------------
 
 data States = Door
-            | Camera  Faction Word
-            | Person  DreamnetCharacter
+            | Prop      String
+            | Camera    Faction Word
+            | Person    DreamnetCharacter
+            | Computer
             | Empty
             deriving (Eq, Show) -- TODO just for Debug of UseHeld
 
@@ -179,11 +173,11 @@ objectFromTile ∷ Tile → Object States
 objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         Empty
 objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         Door
 objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         Empty
-objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  Empty
+objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  (Prop (1 `readStringProperty` t))
 objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         (Person $ let n = 1 `readStringProperty` t in newCharacter n (descriptionForName n) (Faction $ 2 `readStringProperty` t) (conversationForName n))
 objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         Empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
 objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         (Camera (Faction $ 1 `readStringProperty` t) 0)
-objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         Empty
+objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         Computer
 objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         Empty
 objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
 -- TODO Errrrrr, this should be done through the tileset???
@@ -193,10 +187,13 @@ playerPerson n = Object '@' "metal" False True 3 (Person $ newCharacter n (descr
 
 
 programForObject ∷ (ObjectAPI o, Monad o) ⇒ Object States → InteractionType → o ()
-programForObject (view o_state → Door)         = door
-programForObject (view o_state → (Camera _ _)) = camera
-programForObject (view o_state → (Person _))   = person
-programForObject _                             = const (pure ())
+programForObject (view o_state  → Door)         it      = door it
+programForObject (view o_state  → (Camera _ _)) it      = camera it
+programForObject (view o_state  → (Person _))   it      = person it
+programForObject (view o_state  → Computer)     it      = computer it
+programForObject (view o_symbol → 'm')          it      = mirror it
+programForObject (view o_state  → (Prop n))     Examine = message $ "A " <> n
+programForObject _                              _       = pure ()
 
 --------------------------------------------------------------------------------
 
@@ -253,6 +250,15 @@ camera Operate = do
 camera _ = 
     pure ()
 
+
+mirror ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+mirror Examine =
+    showInfoWindow (descriptionForName "Carla")
+mirror Talk =
+    designData >>= startConversation . characterForName "Carla"
+mirror _ =
+    pure ()
+    
 
 --objectToChar (Stairs u)       = bool '<' '>' u
 --objectToChar (Camera l)       = intToDigit l
