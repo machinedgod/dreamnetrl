@@ -158,11 +158,9 @@ data InteractionType = Examine
 
 --------------------------------------------------------------------------------
 
-data States = Door
-            | Prop      String
+data States = Prop      String
             | Camera    Faction Word
             | Person    DreamnetCharacter
-            | Computer
             | Empty
             deriving (Eq, Show) -- TODO just for Debug of UseHeld
 
@@ -171,13 +169,13 @@ data States = Door
 -- 2) Actually, it does, because Object carries a specific state, later used by object programs
 objectFromTile ∷ Tile → Object States
 objectFromTile t@(ttype → "Base")     = Object (view t_char t) "concrete"                 (1 `readBoolProperty` t) (2 `readBoolProperty` t) 0                         Empty
-objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         Door
+objectFromTile t@(ttype → "Door")     = Object (view t_char t) "wood"                     (1 `readBoolProperty` t) (1 `readBoolProperty` t) 4                         Empty
 objectFromTile t@(ttype → "Stairs")   = Object (view t_char t) "wood"                     (1 `readBoolProperty` t)  True                    1                         Empty
 objectFromTile t@(ttype → "Prop")     = Object (view t_char t) (4 `readStringProperty` t) (2 `readBoolProperty` t) (3 `readBoolProperty` t) (4 `readWordProperty` t)  (Prop (1 `readStringProperty` t))
 objectFromTile t@(ttype → "Person")   = Object  '@'            "blue"                      False                    True                    3                         (Person $ let n = 1 `readStringProperty` t in newCharacter n (descriptionForName n) (Faction $ 2 `readStringProperty` t) (conversationForName n))
 objectFromTile   (ttype → "Spawn")    = Object  '.'            "concrete"                  True                     True                    0                         Empty -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
 objectFromTile t@(ttype → "Camera")   = Object (view t_char t) "green light"               True                     True                    1                         (Camera (Faction $ 1 `readStringProperty` t) 0)
-objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         Computer
+objectFromTile t@(ttype → "Computer") = Object (view t_char t) "metal"                     False                    True                    1                         Empty
 objectFromTile t@(ttype → "Item")     = Object (view t_char t) "blue plastic"              True                     True                    0                         Empty
 objectFromTile t                      = error $ "Can't convert Tile type into Object: " <> show t
 -- TODO Errrrrr, this should be done through the tileset???
@@ -187,10 +185,11 @@ playerPerson n = Object '@' "metal" False True 3 (Person $ newCharacter n (descr
 
 
 programForObject ∷ (ObjectAPI o, Monad o) ⇒ Object States → InteractionType → o ()
-programForObject (view o_state  → Door)         it      = door it
+programForObject (view o_symbol → '+')          it      = door it
+programForObject (view o_symbol → '/')          it      = door it
 programForObject (view o_state  → (Camera _ _)) it      = camera it
 programForObject (view o_state  → (Person _))   it      = person it
-programForObject (view o_state  → Computer)     it      = computer it
+programForObject (view o_symbol → '&')          it      = computer it
 programForObject (view o_symbol → 'm')          it      = mirror it
 programForObject (view o_state  → (Prop n))     Examine = message $ "A " <> n
 programForObject _                              _       = pure ()
@@ -204,7 +203,7 @@ door Examine =
 door Operate = do
     c ← passable >>= setPassable . not >> passable
     setSeeThrough c
-    changeChar $ bool '+' '\'' c
+    changeChar $ bool '+' '/' c
 door Talk =
     message "\"Open sesame!\""
 door _ =

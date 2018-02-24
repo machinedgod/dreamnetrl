@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -206,6 +206,7 @@ processNormal dd Input.Examine = do
                     examineText ← uses (g_world.w_map) desc
                     g_scrollWindow %= moveWindow (V2 2 1)
                     g_scrollWindow %= resizeWindow (V2 40 10)
+                    g_scrollWindow %= setTitle Nothing
                     g_scrollWindow %= setText examineText
                     g_gameState .= Examination
                     use g_scrollWindow >>= lift . renderScrollWindow
@@ -250,7 +251,7 @@ processNormal dd Input.Talk = do
                     let ch = views o_state (\(Person ch') → ch') $ o
                     g_conversant .= Just ch
                     g_conversation .= view ch_conversation ch
-                    g_scrollWindow %= setTitle (view ch_name ch)
+                    g_scrollWindow %= setTitle (Just (view ch_name ch))
                     use g_conversation >>= \case
                         (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
                         (TalkNode s _)      → g_scrollWindow %= setText s
@@ -260,14 +261,15 @@ processNormal dd Input.Talk = do
                 _ →
                     renderNormal
 processNormal _ Input.InventorySheet = do
-    g_scrollWindow %= setTitle "Inventory sheet"
-    --g_scrollWindow %= setLines is
-    use g_scrollWindow >>= lift . renderScrollWindow
+    g_scrollWindow %= setTitle (Just "Inventory sheet")
+    g_scrollWindow %= setText ""
     g_gameState .= InventoryUI
+    use g_scrollWindow >>= lift . renderScrollWindow
 processNormal _ Input.CharacterSheet = do
-    g_scrollWindow %= setTitle "Character sheet"
-    use g_scrollWindow >>= lift .  renderScrollWindow
+    g_scrollWindow %= setTitle (Just "Character sheet")
+    g_scrollWindow %= setText ""
     g_gameState .= CharacterUI
+    use g_scrollWindow >>= lift .  renderScrollWindow
 
 
 processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
@@ -380,12 +382,12 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setTitle (Just initName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setTitle (Just otherName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             End → do
@@ -401,12 +403,12 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setTitle (Just initName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setTitle (Just otherName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             End → do
@@ -422,12 +424,12 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle initName
+                g_scrollWindow %= setTitle (Just initName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle otherName
+                g_scrollWindow %= setTitle (Just otherName)
                 g_scrollWindow %= setText s
                 use g_conversation >>= renderConversation
             End → do

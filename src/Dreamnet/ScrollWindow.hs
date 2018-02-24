@@ -69,8 +69,8 @@ createScrollData = do
 
 --------------------------------------------------------------------------------
 
-setTitle ∷ String → ScrollData → ScrollData
-setTitle t = sd_title .~ Just t
+setTitle ∷ Maybe String → ScrollData → ScrollData
+setTitle t = sd_title .~ t
 
 
 setText ∷ String → ScrollData → ScrollData
