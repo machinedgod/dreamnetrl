@@ -22,13 +22,11 @@ import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
-import Dreamnet.DesignData
 import qualified Dreamnet.Input as Input
 import Dreamnet.World
 import Dreamnet.Conversation
 
 import Dreamnet.CoordVector
-import Dreamnet.TileMap
 import Dreamnet.WorldMap
 import Dreamnet.Entity
 import Dreamnet.ScrollWindow
@@ -38,6 +36,8 @@ import Dreamnet.Renderer
 import Dreamnet.Visibility
 import Dreamnet.Character
 import Dreamnet.ObjectMonad
+
+import DesignData
 
 --------------------------------------------------------------------------------
 
@@ -76,17 +76,16 @@ makeLenses ''Game
 newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
-    m   ← loadTileMap (view dd_startingMap dd)
     sw  ← createScrollData
     cw  ← createChoiceData
     pure Game {
         _g_turn  = 0
       , _g_world = newWorld
-                       (fromTileMap m objectFromTile)
+                       (fromTileMap (view dd_startingMap dd) objectFromTile)
                        (playerPerson <$> [ "Carla"
                                          , "Delgado"
-                                         , "Raj"
-                                         , "570rm"
+                                         --, "Raj"
+                                         --, "570rm"
                                          ])
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
@@ -182,11 +181,18 @@ processNormal _ Input.LowerStance = do
     renderNormal
 processNormal _ Input.Get = do
     obtainTarget >>= \case
-        Nothing →
+        Nothing → do
+            increaseTurn
             renderMessage "There's nothing here."
-        Just (v, o) →
-            renderMessage $ "Picking up " <> show o <> " from " <> show v
-    increaseTurn
+        Just (v, o) → do
+            -- Copy to characters arm
+            -- Remove from the world
+            g_world %= snd . runWorld
+                (changeActive (o_state %~ (\(Person ch) → Person $ pickUp o ch)) >>
+                 deleteObject v o
+                )
+            increaseTurn
+            renderNormal
 processNormal _ Input.UseHeld = do
     obtainTarget >>= \case
         Nothing → do
@@ -296,13 +302,15 @@ processHudTeam Input.MoveUp = do
     g_hudTeamSelector %= max 0 . subtract 3
     renderNormal
 processHudTeam Input.MoveDown = do
-    g_hudTeamSelector %= min 5 . (+3)
+    l ← uses (g_world.w_team) (fromIntegral . length)
+    g_hudTeamSelector %= min l . (+3)
     renderNormal
 processHudTeam Input.MoveLeft = do
     g_hudTeamSelector %= max 0 . subtract 1
     renderNormal
 processHudTeam Input.MoveRight = do
-    g_hudTeamSelector %= min 5 . (+1)
+    l ← uses (g_world.w_team) (fromIntegral . length)
+    g_hudTeamSelector %= min l . (+1)
     renderNormal
 processHudTeam Input.SelectChoice = do
     renderMessage "Showing charcter sheet!"

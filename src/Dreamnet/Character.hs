@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ExistentialQuantification, StandaloneDeriving #-}
 {-# LANGUAGE DataKinds, KindSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Dreamnet.Character
 ( ItemTraits(..)
@@ -33,16 +34,18 @@ module Dreamnet.Character
 , ch_electronics
 , ch_social
 , ch_infiltration
-, newCharacter
+, ch_primaryHand
 
-, primaryHand
+, newCharacter
+, pickUp
+
 , equipmentSlots
 , equippedSlots
 , equippedContainers
 ) where
 
 
-import Control.Lens (makeLenses, (^.))
+import Control.Lens (Lens', makeLenses, (^.), (%~))
 import Data.Maybe   (isJust)
 
 --------------------------------------------------------------------------------
@@ -215,10 +218,16 @@ data Character i c f = Character {
 
 makeLenses ''Character
 
+ch_primaryHand ∷ Character i c f → Lens' (Character i c f) (Slot 'Hand i)
+ch_primaryHand ch = slot $ ch ^. ch_handedness
+    where slot LeftHand  = ch_leftHand
+          slot RightHand = ch_rightHand
+
 
 instance Eq (Character i c f) where
     ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
 
+--------------------------------------------------------------------------------
 
 newCharacter ∷ String → String → f → c → Character i c f
 newCharacter n d fac cn =
@@ -231,11 +240,11 @@ newCharacter n d fac cn =
         is    = InfiltrationSkills 0 0 0 0 0
 
 
-primaryHand ∷ Character i c f → Slot 'Hand i
-primaryHand ch = slot $ ch ^. ch_handedness
-    where slot LeftHand  = ch ^. ch_leftHand
-          slot RightHand = ch ^. ch_rightHand
+-- TODO Only if hands not full!
+pickUp ∷ i → Character i c f → Character i c f
+pickUp i ch = (ch_primaryHand ch) %~ equipSlot i $ ch
 
+--------------------------------------------------------------------------------
 
 equipmentSlots ∷ Character i c f → [SlotWrapper i]
 equipmentSlots ch = [ SlotWrapper (ch ^. ch_leftHand)
@@ -255,3 +264,6 @@ equippedContainers = filter containers . equippedSlots
     where
         containers (SlotWrapper (Slot i)) = maybe False isContainer i
 
+
+equipSlot ∷ i → Slot t i → Slot t i
+equipSlot i s = s { slottedItem = Just i }

@@ -35,14 +35,16 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.DesignData  (GameState(..), DreamnetCharacter)
+import Dreamnet.World       (o_state)
 import Dreamnet.Character   (ch_name, ch_healthPoints, ch_maxHealthPoints,
-                             ch_stance,
-                             Item(Item), primaryHand, Slot(slottedItem),
+                             ch_stance, ch_primaryHand,
+                             Slot(slottedItem),
                              Stance(..))
 import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
+
+import DesignData           (GameState(..), DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 
@@ -330,7 +332,9 @@ drawHud gs hms am team turns button = do
             -- Weapon
             C.moveCursor (oy + 1) (ox + 1)
             C.drawString $ 
-                maybe ("<EMPTY>") (\(Item n) → n) (slottedItem (primaryHand ch))
+                maybe ("<EMPTY>")
+                      (take (fromIntegral boxWidth) . show . view o_state)
+                      (slottedItem . view (ch_primaryHand ch) $ ch)
             
             -- Clip
             --let clipStr = show cl <> "/" <> show mcl

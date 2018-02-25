@@ -3,19 +3,21 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Dreamnet.TileMap
-( Tile
+( Tile(Tile)
 , t_char
 , t_data
 
-, Tileset
 , TileLayer
 , l_data
+, newTileLayer
 
+, Tileset
 , TileMap
 , m_layers
 , m_tileset
 , m_positioned
 , m_desc
+, newTileMap
 , tileAt
 , changeTile
 , findAll
@@ -67,6 +69,10 @@ instance CoordVector TileLayer where
     height = view l_height
 
 
+newTileLayer ∷ Width → Height → Char → TileLayer
+newTileLayer w h c = TileLayer w h (V.replicate (fromIntegral $ w * h) c)
+
+
 tileAt ∷ TileLayer → Tileset → V2 Int → Tile
 tileAt tl ts v = let char      = (tl^.l_data) V.! linCoord tl v
                      maybeTile = char `M.lookup` ts
@@ -101,6 +107,15 @@ makeLenses ''TileMap
 instance CoordVector TileMap where
     width  = view m_width
     height = view m_height
+
+
+newTileMap ∷ Width → Height → Tile → TileMap
+newTileMap w h base =
+    TileMap w h
+        (V.singleton (newTileLayer w h (view t_char base)))
+        (M.singleton (view t_char base) base)
+        M.empty
+        ""
 
 --------------------------------------------------------------------------------
 

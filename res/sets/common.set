@@ -30,6 +30,8 @@ define(`REDSHIRT', `$1,Person,<RS>,ALLIANCE')dnl
 ╞,Base,False,False
 ╥,Base,False,False
 ╨,Base,False,False
+╫,Base,False,False
+╪,Base,False,False
 ╳,Spawn
 ',Door,True
 +,Door,False

@@ -68,11 +68,15 @@ executable dreamnetrl
                        Dreamnet.Dreamnet
                        Dreamnet.ComputerModel
                        Dreamnet.World
-                       Dreamnet.DesignData
                        Dreamnet.Conversation
                        Dreamnet.CoordVector
                        Dreamnet.ScrollWindow
                        Dreamnet.ObjectMonad
+                       Dreamnet.MapGenerator
+                       Design.DesignAPI
+                       Design.ObjectPrograms
+                       Design.GameCharacters
+                       DesignData
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    

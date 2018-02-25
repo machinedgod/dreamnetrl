@@ -16,13 +16,13 @@ import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2)
 
-import Dreamnet.DesignData   (DesignData, GameState(..), ObjectAPI(..), States,
-                              DreamnetCharacter)
-import Dreamnet.World        (Object, o_symbol, o_material, o_passable,
-                              o_seeThrough, o_state, changeObject_,
-                              WorldReadAPI(castVisibilityRay, worldMap),
-                              WorldAPI(moveObject, setStatus))
-import Dreamnet.WorldMap     (valuesAt, interestingObjects)
+import Dreamnet.World    (Object, o_symbol, o_material, o_passable,
+                          o_seeThrough, o_state, changeObject_,
+                          WorldReadAPI(castVisibilityRay, worldMap),
+                          WorldAPI(moveObject, setStatus))
+import Dreamnet.WorldMap (valuesAt, interestingObjects)
+import DesignData        (DesignData, GameState(..), ObjectAPI(..), States,
+                          DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 
