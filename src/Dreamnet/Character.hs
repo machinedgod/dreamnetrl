@@ -14,15 +14,62 @@ module Dreamnet.Character
 
 , Stance(..)
 
-, MeleeCombatSkills
-, RangedCombatSkills
-, ThrowingSkills
-, EngineeringSkills
-, CommunicationSkills
-, InfiltrationSkills
+, MeleeCombatSkills(..)
+, mcs_remainingPoints
+, mcs_barehanded
+, mcs_knives
+, mcs_swords
+, mcs_staves
+, mcs_maces
+, sumMelee
+, RangedCombatSkills(..)
+, rcs_remainingPoints
+, rcs_guns
+, rcs_smgs
+, rcs_shotguns
+, rcs_assault
+, rcs_sniper
+, rcs_bows
+, rcs_crossbows
+, rcs_plasma
+, rcs_lasers
+, sumRanged
+, ThrowingSkills(..)
+, ts_remainingPoints
+, ts_grenades
+, ts_knives
+, ts_shurikens
+, ts_stickies
+, sumThrowing
+, EngineeringSkills(..)
+, es_remainingPoints
+, es_assembly
+, es_modding
+, es_repair
+, es_analysis
+, es_juryrigging
+, sumEngineering
+, CommunicationSkills(..)
+, ss_remainingPoints
+, ss_smallTalk
+, ss_bodyLanguage
+, ss_neurolinguisticProgramming
+, ss_haggle
+, ss_interrogation
+, ss_seduction
+, sumCommunication
+, InfiltrationSkills(..)
+, is_remainingPoints
+, is_blendInShadows
+, is_useOfCover
+, is_silentMovement
+, is_coverSwitchManeuver
+, sumInfiltration
 
 , Character
 , ch_name
+, ch_lastName
+, ch_nickName
 , ch_handedness
 , ch_description
 , ch_leftHand
@@ -51,7 +98,7 @@ module Dreamnet.Character
 ) where
 
 
-import Control.Lens (Lens', makeLenses, (^.), (%~))
+import Control.Lens (Lens', makeLenses, view, (^.), (%~))
 import Data.Maybe   (isJust)
 
 --------------------------------------------------------------------------------
@@ -111,7 +158,18 @@ data MeleeCombatSkills = MeleeCombatSkills {
     , _mcs_maces      ∷ Word
     }
     deriving (Eq, Show)
---makeLenses ''MeleeCombatSkills
+makeLenses ''MeleeCombatSkills
+
+
+sumMelee ∷ MeleeCombatSkills → Word
+sumMelee mcs = sum $ fmap (\l → view l mcs)
+    [ mcs_remainingPoints
+    , mcs_barehanded
+    , mcs_knives
+    , mcs_swords
+    , mcs_staves
+    , mcs_maces
+    ]
 
 
 data RangedCombatSkills = RangedCombatSkills {
@@ -129,7 +187,23 @@ data RangedCombatSkills = RangedCombatSkills {
     , _rcs_lasers    ∷ Word
     }
     deriving (Eq, Show)
---makeLenses ''RangedCombatSkills
+makeLenses ''RangedCombatSkills
+
+
+sumRanged ∷ RangedCombatSkills → Word
+sumRanged rcs = sum $ fmap (\l → view l rcs)
+    [ rcs_remainingPoints
+    , rcs_guns
+    , rcs_smgs
+    , rcs_shotguns
+    , rcs_assault
+    , rcs_sniper
+    , rcs_bows
+    , rcs_crossbows
+    , rcs_plasma
+    , rcs_lasers
+    ]
+
 
 data ThrowingSkills = ThrowingSkills {
       _ts_remainingPoints ∷ Word
@@ -140,43 +214,79 @@ data ThrowingSkills = ThrowingSkills {
     , _ts_stickies  ∷ Word
     }
     deriving (Eq, Show)
+makeLenses ''ThrowingSkills
+
+
+sumThrowing ∷ ThrowingSkills → Word
+sumThrowing ts = sum $ fmap (\l → view l ts)
+    [ ts_remainingPoints
+    , ts_grenades
+    , ts_knives
+    , ts_shurikens
+    , ts_stickies
+    ]
 
 
 -- Holds all the skills needed to deal with electronics
 data EngineeringSkills = EngineeringSkills {
       _es_remainingPoints ∷ Word
 
-    -- Ability to create useful items from garbage
-    , _es_juryrig ∷ Word
+    -- Ability to create new items from parts
+    , _es_assembly    ∷ Word
     -- Ability to modify items to add new abilities or enhance/change existing
-    , _es_modify  ∷ Word
+    , _es_modding     ∷ Word
     -- Ability to repair damaged and broken items
-    , _es_repair  ∷ Word
+    , _es_repair      ∷ Word
     -- Ability to figure out what certain item's abilities are
-    , _es_analyze ∷ Word
+    , _es_analysis    ∷ Word
+    -- Ability to repurpose "garbage" into parts
+    , _es_juryrigging ∷ Word
     }
     deriving (Eq, Show)
---makeLenses ''EngineeringSkills
+makeLenses ''EngineeringSkills
+
+
+sumEngineering ∷ EngineeringSkills → Word
+sumEngineering es = sum $ fmap (\l → view l es)
+    [ es_remainingPoints
+    , es_assembly
+    , es_modding
+    , es_repair
+    , es_analysis
+    , es_juryrigging
+    ]
 
 
 data CommunicationSkills = CommunicationSkills {
       _ss_remainingPoints ∷ Word
 
     -- Extraction of information from smalltalk
-    , _ss_smallTalk           ∷ Word
+    , _ss_smallTalk                  ∷ Word
     -- Ability to read body language to detect hidden context
-    , _ss_bodyLanguage        ∷ Word
+    , _ss_bodyLanguage               ∷ Word
     -- Ability to implant ideas into other people's heads
-    , _ss_bodyLanguageControl ∷ Word
+    , _ss_neurolinguisticProgramming ∷ Word
     -- Ability to trade low-value items for high-value items
-    , _ss_haggle              ∷ Word
+    , _ss_haggle                     ∷ Word
     -- Ability to extract information by coercion
-    , _ss_interrogation       ∷ Word
+    , _ss_interrogation              ∷ Word
     -- Ability to extract information through sexual attraction
-    , _ss_charm               ∷ Word
+    , _ss_seduction                  ∷ Word
     }
     deriving (Eq, Show)
---makeLenses ''CommunicationSkills
+makeLenses ''CommunicationSkills
+
+
+sumCommunication ∷ CommunicationSkills → Word
+sumCommunication ss = sum $ fmap (\l → view l ss)
+    [ ss_remainingPoints
+    , ss_smallTalk
+    , ss_bodyLanguage
+    , ss_neurolinguisticProgramming
+    , ss_haggle
+    , ss_interrogation
+    , ss_seduction
+    ]
 
 
 data InfiltrationSkills = InfiltrationSkills {
@@ -193,12 +303,24 @@ data InfiltrationSkills = InfiltrationSkills {
     , _is_coverSwitchManeuver ∷ Word
     }
     deriving(Eq, Show)
---makeLenses ''InfiltrationSkills
+makeLenses ''InfiltrationSkills
+
+
+sumInfiltration ∷ InfiltrationSkills → Word
+sumInfiltration is = sum $ fmap (\l → view l is)
+    [ is_remainingPoints
+    , is_blendInShadows
+    , is_useOfCover
+    , is_silentMovement
+    , is_coverSwitchManeuver
+    ]
 
 --------------------------------------------------------------------------------
 
 data Character i c f = Character {
       _ch_name        ∷ String
+    , _ch_lastName    ∷ String
+    , _ch_nickName    ∷ String
     , _ch_handedness  ∷ Handedness
     , _ch_description ∷ String
 
@@ -244,7 +366,6 @@ data Character i c f = Character {
     , _ch_infiltration  ∷ InfiltrationSkills
     }
     deriving (Show)
-
 makeLenses ''Character
 
 ch_primaryHand ∷ Character i c f → Lens' (Character i c f) (Slot 'Hand i)
@@ -258,17 +379,34 @@ instance Eq (Character i c f) where
 
 --------------------------------------------------------------------------------
 
-newCharacter ∷ String → String → f → c → Character i c f
-newCharacter n d fac cn =
-    Character n RightHand d empty empty empty Upright fac cn 10 10 0 mcs rcs ts es ss is
-    where
-        empty = Slot Nothing
-        mcs   = MeleeCombatSkills 0 0 0 0 0 0
-        rcs   = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
-        ts    = ThrowingSkills 0 0 0 0 0
-        es    = EngineeringSkills 0 0 0 0 0
-        ss    = CommunicationSkills 0 0 0 0 0 0 0
-        is    = InfiltrationSkills 0 0 0 0 0
+newCharacter ∷ String → String → String → String → f → c → Character i c f
+newCharacter n ln nn d fac cn =
+    Character {
+      _ch_name        = n
+    , _ch_lastName    = ln
+    , _ch_nickName    = nn
+    , _ch_handedness  = RightHand
+    , _ch_description = d
+
+    , _ch_leftHand  = Slot Nothing
+    , _ch_rightHand = Slot Nothing
+    , _ch_torso     = Slot Nothing
+    , _ch_stance    = Upright
+
+    , _ch_faction      = fac
+    , _ch_conversation = cn
+
+    , _ch_healthPoints    = 10
+    , _ch_maxHealthPoints = 10
+    , _ch_experience      = 0
+
+    , _ch_meleeCombat   = MeleeCombatSkills 0 0 0 0 0 0
+    , _ch_rangedCombat  = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
+    , _ch_throwing      = ThrowingSkills 0 0 0 0 0
+    , _ch_engineering   = EngineeringSkills 0 0 0 0 0 0
+    , _ch_communication = CommunicationSkills 0 0 0 0 0 0 0
+    , _ch_infiltration  = InfiltrationSkills 0 0 0 0 0
+    }
 
 
 -- TODO Only if hands not full!

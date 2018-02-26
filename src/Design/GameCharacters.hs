@@ -1,19 +1,49 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Design.GameCharacters
+( redshirt
+, characters
+, characterForName
+, characterDictionary
+
+, randomizeStats
+)
 where
 
 
-import Control.Lens (view)
-import Data.List    (intercalate)
-import Data.Maybe   (fromMaybe)
+import Control.Lens         (view, (.~))
+import Control.Monad.Random (MonadRandom, getRandomR)
+import Data.List            (intercalate)
+import Data.Maybe           (fromMaybe)
 
 import qualified Data.Map as M (Map, fromList, lookup)
 
-import Dreamnet.Character    (newCharacter, ch_name)
 import Dreamnet.Conversation (ConversationNode(..))
+import Dreamnet.Character
 
 import Design.DesignAPI
+
+--------------------------------------------------------------------------------
+
+randomizeStats ∷ (MonadRandom r) ⇒ DreamnetCharacter → r DreamnetCharacter
+randomizeStats ch = do
+    rndMelee         ← MeleeCombatSkills   <$> pure 0 <*> r <*> r <*> r <*> r <*> r
+    rndRanged        ← RangedCombatSkills  <$> pure 0 <*> r <*> r <*> r <*> r <*> r <*> r <*> r <*> r <*> r
+    rndThrowing      ← ThrowingSkills      <$> pure 0 <*> r <*> r <*> r <*> r
+    rndEngineering   ← EngineeringSkills   <$> pure 0 <*> r <*> r <*> r <*> r <*> r     
+    rndCommunication ← CommunicationSkills <$> pure 0 <*> r <*> r <*> r <*> r <*> r <*> r
+    rndInfiltration  ← InfiltrationSkills  <$> pure 0 <*> r <*> r <*> r <*> r
+
+    pure . (ch_meleeCombat   .~ rndMelee)
+         . (ch_rangedCombat  .~ rndRanged)
+         . (ch_throwing      .~ rndThrowing)
+         . (ch_engineering   .~ rndEngineering)
+         . (ch_communication .~ rndCommunication)
+         . (ch_infiltration  .~ rndInfiltration)
+         $ ch
+    where
+        r = getRandomR (1, 99)
+    
 
 --------------------------------------------------------------------------------
 
@@ -26,7 +56,7 @@ facCarla = Faction "carla"
 --------------------------------------------------------------------------------
 
 redshirt ∷ DreamnetCharacter
-redshirt = newCharacter "?" desc facGenpop convo
+redshirt = newCharacter "?" "?" "?" desc facGenpop convo
     where
         desc  = "You never saw this person in your life."
         convo = ListenNode "Beat it, lizzie!" End
@@ -34,24 +64,24 @@ redshirt = newCharacter "?" desc facGenpop convo
 
 characters ∷ [DreamnetCharacter]
 characters =
-    [ carla, raj, delgado
+    [ carla, hideo, devin, delgado, raj, nova, cobra, kman
     , moe, johnny, sally
     ]
 
 
-characterDictionary ∷ M.Map String DreamnetCharacter
-characterDictionary = M.fromList $ toNamedTuple <$> characters
+characterDictionary ∷ [DreamnetCharacter] → M.Map String DreamnetCharacter
+characterDictionary chs = M.fromList $ toNamedTuple <$> chs
     where
         toNamedTuple = (,) <$> view ch_name <*> id
 
 
-characterForName ∷ String → DreamnetCharacter
-characterForName name = fromMaybe (error "No character with that name!") . M.lookup name $ characterDictionary
+characterForName ∷ String → M.Map String DreamnetCharacter → DreamnetCharacter
+characterForName name = fromMaybe (error "No character with that name!") . M.lookup name
 
 --------------------------------------------------------------------------------
 
 carla ∷ DreamnetCharacter
-carla = newCharacter "Carla" desc facCarla convo
+carla = newCharacter "Carla" "D'Addario" "La Piovra" desc facCarla convo
     where
         desc = intercalate "\n"
             [ "Scrawny, beautiful, capable. You know you are. You also hope no one figures out quickly enough that you are."
@@ -61,8 +91,39 @@ carla = newCharacter "Carla" desc facCarla convo
             TalkNode "Hi." End
 
 
+hideo ∷ DreamnetCharacter
+hideo = newCharacter "Hideo" "Hattori" "Tetsuo" desc facCarla convo
+    where
+        desc = "<DESCRIPTION MISSING>"
+        convo =
+            ListenNode "I believe in you, Cal."
+                End
+
+
+devin ∷ DreamnetCharacter
+devin = newCharacter "Devin" "Dorsett" "570rm" desc facCarla convo
+    where
+        desc = "<DESCRIPTION MISSING>"
+        convo =
+            ListenNode "I believe in you, Cal."
+                End
+
+
+delgado ∷ DreamnetCharacter
+delgado = newCharacter "Phillipe" "Delgado" "Sarge" desc facCarla convo
+    where
+        desc = intercalate "\n"
+            [ "Scrawny, scarred and tough as nails."
+            , "When you look in his eyes without giving a tell, you see that there's unspeakable depth and pain, but as soon as he catches your eyes, an imaginary door comes slamming down, the depth disappears and and Delgado's face takes that of the one everyone knows the best: mean SOB."
+            , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
+            ]
+        convo = 
+            ListenNode "Cal, lets wrap this up quickly and get the fuck out of here."
+                End
+
+
 raj ∷ DreamnetCharacter
-raj = newCharacter "Raj" desc facCarla convo
+raj = newCharacter "Qaayenaat" "Rajan" "Raj" desc facCarla convo
     where
         desc = intercalate "\n"
             [ "Tiny, skinny and looking like she'd bolt in a second if she could."
@@ -74,22 +135,36 @@ raj = newCharacter "Raj" desc facCarla convo
                 End
 
 
-delgado ∷ DreamnetCharacter
-delgado = newCharacter "Delgado" desc facCarla convo
+nova ∷ DreamnetCharacter
+nova = newCharacter "Annabelle" "Jenkins" "Nova" desc facCarla convo
     where
-        desc = intercalate "\n"
-            [ "Scrawny, scarred and tough as nails."
-            , "When you look in his eyes without giving a tell, you see that there's unspeakable depth and pain, but as soon as he catches your eyes, an imaginary door comes slamming down, the depth disappears and and Delgado's face takes that of the one everyone knows the best: mean SOB."
-            , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
-            ]
-        convo = 
-            ListenNode "Cal, lets wrap this up quickly and get the fuck out of here."
+        desc = "<DESCRIPTION MISSING>"
+        convo =
+            ListenNode "I believe in you, Cal."
+                End
+
+
+cobra ∷ DreamnetCharacter
+cobra = newCharacter "Eduarda" "Ribeiro" "Cobra" desc facCarla convo
+    where
+        desc = "<DESCRIPTION MISSING>"
+        convo =
+            ListenNode "I believe in you, Cal."
+                End
+
+
+kman ∷ DreamnetCharacter
+kman = newCharacter "Kelly" "Lafleur" "K-man" desc facCarla convo
+    where
+        desc = "<DESCRIPTION MISSING>"
+        convo =
+            ListenNode "I believe in you, Cal."
                 End
 
 --------------------------------------------------------------------------------
 
 johnny ∷ DreamnetCharacter
-johnny = newCharacter "Johnny" desc facGenpop convo
+johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop convo
     where
         desc =
             "If he'd have asian facial features, he'd look like a textbook sarariman."
@@ -102,7 +177,7 @@ johnny = newCharacter "Johnny" desc facGenpop convo
 
 
 sally ∷ DreamnetCharacter
-sally = newCharacter "Sally" desc facGenpop convo
+sally = newCharacter "Sally" "S." "M" desc facGenpop convo
     where
         desc =
             "Slim, well-built and gorgeous, this woman looks like she's packing serious hardware. Her scrawny short black hair falls just short of shiny mirrors where her eyes are supposed to be. Probably HUD augments."
@@ -115,7 +190,7 @@ sally = newCharacter "Sally" desc facGenpop convo
 
 
 moe ∷ DreamnetCharacter
-moe = newCharacter "Moe" desc facGenpop convo
+moe = newCharacter "Moe" "Sarlac" "Trigger" desc facGenpop convo
     where
         desc = intercalate "\n"
             [ "You never met anyone whose name fit them better. Black side hair and shiny dome, white sleeveless shirt covered with beer and fat stains, covering his giant belly - somehow, you are *sure* Moe would present a formidable opponent in close quarters."

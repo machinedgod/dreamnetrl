@@ -7,7 +7,7 @@
 module Dreamnet.Dreamnet
 where
 
-import Safe                      (succSafe, predSafe)
+import Safe                      (succSafe, predSafe, at)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
                                   assign, (%=), (+=), (-=), (%~))
 import Control.Monad             (void, when)
@@ -86,11 +86,14 @@ newGame dd = do
         _g_turn  = 0
       , _g_world = newWorld
                        (fromTileMap (view dd_startingMap dd) objectFromTile)
-                       (playerPerson <$> [ "Carla"
-                                         , "Delgado"
-                                         --, "Raj"
-                                         --, "570rm"
-                                         ])
+                       (playerPerson . (`characterForName` view dd_characters dd) <$>
+                            [ "Carla"
+                            , "Devin"
+                            , "Hideo"
+                            , "Phillipe"
+                            , "Qaayenaat"
+                            , "Annabelle"
+                            ])
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
@@ -144,7 +147,7 @@ newGame dd = do
                 p  = False
                 s  = True
                 h  = 3
-                st = Person $ characterForName (1 `readStringProperty` t)
+                st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
             in  Object '@' m p s h st
         objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
             objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
@@ -173,9 +176,8 @@ newGame dd = do
             error $ "Can't convert Tile type into Object: " <> show t
         -- TODO Errrrrr, this should be done through the tileset???
 
-
-        playerPerson ∷ String → Object States
-        playerPerson n = Object '@' "metal" False True 3 (Person $ characterForName n)
+        playerPerson ∷ DreamnetCharacter → Object States
+        playerPerson = Object '@' "metal" False True 3 . Person
 
 --------------------------------------------------------------------------------
 
@@ -219,7 +221,7 @@ loopTheLoop dd = do
             Normal       → lift Input.nextWorldEvent       >>= processNormal dd
             Examination  → lift Input.nextUiEvent          >>= processExamination
             Operation    → lift Input.nextInteractionEvent >>= processOperation
-            HudTeam      → lift Input.nextUiEvent          >>= processHudTeam
+            HudTeam      → lift Input.nextUiEvent          >>= processHudTeam dd
             HudMessages  → lift Input.nextUiEvent          >>= processHudMessages
             HudWatch     → lift Input.nextUiEvent          >>= processHudWatch
             Conversation → lift Input.nextUiEvent          >>= processConversation
@@ -344,9 +346,9 @@ processNormal _ Input.InventorySheet = do
     g_scrollWindow %= setText ""
     g_gameState .= InventoryUI
     use g_scrollWindow >>= lift . renderScrollWindow
-processNormal _ Input.CharacterSheet = do
+processNormal dd Input.CharacterSheet = do
     g_gameState .= CharacterUI
-    doRender $ drawCharacterSheet carla >>= updateUi
+    doRender $ drawCharacterSheet (characterForName "Carla" (view dd_characters dd)) >>= updateUi
 
 
 processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
@@ -362,31 +364,34 @@ processExamination _ = do
     renderNormal
 
 
-processHudTeam ∷ Input.UIEvent → StateT Game C.Curses ()
-processHudTeam Input.TabNext = do
+processHudTeam ∷ DesignData → Input.UIEvent → StateT Game C.Curses ()
+processHudTeam _ Input.TabNext = do
     g_gameState .= HudMessages
     renderNormal
-processHudTeam Input.TabPrevious = do
+processHudTeam _ Input.TabPrevious = do
     g_gameState .= HudWatch
     renderNormal
-processHudTeam Input.MoveUp = do
+processHudTeam _ Input.MoveUp = do
     g_hudTeamSelector %= max 0 . subtract 3
     renderNormal
-processHudTeam Input.MoveDown = do
+processHudTeam _ Input.MoveDown = do
     l ← uses (g_world.w_team) (fromIntegral . length)
     g_hudTeamSelector %= min l . (+3)
     renderNormal
-processHudTeam Input.MoveLeft = do
+processHudTeam _ Input.MoveLeft = do
     g_hudTeamSelector %= max 0 . subtract 1
     renderNormal
-processHudTeam Input.MoveRight = do
+processHudTeam _ Input.MoveRight = do
     l ← uses (g_world.w_team) (fromIntegral . length)
     g_hudTeamSelector %= min l . (+1)
     renderNormal
-processHudTeam Input.SelectChoice = do
-    renderMessage "Showing charcter sheet!"
-    renderNormal
-processHudTeam Input.Back = do
+processHudTeam dd Input.SelectChoice = do
+    g_gameState .= CharacterUI
+    tm ← use (g_world.w_active) >>= \cal → uses (g_world.w_team) (cal:)
+    ech ← uses g_hudTeamSelector (at tm)
+    
+    doRender $ drawCharacterSheet (views (e_object.o_state) (\(Person ch) → ch) ech) >>= updateUi
+processHudTeam _ Input.Back = do
     g_gameState .= Normal
     renderNormal
 

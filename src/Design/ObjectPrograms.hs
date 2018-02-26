@@ -11,7 +11,7 @@ import Dreamnet.World     (Object, o_symbol, o_state)
 import Dreamnet.Character (ch_name, ch_faction, ch_description)
 
 import Design.DesignAPI
-import Design.GameCharacters
+import Design.GameCharacters (characterForName)
 
 --------------------------------------------------------------------------------
 
@@ -98,10 +98,10 @@ camera _ =
 
 
 mirror ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
-mirror Examine =
-    showInfoWindow (view ch_description carla)
+mirror Examine = do
+    designData >>= showInfoWindow . view ch_description . characterForName "Carla" . view dd_characters
 mirror Talk =
-    startConversation carla 
+    designData >>= startConversation . characterForName "Carla" . view dd_characters
 mirror _ =
     pure ()
 

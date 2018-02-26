@@ -38,11 +38,8 @@ import qualified Data.Map    as M
 import qualified Data.Vector as V
 
 import Dreamnet.World       (o_state)
-import Dreamnet.Character   (ch_name, ch_healthPoints, ch_maxHealthPoints,
-                             ch_stance, ch_primaryHand,
-                             Slot(slottedItem),
-                             Stance(..))
 import Dreamnet.Utils       (lines')
+import Dreamnet.Character   
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
 
@@ -240,7 +237,7 @@ drawMap chf matf w dat vis = do
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
         drawTile ∷ [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
-        drawTile u k i (c, m, v) = uncurry (draw $ coordLin' (fromIntegral w) i) $
+        drawTile u k i (c, m, v) = uncurry (draw' $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
                                          Known   → (c, k)
@@ -332,15 +329,12 @@ drawHud gs hms am team turns button = do
             --      this way, it'll rewrite empty boxes
             let boxWidth = 14
             -- Name
-            C.moveCursor oy (ox + 1)
-            C.drawString (view ch_name ch)
+            drawString (ox + 1) oy (view ch_nickName ch)
             -- Stance
-            C.moveCursor oy (ox + boxWidth)
-            C.drawGlyph (views ch_stance stanceGlyph ch)
+            draw (ox + boxWidth) oy (views ch_stance stanceChar ch)
 
             -- Weapon
-            C.moveCursor (oy + 1) (ox + 1)
-            C.drawString $ 
+            drawString (ox + 1) (oy + 1) $ 
                 maybe ("<EMPTY>")
                       (take (fromIntegral boxWidth) . show . view o_state)
                       (slottedItem . view (ch_primaryHand ch) $ ch)
@@ -355,10 +349,10 @@ drawHud gs hms am team turns button = do
                 mhp   = view ch_maxHealthPoints ch
                 hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
                 hDots = fromIntegral boxWidth - hBars
-            C.moveCursor (fromIntegral oy + 3) (ox + 1)
-            C.drawString (concat [ replicate hBars '|'
-                                 , replicate hDots '.'
-                                 ])
+            drawString (ox + 1) (fromIntegral oy + 3)
+                (concat [ replicate hBars '|'
+                        , replicate hDots '.'
+                        ])
             
 
         --shorten ∷ Word → String → String
@@ -374,10 +368,8 @@ drawHud gs hms am team turns button = do
             drawList (ox + 22) 4 (digit . snd . numberToDigits . view wd_minutes $ wd)
             drawList (ox + 27) 6 (smallDigit . fst . numberToDigits . view wd_seconds $ wd)
             drawList (ox + 30) 6 (smallDigit . snd . numberToDigits . view wd_seconds $ wd)
-            C.moveCursor 3 (ox + 27)
-            C.drawString (view wd_weekDay wd <> " " <> views wd_day show wd)
-            C.moveCursor 4 (ox + 27)
-            C.drawString (views wd_month show wd <> "-" <> views wd_year show wd)
+            drawString (ox + 27) 3 (view wd_weekDay wd <> " " <> views wd_day show wd)
+            drawString (ox + 27) 4 (views wd_month show wd <> "-" <> views wd_year show wd)
 
         dots ∷ [String]
         dots = [" "
@@ -387,19 +379,17 @@ drawHud gs hms am team turns button = do
                ," "
                ]
 
-        stanceGlyph ∷ Stance → C.Glyph
-        stanceGlyph Upright = C.Glyph '^' []
-        stanceGlyph Crouch  = C.Glyph '~' []
-        stanceGlyph Prone   = C.Glyph '_' []
+        stanceChar ∷ Stance → Char
+        stanceChar Upright = '^'
+        stanceChar Crouch  = '~'
+        stanceChar Prone   = '_'
 
 
         drawBorders ∷ C.Update ()
         drawBorders = do
             len ← fromIntegral . subtract watchLength . snd <$> C.windowSize
-            C.moveCursor 2 0
-            C.drawString $ replicate len '-'
-            C.moveCursor 10 0
-            C.drawString $ replicate len '-'
+            drawString 0 2 $ replicate len '-'
+            drawString 0 10 $ replicate len '-'
 
 
 drawStatus ∷ (MonadRender r) ⇒ GameState → String → r (RenderAction ())
@@ -442,6 +432,68 @@ drawCharacterSheet ch = screenSize >>= \(rows, cols) →
         C.moveWindow y x
         drawList 0 0 characterSheet
 
+        drawString 4 2  (pad 29 $ view ch_name ch <> " " <> view ch_lastName ch) 
+        drawString 18 4 (padL 15 $ view ch_nickName ch)
+        drawString 18 5 (padL 15 $ views ch_handedness show ch)
+        drawString 18 6 (padL 15 $ views ch_faction show ch)
+        drawString 18 7 (padL 15 $ views ch_healthPoints show ch <> "/" <> views ch_maxHealthPoints show ch)
+
+        drawThreeDigit 21 11 (view (ch_meleeCombat.mcs_remainingPoints) ch)
+        drawThreeDigit 21 13 (view (ch_meleeCombat.mcs_barehanded) ch)
+        drawThreeDigit 21 14 (view (ch_meleeCombat.mcs_knives) ch)
+        drawThreeDigit 21 15 (view (ch_meleeCombat.mcs_swords) ch)
+        drawThreeDigit 21 16 (view (ch_meleeCombat.mcs_staves) ch)
+        drawThreeDigit 21 17 (view (ch_meleeCombat.mcs_maces) ch)
+        drawThreeDigit 21 19 (views ch_meleeCombat sumMelee ch)
+
+        drawThreeDigit 21 22 (view (ch_throwing.ts_remainingPoints) ch)
+        drawThreeDigit 21 24 (view (ch_throwing.ts_grenades) ch)
+        drawThreeDigit 21 25 (view (ch_throwing.ts_knives) ch)
+        drawThreeDigit 21 26 (view (ch_throwing.ts_shurikens) ch)
+        drawThreeDigit 21 27 (view (ch_throwing.ts_stickies) ch)
+        drawThreeDigit 21 29 (views ch_throwing sumThrowing ch)
+
+        drawThreeDigit 46 11 (view (ch_rangedCombat.rcs_remainingPoints) ch)
+        drawThreeDigit 46 13 (view (ch_rangedCombat.rcs_guns) ch)
+        drawThreeDigit 46 14 (view (ch_rangedCombat.rcs_smgs) ch)
+        drawThreeDigit 46 15 (view (ch_rangedCombat.rcs_shotguns) ch)
+        drawThreeDigit 46 16 (view (ch_rangedCombat.rcs_assault) ch)
+        drawThreeDigit 46 17 (view (ch_rangedCombat.rcs_sniper) ch)
+        drawThreeDigit 46 18 (view (ch_rangedCombat.rcs_bows) ch)
+        drawThreeDigit 46 19 (view (ch_rangedCombat.rcs_crossbows) ch)
+        drawThreeDigit 46 20 (view (ch_rangedCombat.rcs_plasma) ch)
+        drawThreeDigit 46 21 (view (ch_rangedCombat.rcs_lasers) ch)
+        drawThreeDigit 46 23 (views ch_rangedCombat sumRanged ch)
+
+        drawThreeDigit 46 26 (view (ch_infiltration.is_remainingPoints) ch)
+        drawThreeDigit 46 28 (view (ch_infiltration.is_blendInShadows) ch)
+        drawThreeDigit 46 29 (view (ch_infiltration.is_useOfCover) ch)
+        drawThreeDigit 46 30 (view (ch_infiltration.is_silentMovement) ch)
+        drawThreeDigit 46 31 (view (ch_infiltration.is_coverSwitchManeuver) ch)
+        drawThreeDigit 46 33 (views ch_infiltration sumInfiltration ch)
+
+        drawThreeDigit 71 11 (view (ch_engineering.es_remainingPoints) ch)
+        drawThreeDigit 71 13 (view (ch_engineering.es_assembly) ch)
+        drawThreeDigit 71 14 (view (ch_engineering.es_modding) ch)
+        drawThreeDigit 71 15 (view (ch_engineering.es_repair) ch)
+        drawThreeDigit 71 16 (view (ch_engineering.es_analysis) ch)
+        drawThreeDigit 71 17 (view (ch_engineering.es_juryrigging) ch)
+        drawThreeDigit 71 19 (views ch_engineering sumEngineering ch)
+
+        drawThreeDigit 71 22 (view (ch_communication.ss_remainingPoints) ch)
+        drawThreeDigit 71 24 (view (ch_communication.ss_smallTalk) ch)
+        drawThreeDigit 71 25 (view (ch_communication.ss_bodyLanguage) ch)
+        drawThreeDigit 71 26 (view (ch_communication.ss_neurolinguisticProgramming) ch)
+        drawThreeDigit 71 27 (view (ch_communication.ss_haggle) ch)
+        drawThreeDigit 71 28 (view (ch_communication.ss_interrogation) ch)
+        drawThreeDigit 71 29 (view (ch_communication.ss_seduction) ch)
+        drawThreeDigit 71 31 (views ch_communication sumCommunication ch)
+    where
+        pad i  = (<>) <$> id <*> flip replicate ' ' . (i -) . length
+        padL i = (<>) <$> flip replicate ' ' . (i -) . length <*> id
+        drawThreeDigit x y = drawString x y . padL 3 . show
+            
+
 
 characterSheetWidth ∷ (Num n) ⇒ n
 characterSheetWidth = fromIntegral . length . head $ characterSheet
@@ -454,38 +506,38 @@ characterSheetHeight = fromIntegral . (+1) . length $ characterSheet
 characterSheet ∷ [String]
 characterSheet =
     [ "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  "
-    , "┃ ┌─────────────────────────┐                                                ┃─┐"
-    , "┃ │ Carla D'Addario         │                                                ┃/│"
-    , "┃ ├─────────────────────────┤                                                ┃/│"
-    , "┃ │ Handedness    ╵    Left │                                                ┃/│"
-    , "┃ │ Faction       ╵   Carla │                                                ┃/│"
-    , "┃ │ HP/Max        ╵   10/10 │                                                ┃/│"
-    , "┃ └───────────────┴─────────┘                                                ┃/│"
+    , "┃ ┌───────────────────────────────┐                                          ┃─┐"
+    , "┃ │ Carla D'Addario               │                                          ┃/│"
+    , "┃ ├───────────────────────────────┤                                          ┃/│"
+    , "┃ │ Nickname            La Piovra │                                          ┃/│"
+    , "┃ │ Handedness               Left │                                          ┃/│"
+    , "┃ │ Faction                 Carla │                                          ┃/│"
+    , "┃ │ HP/Max                  10/10 │                                          ┃/│"
+    , "┃ └───────────────────────────────┘                                          ┃/│"
     , "┃╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴┨/│"
     , "┃ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐ ┃/│"
     , "┃ │ Melee combat   ╵ 000 │ │ Ranged combat  ╵ 000 │ │ Engineering    ╵ 000 │ ┃/│"
     , "┃ ├────────────────┴─────┤ ├────────────────┴─────┤ ├────────────────┴─────┤ ┃/│"
-    , "┃ │ Melee          ╵ 000 │ │ Ranged         ╵ 000 │ │ Juryrigging    ╵ 000 │ ┃/│"
-    , "┃ │ Barehanded     ╵ 000 │ │ Guns           ╵ 000 │ │ Modding        ╵ 000 │ ┃/│"
-    , "┃ │ Knives         ╵ 000 │ │ SMGs           ╵ 000 │ │ Repair         ╵ 000 │ ┃/│"
-    , "┃ │ Swords         ╵ 000 │ │ Shotguns       ╵ 000 │ │ Analysis       ╵ 000 │ ┃/│"
-    , "┃ │ Staves         ╵ 000 │ │ Assault        ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
-    , "┃ │ Maces          ╵ 000 │ │ Sniper         ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
-    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Bows           ╵ 000 │ └────────────────┴─────┘ ┃/│"
-    , "┃ │ Total          ╵ 000 │ │ Crossbows      ╵ 000 │ ┌──────────────────────┐ ┃/│"
-    , "┃ └────────────────┴─────┘ │ Plasma         ╵ 000 │ │ Communication  ╵ 000 │ ┃/│"
-    , "┃ ┌──────────────────────┐ │ Lasers         ╵ 000 │ ├────────────────┴─────┤ ┃/│"
-    , "┃ │ Throwing       ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Small talk     ╵ 000 │ ┃/│"
-    , "┃ ├────────────────┴─────┤ │ Total          ╵ 000 │ │ Body language  ╵ 000 │ ┃/│"
-    , "┃ │ Throwing       ╵ 000 │ └────────────────┴─────┘ │ Neurolin.prog. ╵ 000 │ ┃/│"
-    , "┃ │ Grenades       ╵ 000 │ ┌──────────────────────┐ │ Haggle         ╵ 000 │ ┃/│"
-    , "┃ │ Knives         ╵ 000 │ │ Infiltration   ╵ 000 │ │ Interrogation  ╵ 000 │ ┃/│"
-    , "┃ │ Shurikens      ╵ 000 │ ├────────────────┴─────┤ │ Seduction      ╵ 000 │ ┃/│"
-    , "┃ │ Stickies       ╵ 000 │ │ Blend in shad. ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
-    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Cover          ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
-    , "┃ │ Total          ╵ 000 │ │ Silent moveme. ╵ 000 │ └────────────────┴─────┘ ┃/│"
-    , "┃ └────────────────┴─────┘ │ Maneuvers      ╵ 000 │                          ┃/│"
-    , "┃                          ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤                          ┃/│"
+    , "┃ │ Barehanded     ╵ 000 │ │ Guns           ╵ 000 │ │ Assembly       ╵ 000 │ ┃/│"
+    , "┃ │ Knives         ╵ 000 │ │ SMGs           ╵ 000 │ │ Modding        ╵ 000 │ ┃/│"
+    , "┃ │ Swords         ╵ 000 │ │ Shotguns       ╵ 000 │ │ Repair         ╵ 000 │ ┃/│"
+    , "┃ │ Staves         ╵ 000 │ │ Assault        ╵ 000 │ │ Analysis       ╵ 000 │ ┃/│"
+    , "┃ │ Maces          ╵ 000 │ │ Sniper         ╵ 000 │ │ Juryrigging    ╵ 000 │ ┃/│"
+    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Bows           ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
+    , "┃ │ Total          ╵ 000 │ │ Crossbows      ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
+    , "┃ └────────────────┴─────┘ │ Plasma         ╵ 000 │ └────────────────┴─────┘ ┃/│"
+    , "┃ ┌──────────────────────┐ │ Lasers         ╵ 000 │ ┌──────────────────────┐ ┃/│"
+    , "┃ │ Throwing       ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Communication  ╵ 000 │ ┃/│"
+    , "┃ ├────────────────┴─────┤ │ Total          ╵ 000 │ ├────────────────┴─────┤ ┃/│"
+    , "┃ │ Grenades       ╵ 000 │ └────────────────┴─────┘ │ Small talk     ╵ 000 │ ┃/│"
+    , "┃ │ Knives         ╵ 000 │ ┌──────────────────────┐ │ Body language  ╵ 000 │ ┃/│"
+    , "┃ │ Shurikens      ╵ 000 │ │ Infiltration   ╵ 000 │ │ Neurolin.prog. ╵ 000 │ ┃/│"
+    , "┃ │ Stickies       ╵ 000 │ ├────────────────┴─────┤ │ Haggle         ╵ 000 │ ┃/│"
+    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Blend in shad. ╵ 000 │ │ Interrogation  ╵ 000 │ ┃/│"
+    , "┃ │ Total          ╵ 000 │ │ Cover          ╵ 000 │ │ Seduction      ╵ 000 │ ┃/│"
+    , "┃ └────────────────┴─────┘ │ Silent moveme. ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
+    , "┃                          │ Maneuvers      ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
+    , "┃                          ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ └────────────────┴─────┘ ┃/│"
     , "┃                          │ Total          ╵ 000 │                          ┃/│"
     , "┃                          └────────────────┴─────┘                          ┃/│"
     , "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛/│"
@@ -499,15 +551,27 @@ lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
     uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
 
 
-draw ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
-draw (V2 x y) c m = RenderAction $ do 
+draw' ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
+draw' (V2 x y) c m = RenderAction $ do 
     C.moveCursor (fromIntegral y) (fromIntegral x)
     C.drawGlyph (C.Glyph c m)
 
 
+draw ∷ (Integral a) ⇒ a → a → Char → C.Update ()
+draw x y c = do 
+    C.moveCursor (fromIntegral y) (fromIntegral x)
+    C.drawGlyph (C.Glyph c [])
+
+
+drawString ∷ (Integral a) ⇒ a → a → String → C.Update ()
+drawString x y s = do 
+    C.moveCursor (fromIntegral y) (fromIntegral x)
+    C.drawString s
+
+
 drawList ∷ Integer → Integer → [String] → C.Update ()
 drawList x y =
-    traverse_ (\(ix, l) → C.moveCursor ix x >> C.drawString l)
+    traverse_ (\(ix, l) → drawString x ix l)
     . zip [y..]
 
 

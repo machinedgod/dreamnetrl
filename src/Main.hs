@@ -14,13 +14,16 @@ import Design.GameCharacters
 
 
 defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
---defaultDesignData = generateMap 50 30 >>= \m → pure $
-defaultDesignData = loadTileMap "res/apartmentblock" >>= \m → pure $
-    DesignData {
-      _dd_characters      = characterDictionary
-    , _dd_defaultRedshirt = redshirt
-    , _dd_startingMap     = m
-    }
+defaultDesignData = do
+--  m ← generateMap 50 30
+    m ← loadTileMap "res/apartmentblock"
+    rnd ← traverse randomizeStats characters
+    pure $
+        DesignData {
+          _dd_characters      = characterDictionary rnd
+        , _dd_defaultRedshirt = redshirt
+        , _dd_startingMap     = m
+        }
 
 
 main ∷ IO ()
