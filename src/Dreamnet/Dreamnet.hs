@@ -19,13 +19,15 @@ import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
+import qualified Data.Vector as V    (fromList)
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
 import qualified Dreamnet.Input as Input
 import Dreamnet.World
 import Dreamnet.Conversation
-
+import Dreamnet.TileMap
+import Dreamnet.TileData
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
 import Dreamnet.Entity
@@ -37,7 +39,9 @@ import Dreamnet.Visibility
 import Dreamnet.Character
 import Dreamnet.ObjectMonad
 
-import DesignData
+import Design.DesignAPI
+import Design.ObjectPrograms
+import Design.GameCharacters
 
 --------------------------------------------------------------------------------
 
@@ -103,6 +107,75 @@ newGame dd = do
       , _g_watchAlarmTime  = 1234
       , _g_watchButton     = 0
     }
+    where
+        -- 1) This *could* all be just a single thing. Object type really does not matter here.
+        -- 2) Actually, it does, because Object carries a specific state, later used by object programs
+        objectFromTile ∷ Tile → Object States
+        objectFromTile t@(ttype → "Base") =
+            let m  = "concrete"
+                p  = 1 `readBoolProperty` t
+                s  = 2 `readBoolProperty` t
+                h  = 0
+                st = Empty
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Door") =
+            let m  = "wood"
+                p  = 1 `readBoolProperty` t
+                s  = 1 `readBoolProperty` t
+                h  = 5
+                st = Prop "Door"
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Stairs") =
+            let m  = "wood"
+                p  = 1 `readBoolProperty` t
+                s  = True
+                h  = 1
+                st = Prop "Stairs"
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Prop") =
+            let m  = 4 `readStringProperty` t
+                p  = 2 `readBoolProperty` t
+                s  = 3 `readBoolProperty` t
+                h  = 5 `readWordProperty` t
+                st = Prop (1 `readStringProperty` t)
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Person") = 
+            let m  = "blue"
+                p  = False
+                s  = True
+                h  = 3
+                st = Person $ characterForName (1 `readStringProperty` t)
+            in  Object '@' m p s h st
+        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+            objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
+        objectFromTile t@(ttype → "Camera") =
+            let m  = "green light"
+                p  = True
+                s  = True
+                h  = 1
+                st = Camera (Faction $ 1 `readStringProperty` t) 0
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Computer") =
+            let m  = "metal"
+                p  = False
+                s  = True
+                h  = 1
+                st = Empty
+            in  Object (view t_char t) m p s h st
+        objectFromTile t@(ttype → "Item") = 
+            let m  = "blue plastic"
+                p  = True
+                s  = True
+                h  = 0
+                st = Prop (1 `readStringProperty` t)
+            in  Object (view t_char t) m p s h st
+        objectFromTile t =
+            error $ "Can't convert Tile type into Object: " <> show t
+        -- TODO Errrrrr, this should be done through the tileset???
+
+
+        playerPerson ∷ String → Object States
+        playerPerson n = Object '@' "metal" False True 3 (Person $ characterForName n)
 
 --------------------------------------------------------------------------------
 

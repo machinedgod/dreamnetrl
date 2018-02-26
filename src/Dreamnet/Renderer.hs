@@ -44,7 +44,7 @@ import Dreamnet.Utils       (lines')
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
 
-import DesignData           (GameState(..), DreamnetCharacter)
+import Design.DesignAPI     (GameState(..), DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 

@@ -21,7 +21,7 @@ import Dreamnet.World    (Object, o_symbol, o_material, o_passable,
                           WorldReadAPI(castVisibilityRay, worldMap),
                           WorldAPI(moveObject, setStatus))
 import Dreamnet.WorldMap (valuesAt, interestingObjects)
-import DesignData        (DesignData, GameState(..), ObjectAPI(..), States,
+import Design.DesignAPI  (DesignData, GameState(..), ObjectAPI(..), States,
                           DreamnetCharacter)
 
 --------------------------------------------------------------------------------

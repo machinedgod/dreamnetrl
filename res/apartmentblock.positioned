@@ -1,11 +1,7 @@
-22,1,Item,Chinese takeout leftovers
-22,1,Item,Ketchup
-22,1,Item,Megacoke can
-22,1,Item,Megacoke can
-22,1,Item,Pizza slice
-22,1,Item,Pizza slice
-22,1,Item,Pizza slice
-22,1,Item,Aurora pilsner
-22,1,Item,Aurora pilsner
-22,5,Item,Wallet
-17,5,Item,Newspaper
+22,1,Item,Chinese takeout leftovers,1
+22,1,Item,Ketchup,1
+22,1,Item,Megacoke can,2
+22,1,Item,Pizza slice,3
+22,1,Item,Aurora pilsner,2
+22,5,Item,Wallet,1
+17,5,Item,Newspaper,1

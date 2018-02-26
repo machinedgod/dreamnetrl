@@ -76,7 +76,6 @@ executable dreamnetrl
                        Design.DesignAPI
                        Design.ObjectPrograms
                        Design.GameCharacters
-                       DesignData
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
