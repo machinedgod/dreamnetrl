@@ -16,7 +16,8 @@ import Design.GameCharacters
 defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
 defaultDesignData = do
 --  m ← generateMap 50 30
-    m ← loadTileMap "res/apartmentblock"
+    m ← loadTileMap "res/bar"
+    --m ← loadTileMap "res/apartmentblock"
     rnd ← traverse randomizeStats characters
     pure $
         DesignData {

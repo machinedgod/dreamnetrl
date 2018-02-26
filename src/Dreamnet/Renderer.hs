@@ -1,16 +1,23 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
 module Dreamnet.Renderer
 ( RenderAction
 , MonadRender(..)
 , RendererF
 
+, ScrollData
+, newScrollData
+, scrollUp
+, scrollDown
+
 , RendererEnvironment
+, rd_scrollData
 
 , initRenderer
 , runRenderer
@@ -20,18 +27,22 @@ module Dreamnet.Renderer
 , drawHud
 , drawStatus
 , drawCharacterSheet
+, drawInformation
 ) where
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, use, uses, view, views)
+import Control.Lens              (makeLenses, use, uses, view, views, (+~),
+                                  (%~))
+import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.State       (MonadState, StateT, runStateT)
-import Linear                    (V2(V2))
+import Linear                    (V2(V2), _x, _y)
 import Data.Semigroup            ((<>))
-import Data.Maybe                (fromMaybe)
+import Data.Maybe                (fromMaybe, isJust, fromJust)
 import Data.Foldable             (traverse_, forM_)
 import Data.Char                 (digitToInt)
 import Data.List                 (intercalate)
+import Data.Bool                 (bool)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
@@ -44,6 +55,15 @@ import Dreamnet.CoordVector
 import Dreamnet.Visibility
 
 import Design.DesignAPI     (GameState(..), DreamnetCharacter)
+
+--------------------------------------------------------------------------------
+
+pad ∷ (Integral a) ⇒ a → String → String
+pad i  = (<>) <$> id <*> flip replicate ' ' . (`subtract` fromIntegral i) . length
+
+
+padL ∷ (Integral a) ⇒ a → String → String
+padL i = (<>) <$> flip replicate ' ' . (`subtract` fromIntegral i) . length <*> id
 
 --------------------------------------------------------------------------------
 
@@ -105,8 +125,56 @@ data Styles = Styles {
 
 makeLenses ''Styles
 
+--------------------------------------------------------------------------------
+
+data ScrollData = ScrollData {
+      _sd_lines     ∷ [String]
+    , _sd_startLine ∷ Int
+    , _sd_title     ∷ Maybe String
+
+    , _sd_position  ∷ V2 Integer
+    , _sd_size      ∷ V2 Integer
+    }
+
+makeLenses ''ScrollData
+
+
+newScrollData ∷ V2 Integer → V2 Integer → Maybe String → String → ScrollData
+newScrollData p s t txt =
+    ScrollData {
+      _sd_lines     = intercalate [""] $ lines' (views _x (subtract 6) s) (fromIntegral . length) " " . words <$> lines txt
+    , _sd_startLine = 0
+    , _sd_title     = t
+
+    , _sd_position  = p
+    , _sd_size      = s
+    }
+
+
+scrollUp ∷ ScrollData → ScrollData
+scrollUp = sd_startLine %~ (\i → max 0 (i - 1))
+
+
+scrollDown ∷ ScrollData → ScrollData
+scrollDown sd = let nsl = views sd_startLine (+1) sd -- <------ Where are these +1's coming from???
+                    tlc = views sd_lines length sd
+                in  if nsl <= tlc - (fromIntegral $ maxLines sd)
+                        then sd_startLine +~ 1 $ sd
+                        else sd
+
+
+lineWidth ∷ (Num a) ⇒ ScrollData → a
+lineWidth = fromIntegral . subtract 6 . view (sd_size._x) -- (-6) border, padding, arrow widgets
+
+
+maxLines ∷ (Num a) ⇒ ScrollData → a
+maxLines = fromIntegral . subtract 2 . view (sd_size._y) -- TODO should depend on the title being present!
+
+--------------------------------------------------------------------------------
+
 data RendererEnvironment = RendererEnvironment {
       _rd_styles     ∷ Styles
+    , _rd_scrollData ∷ ScrollData
 
     , _rd_mainWindow ∷ C.Window
     , _rd_hudWindow  ∷ C.Window
@@ -153,68 +221,70 @@ initRenderer = do
         hudHeight  = 13
         mainWidth  = columns
         mainHeight = rows - hudHeight
+
     mainWin ← C.newWindow mainHeight mainWidth 0 0
     hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
+    uiWin   ← C.newWindow 0 0 (rows - 1) (columns - 1)
+    styles  ← C.maxColor >>= createStyles 
 
-    let interactW = columns - 4
-        interactH = rows - 4
-        interactX = 2
-        interactY = 2
+    pure $
+        RendererEnvironment {
+          _rd_styles     = styles 
+        , _rd_scrollData = ScrollData [] 0 Nothing (V2 1 1) (V2 60 30)
 
-    interactionWin   ← C.newWindow interactH interactW interactY interactX
+        , _rd_mainWindow = mainWin
+        , _rd_hudWindow  = hudWin
+        , _rd_uiWindow   = uiWin
+        }
+    where
+        createStyles mc
+            | mc > 0 && mc <= 8    = createStyles8Colors    -- (And disable lighting)
+            | mc > 8 && mc <= 255  = createStyles8Colors   -- (And disable lighting)
+            | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
+            | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
+        createStyles8Colors = do 
+            cBlack   ← C.newColorID C.ColorBlack   C.ColorBlack 1
+            cRed     ← C.newColorID C.ColorRed     C.ColorBlack 2
+            cGreen   ← C.newColorID C.ColorGreen   C.ColorBlack 3
+            cYellow  ← C.newColorID C.ColorYellow  C.ColorBlack 4
+            cBlue    ← C.newColorID C.ColorBlue    C.ColorBlack 5
+            cMagenta ← C.newColorID C.ColorMagenta C.ColorBlack 6
+            cCyan    ← C.newColorID C.ColorCyan    C.ColorBlack 7
+            cWhite   ← C.newColorID C.ColorWhite   C.ColorBlack 8
 
-    styles ← C.maxColor >>= createStyles 
+            return Styles {
+                     _s_materials = M.fromList
+                        [ ("concrete"       , [ C.AttributeColor cWhite ])
+                        , ("grass"          , [ C.AttributeColor cGreen,  C.AttributeDim  ])
+                        , ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
+                        , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
+                        , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
+                        , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
+                        , ("green plastic"  , [ C.AttributeColor cGreen,  C.AttributeDim  ])
+                        , ("ceramics"       , [ C.AttributeColor cWhite,  C.AttributeDim  ])
+                        , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
+                        , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
+                        , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
 
-    return $ RendererEnvironment styles mainWin hudWin interactionWin
-        where
-            createStyles mc
-                | mc > 0 && mc <= 8    = createStyles8Colors    -- (And disable lighting)
-                | mc > 8 && mc <= 255  = createStyles8Colors   -- (And disable lighting)
-                | mc >= 255            = createStyles8Colors  -- (And enable lighting!)
-                | otherwise            = error "Your terminal doesn't support color! I haven't had time to make things render without colors yet, sorry :-("
-            createStyles8Colors = do 
-                cBlack   ← C.newColorID C.ColorBlack   C.ColorBlack 1
-                cRed     ← C.newColorID C.ColorRed     C.ColorBlack 2
-                cGreen   ← C.newColorID C.ColorGreen   C.ColorBlack 3
-                cYellow  ← C.newColorID C.ColorYellow  C.ColorBlack 4
-                cBlue    ← C.newColorID C.ColorBlue    C.ColorBlack 5
-                cMagenta ← C.newColorID C.ColorMagenta C.ColorBlack 6
-                cCyan    ← C.newColorID C.ColorCyan    C.ColorBlack 7
-                cWhite   ← C.newColorID C.ColorWhite   C.ColorBlack 8
+                        , ("blue"           , [ C.AttributeColor cBlue ])
+                        ]
+                   , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
+                   --, _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
 
-                return Styles {
-                         _s_materials = M.fromList
-                            [ ("concrete"       , [ C.AttributeColor cWhite ])
-                            , ("grass"          , [ C.AttributeColor cGreen,  C.AttributeDim  ])
-                            , ("wood"           , [ C.AttributeColor cYellow, C.AttributeDim  ])
-                            , ("metal"          , [ C.AttributeColor cCyan,   C.AttributeBold ])
-                            , ("blue plastic"   , [ C.AttributeColor cCyan,   C.AttributeDim  ])
-                            , ("red plastic"    , [ C.AttributeColor cRed,    C.AttributeDim  ])
-                            , ("green plastic"  , [ C.AttributeColor cGreen,  C.AttributeDim  ])
-                            , ("ceramics"       , [ C.AttributeColor cWhite,  C.AttributeDim  ])
-                            , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
-                            , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
-                            , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
+                   , _s_visibilityUnknown = []
+                   , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
+                   --, _s_visibilityVisible = [ C.AttributeColor cWhite ]
+                   --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
 
-                            , ("blue"           , [ C.AttributeColor cBlue ])
-                            ]
-                       , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
-                       --, _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
-
-                       , _s_visibilityUnknown = []
-                       , _s_visibilityKnown   = [ C.AttributeColor cBlue,  C.AttributeDim ]
-                       --, _s_visibilityVisible = [ C.AttributeColor cWhite ]
-                       --, _s_visibilityVisible = [ C.AttributeColor cWhite, C.AttributeDim ]
-
-                       , _s_colorBlack   = cBlack
-                       , _s_colorRed     = cRed
-                       , _s_colorGreen   = cGreen
-                       , _s_colorYellow  = cYellow
-                       , _s_colorBlue    = cBlue
-                       , _s_colorMagenta = cMagenta
-                       , _s_colorCyan    = cCyan
-                       , _s_colorWhite   = cWhite
-                       }
+                   , _s_colorBlack   = cBlack
+                   , _s_colorRed     = cRed
+                   , _s_colorGreen   = cGreen
+                   , _s_colorYellow  = cYellow
+                   , _s_colorBlue    = cBlue
+                   , _s_colorMagenta = cMagenta
+                   , _s_colorCyan    = cCyan
+                   , _s_colorWhite   = cWhite
+                   }
 
 
 runRenderer ∷ RendererEnvironment → RendererF a → C.Curses (a, RendererEnvironment)
@@ -405,11 +475,8 @@ drawStatus gs msg = do
                         then green
                         else white
 
-        C.moveCursor 3 (fromIntegral start + len `div` 2)
-        C.drawGlyph (C.Glyph '▲' [])
-        C.moveCursor 9 (fromIntegral start + len `div` 2)
-        C.drawGlyph (C.Glyph '▼' [])
-        
+        draw (fromIntegral start + len `div` 2) 3 '▲'
+        draw (fromIntegral start + len `div` 2) 9 '▼' 
 
         -- Clear
         drawList (fromIntegral start) padding $
@@ -489,8 +556,6 @@ drawCharacterSheet ch = screenSize >>= \(rows, cols) →
         drawThreeDigit 71 29 (view (ch_communication.ss_seduction) ch)
         drawThreeDigit 71 31 (views ch_communication sumCommunication ch)
     where
-        pad i  = (<>) <$> id <*> flip replicate ' ' . (i -) . length
-        padL i = (<>) <$> flip replicate ' ' . (i -) . length <*> id
         drawThreeDigit x y = drawString x y . padL 3 . show
             
 
@@ -544,6 +609,48 @@ characterSheet =
     , " └─────────────────────────────────────────────────────────────────────────────┘"
     ]
 
+
+drawInformation ∷ (MonadRender r) ⇒ r (RenderAction ())
+drawInformation = do
+    sd        ← use rd_scrollData
+    (V2 x y)  ← use (rd_scrollData.sd_position)
+    (V2 w h)  ← use (rd_scrollData.sd_size)
+    mt        ← use (rd_scrollData.sd_title)
+    ls        ← use (rd_scrollData.sd_lines)
+    startLine ← use (rd_scrollData.sd_startLine)
+    let visibleLines = V.fromList . take (maxLines sd) . drop startLine $ ls
+        hasMoreLines = length ls >= (startLine + 1) + maxLines sd -- <-------------------------------- Like this one here too!
+    pure $ RenderAction $ do
+        C.resizeWindow h w
+        C.moveWindow y x
+        C.drawBorder (Just $ C.Glyph '│' [])
+                     (Just $ C.Glyph '│' [])
+                     (Just $ C.Glyph '─' [])
+                     (Just $ C.Glyph '─' [])
+                     (Just $ C.Glyph '╭' [])
+                     (Just $ C.Glyph '╮' [])
+                     (Just $ C.Glyph '╰' [])
+                     (Just $ C.Glyph '╯' [])
+        (rows, cols) ← C.windowSize
+        when (isJust mt) $
+            drawTitle cols (fromJust mt)
+        V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad (lineWidth sd)) visibleLines
+        draw (cols - 3) 1          (bool ' ' '▲' $ startLine /= 0)
+        draw (cols - 3) (rows - 2) (bool ' ' '▼' $ hasMoreLines)
+    where
+        drawTitle ∷ Integer → String → C.Update ()
+        drawTitle cols tn = do
+                let trimmed    = take (fromIntegral cols - 7) tn
+                    trimmedLen = fromIntegral (length trimmed)
+                draw 0 2 '├' 
+                drawString 2 1 trimmed
+                draw (trimmedLen + 3) 0 '┬'
+                draw (trimmedLen + 3) 2 '╯'
+                C.moveCursor 2 1
+                C.drawLineH (Just $ C.Glyph '─' []) (trimmedLen + 2)
+                draw (trimmedLen + 3) 1 '│'
+
+
 --------------------------------------------------------------------------------
 
 lookupMaterial ∷ (MonadRender r) ⇒ String → r Material
@@ -573,7 +680,6 @@ drawList ∷ Integer → Integer → [String] → C.Update ()
 drawList x y =
     traverse_ (\(ix, l) → drawString x ix l)
     . zip [y..]
-
 
 digit ∷ Word → [String]
 digit 0 = [ " ━ "

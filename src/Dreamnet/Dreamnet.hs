@@ -31,7 +31,6 @@ import Dreamnet.TileData
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
 import Dreamnet.Entity
-import Dreamnet.ScrollWindow
 import Dreamnet.ChoiceWindow
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
@@ -48,6 +47,19 @@ import Design.GameCharacters
 type Name = String
 
 --------------------------------------------------------------------------------
+--setText ∷ String → ScrollData → ScrollData
+--setText s sd =
+--    let ls = intercalate [""] $ lines' (fromIntegral $ lineWidth sd) length " " . words <$> lines s
+--    in  setLines ls sd
+--
+--
+--setLines ∷ [String] → ScrollData → ScrollData
+--setLines ls sd = (sd_startLine .~ 0) . (sd_lines .~ fmap extendToWidth ls) $ sd
+--    where
+--        extendToWidth s = s <> replicate (fromIntegral (lineWidth sd) - length s) ' '
+
+
+--------------------------------------------------------------------------------
 
 -- TODO apply DeGoes principle here: extract everything with a neat api, that
 -- then runs and produces WorldAPI state values
@@ -62,7 +74,6 @@ data Game = Game {
     -- because later on there'll be multiple 'update' places
     , _g_conversant   ∷ Maybe DreamnetCharacter
     , _g_conversation ∷ ConversationNode
-    , _g_scrollWindow ∷ ScrollData
     , _g_choiceWindow ∷ ChoiceData
 
     -- TODO take this out, eventually
@@ -80,7 +91,6 @@ makeLenses ''Game
 newGame ∷ DesignData → C.Curses Game
 newGame dd = do
     rdf ← initRenderer
-    sw  ← createScrollData
     cw  ← createChoiceData
     pure Game {
         _g_turn  = 0
@@ -100,7 +110,6 @@ newGame dd = do
 
       , _g_conversant   = Nothing
       , _g_conversation = End
-      , _g_scrollWindow = sw
       , _g_choiceWindow = cw
 
       , _g_carlasComputer    = newComputer
@@ -285,21 +294,16 @@ processNormal dd Input.Examine = do
             if onHerself
                 then do
                     examineText ← uses (g_world.w_map) desc
-                    g_scrollWindow %= moveWindow (V2 2 1)
-                    g_scrollWindow %= resizeWindow (V2 40 10)
-                    g_scrollWindow %= setTitle Nothing
-                    g_scrollWindow %= setText examineText
+                    g_rendererData.rd_scrollData .= newScrollData (V2 2 1) (V2 60 20) Nothing examineText
                     g_gameState .= Examination
-                    use g_scrollWindow >>= lift . renderScrollWindow
+                    renderInformation
                 else do
                     runProgram dd v (programForObject o Examine)
                     use g_gameState >>= \case
                         Examination → do
-                            g_scrollWindow %= moveWindow (V2 2 1)
-                            g_scrollWindow %= resizeWindow (V2 40 10)
-                            use (g_world.w_status) >>= \et → g_scrollWindow %= setText et
+                            use (g_world.w_status) >>= assign (g_rendererData.rd_scrollData) . newScrollData (V2 2 1) (V2 60 20) Nothing
                             g_world.w_status .= ""
-                            use g_scrollWindow >>= lift . renderScrollWindow
+                            renderInformation
                         _ → renderNormal
         Nothing → do
             renderMessage "There's nothing there."
@@ -332,20 +336,25 @@ processNormal dd Input.Talk = do
                     let ch = views o_state (\(Person ch') → ch') $ o
                     g_conversant .= Just ch
                     g_conversation .= view ch_conversation ch
-                    g_scrollWindow %= setTitle (Just (view ch_name ch))
+
                     use g_conversation >>= \case
                         (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
-                        (TalkNode s _)      → g_scrollWindow %= setText s
-                        (ListenNode s _)    → g_scrollWindow %= setText s
+                        (TalkNode s _) → do
+                            pos ← lift (positionFor 0)
+                            siz ← lift conversationSize
+                            g_rendererData.rd_scrollData .= newScrollData pos siz (Just (view ch_name ch)) s
+                        (ListenNode s _) → do
+                            pos ← lift (positionFor 1)
+                            siz ← lift conversationSize
+                            g_rendererData.rd_scrollData .= newScrollData pos siz (Just (view ch_name ch)) s
                         _ → pure ()
                     use g_conversation >>= renderConversation
                 _ →
                     renderNormal
 processNormal _ Input.InventorySheet = do
-    g_scrollWindow %= setTitle (Just "Inventory sheet")
-    g_scrollWindow %= setText ""
+    g_rendererData.rd_scrollData .= newScrollData (V2 1 1) (V2 60 30) (Just "Inventory sheet") ""
     g_gameState .= InventoryUI
-    use g_scrollWindow >>= lift . renderScrollWindow
+    renderInformation
 processNormal dd Input.CharacterSheet = do
     g_gameState .= CharacterUI
     doRender $ drawCharacterSheet (characterForName "Carla" (view dd_characters dd)) >>= updateUi
@@ -353,13 +362,13 @@ processNormal dd Input.CharacterSheet = do
 
 processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
 processExamination Input.MoveUp = do
-    g_scrollWindow %= scrollUp
-    use g_scrollWindow >>= lift . renderScrollWindow
+    g_rendererData.rd_scrollData %= scrollUp
+    renderInformation
 processExamination Input.MoveDown = do
-    g_scrollWindow %= scrollDown
-    use g_scrollWindow >>= lift . renderScrollWindow
+    g_rendererData.rd_scrollData %= scrollDown
+    renderInformation
 processExamination _ = do
-    use g_scrollWindow >>= lift . clearScrollWindow
+    doRender $ updateUi clear
     g_gameState .= Normal
     renderNormal
 
@@ -389,7 +398,6 @@ processHudTeam dd Input.SelectChoice = do
     g_gameState .= CharacterUI
     tm ← use (g_world.w_active) >>= \cal → uses (g_world.w_team) (cal:)
     ech ← uses g_hudTeamSelector (at tm)
-    
     doRender $ drawCharacterSheet (views (e_object.o_state) (\(Person ch) → ch) ech) >>= updateUi
 processHudTeam _ Input.Back = do
     g_gameState .= Normal
@@ -450,12 +458,12 @@ processConversation ∷ Input.UIEvent → StateT Game C.Curses ()
 processConversation Input.MoveUp = do
     use g_conversation >>= \case
         (ChoiceNode _ _) → g_choiceWindow %= selectPrevious
-        _                → g_scrollWindow %= scrollUp
+        _                → g_rendererData.rd_scrollData %= scrollUp
     use g_conversation >>= renderConversation
 processConversation Input.MoveDown = do
     use g_conversation >>= \case
         (ChoiceNode _ _) → g_choiceWindow %= selectNext
-        _                → g_scrollWindow %= scrollDown
+        _                → g_rendererData.rd_scrollData %= scrollDown
     use g_conversation >>= renderConversation
 processConversation Input.SelectChoice = use g_conversation >>= \case
     n@(ChoiceNode _ _) → do
@@ -466,18 +474,20 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle (Just initName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 0)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just initName) s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle (Just otherName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 1)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just otherName) s
                 use g_conversation >>= renderConversation
             End → do
                 g_conversant .= Nothing
+                doRender $ updateUi clear
                 g_gameState .= Normal
-                use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
     (TalkNode _ _) → do
         g_conversation %= advance
@@ -487,18 +497,20 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle (Just initName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 0)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just initName) s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle (Just otherName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 1)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just otherName) s
                 use g_conversation >>= renderConversation
             End → do
                 g_conversant .= Nothing
+                doRender $ updateUi clear
                 g_gameState .= Normal
-                use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
     (ListenNode _ _) → do
         g_conversation %= advance
@@ -508,23 +520,25 @@ processConversation Input.SelectChoice = use g_conversation >>= \case
                 use g_conversation >>= renderConversation
             (TalkNode s _) → do
                 initName ← uses (g_world.w_active.e_object.o_state) (\(Person ch) → view ch_name ch)
-                g_scrollWindow %= setTitle (Just initName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 0)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just initName) s
                 use g_conversation >>= renderConversation
             (ListenNode s _) → do
                 otherName ← uses g_conversant (fromMaybe "<CONVERSANT IS NOTHING>" . fmap (view ch_name))
-                g_scrollWindow %= setTitle (Just otherName)
-                g_scrollWindow %= setText s
+                pos ← lift (positionFor 1)
+                siz ← lift conversationSize
+                g_rendererData.rd_scrollData .= newScrollData pos siz (Just otherName) s
                 use g_conversation >>= renderConversation
             End → do
                 g_conversant .= Nothing
+                doRender $ updateUi clear
                 g_gameState .= Normal
-                use g_scrollWindow >>= lift . clearScrollWindow
                 renderNormal
     End → do  -- TODO we shall never end up here, but this is because there's an event listening stuck at the beginning of conversation state management. This needs to change.
         g_conversant .= Nothing
+        doRender $ updateUi clear
         g_gameState .= Normal
-        use g_scrollWindow >>= lift . clearScrollWindow
         renderNormal
 processConversation _ =
     pure ()
@@ -532,13 +546,13 @@ processConversation _ =
 
 processInventoryUI ∷ Input.UIEvent → StateT Game C.Curses ()
 processInventoryUI Input.MoveUp = do
-    g_scrollWindow %= scrollUp
-    use g_scrollWindow >>= lift . renderScrollWindow
+    g_rendererData.rd_scrollData %= scrollUp
+    renderInformation
 processInventoryUI Input.MoveDown = do
-    g_scrollWindow %= scrollDown
-    use g_scrollWindow >>= lift . renderScrollWindow
+    g_rendererData.rd_scrollData %= scrollDown
+    renderInformation
 processInventoryUI _ = do
-    use g_scrollWindow >>= lift . clearScrollWindow
+    doRender $ updateUi clear
     g_gameState .= Normal
     renderNormal
 
@@ -613,7 +627,7 @@ runProgram dd v prg = do
 
 obtainTarget ∷ StateT Game C.Curses (Maybe (V2 Int, Object States))
 obtainTarget = do
-    renderMessage "Select direction:"
+    renderMessage "Select direction (h/j/k/l/y/u/b/n/.):"
     lift C.render
 
     ap ← use (g_world.w_active.e_position)
@@ -675,6 +689,11 @@ renderNormal = do
         drawStatus gs s >>= updateHud
 
 
+renderInformation ∷ StateT Game C.Curses ()
+renderInformation = do
+    doRender $ drawInformation >>= updateUi
+
+
 renderMessage ∷ String → StateT Game C.Curses ()
 renderMessage msg = do
     gs ← use g_gameState
@@ -685,15 +704,11 @@ renderConversation ∷ ConversationNode → StateT Game C.Curses ()
 renderConversation (ChoiceNode _ _) =
     use g_choiceWindow >>= lift . drawChoiceWindow
 renderConversation (TalkNode _ _) = do
-    use g_scrollWindow >>= lift . clearScrollWindow
-    lift (positionFor 0) >>= (\p → g_scrollWindow %= moveWindow p)
-    lift conversationSize >>= (\s → g_scrollWindow %= resizeWindow s)
-    use g_scrollWindow >>= lift . renderScrollWindow
+    doRender $ updateUi clear
+    renderInformation
 renderConversation (ListenNode _ _) = do
-    use g_scrollWindow >>= lift . clearScrollWindow
-    lift (positionFor 1) >>= (\p → g_scrollWindow %= moveWindow p)
-    lift conversationSize >>= (\s → g_scrollWindow %= resizeWindow s)
-    use g_scrollWindow >>= lift . renderScrollWindow
+    doRender $ updateUi clear
+    renderInformation
 renderConversation End =
     pure ()
 

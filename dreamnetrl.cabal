@@ -70,7 +70,6 @@ executable dreamnetrl
                        Dreamnet.World
                        Dreamnet.Conversation
                        Dreamnet.CoordVector
-                       Dreamnet.ScrollWindow
                        Dreamnet.ObjectMonad
                        Dreamnet.MapGenerator
                        Design.DesignAPI
