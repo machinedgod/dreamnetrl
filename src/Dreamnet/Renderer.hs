@@ -438,8 +438,10 @@ drawHud gs hms am team turns button = do
             drawList (ox + 22) 4 (digit . snd . numberToDigits . view wd_minutes $ wd)
             drawList (ox + 27) 6 (smallDigit . fst . numberToDigits . view wd_seconds $ wd)
             drawList (ox + 30) 6 (smallDigit . snd . numberToDigits . view wd_seconds $ wd)
-            drawString (ox + 27) 3 (view wd_weekDay wd <> " " <> views wd_day show wd)
-            drawString (ox + 27) 4 (views wd_month show wd <> "-" <> views wd_year show wd)
+            drawString (ox + 27) 3 (view wd_weekDay wd <> " " <> views wd_day paddedDigit wd)
+            drawString (ox + 27) 4 (views wd_month paddedDigit wd <> "-" <> views wd_year show wd)
+
+        paddedDigit = reverse . take 2 . reverse . ("0"<>) . show
 
         dots ∷ [String]
         dots = [" "
