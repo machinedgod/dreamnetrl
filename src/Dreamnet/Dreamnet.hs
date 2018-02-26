@@ -345,10 +345,8 @@ processNormal _ Input.InventorySheet = do
     g_gameState .= InventoryUI
     use g_scrollWindow >>= lift . renderScrollWindow
 processNormal _ Input.CharacterSheet = do
-    g_scrollWindow %= setTitle (Just "Character sheet")
-    g_scrollWindow %= setText ""
     g_gameState .= CharacterUI
-    use g_scrollWindow >>= lift .  renderScrollWindow
+    doRender $ drawCharacterSheet carla >>= updateUi
 
 
 processExamination ∷ Input.UIEvent → StateT Game C.Curses ()
@@ -541,16 +539,12 @@ processInventoryUI _ = do
 
 
 processCharacterUI ∷ Input.UIEvent → StateT Game C.Curses ()
-processCharacterUI Input.MoveUp = do
-    g_scrollWindow %= scrollUp
-    use g_scrollWindow >>= lift . renderScrollWindow
-processCharacterUI Input.MoveDown = do
-    g_scrollWindow %= scrollDown
-    use g_scrollWindow >>= lift . renderScrollWindow
-processCharacterUI _ = do
-    use g_scrollWindow >>= lift . clearScrollWindow
+processCharacterUI Input.Back = do
+    doRender $ updateUi clear
     g_gameState .= Normal
     renderNormal
+processCharacterUI _ =
+    pure ()
 
 
 processOperation ∷ Input.InteractionEvent → StateT Game C.Curses ()

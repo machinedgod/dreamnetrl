@@ -14,9 +14,13 @@ module Dreamnet.Character
 
 , Stance(..)
 
-, CombatSkills
-, ElectronicsSkills
+, MeleeCombatSkills
+, RangedCombatSkills
+, ThrowingSkills
+, EngineeringSkills
 , CommunicationSkills
+, InfiltrationSkills
+
 , Character
 , ch_name
 , ch_handedness
@@ -30,9 +34,11 @@ module Dreamnet.Character
 , ch_healthPoints
 , ch_maxHealthPoints
 , ch_experience
-, ch_combat
-, ch_electronics
-, ch_social
+, ch_meleeCombat
+, ch_rangedCombat
+, ch_throwing
+, ch_engineering
+, ch_communication
 , ch_infiltration
 , ch_primaryHand
 
@@ -93,67 +99,83 @@ data Handedness = LeftHand
 --------------------------------------------------------------------------------
 
 -- All combat-related skills
-data CombatSkills = CombatSkills {
-      _cs_remainingPoints ∷ Word
+data MeleeCombatSkills = MeleeCombatSkills {
+      _mcs_remainingPoints ∷ Word
 
-    -- General melee skill, applied everywhere where hand-to-hand combat is
-    -- involved, with or without weapons
-    , _cs_melee      ∷ Word
     -- Specific added bonuses applied when fighting barehanded
-    , _cs_barehanded ∷ Word
+    , _mcs_barehanded ∷ Word
     -- Specific added bonuses applied when utilizing one of the weapons listed
-    , _cs_knives     ∷ Word
-    , _cs_swords     ∷ Word
-    , _cs_staves     ∷ Word
-    , _cs_maces      ∷ Word
+    , _mcs_knives     ∷ Word
+    , _mcs_swords     ∷ Word
+    , _mcs_staves     ∷ Word
+    , _mcs_maces      ∷ Word
+    }
+    deriving (Eq, Show)
+--makeLenses ''MeleeCombatSkills
 
-    -- General ranged combat skill, applied everywhere where aiming and
-    -- shooting is involved, from bows to firearms
-    , _cs_ranged    ∷ Word
+
+data RangedCombatSkills = RangedCombatSkills {
+      _rcs_remainingPoints ∷ Word
+
     -- Specific added bonuses applied when fighting with specified weapon group
-    , _cs_guns      ∷ Word
-    , _cs_smgs      ∷ Word
-    , _cs_shotguns  ∷ Word
-    , _cs_assault   ∷ Word
-    , _cs_sniper    ∷ Word
-    , _cs_bows      ∷ Word
-    , _cs_crossbows ∷ Word
-    , _cs_plasma    ∷ Word
-    , _cs_lasers    ∷ Word
+    , _rcs_guns      ∷ Word
+    , _rcs_smgs      ∷ Word
+    , _rcs_shotguns  ∷ Word
+    , _rcs_assault   ∷ Word
+    , _rcs_sniper    ∷ Word
+    , _rcs_bows      ∷ Word
+    , _rcs_crossbows ∷ Word
+    , _rcs_plasma    ∷ Word
+    , _rcs_lasers    ∷ Word
+    }
+    deriving (Eq, Show)
+--makeLenses ''RangedCombatSkills
 
-    -- General throwing combat skill, applied everywhere where throwing
-    -- an explosive or a device is used
-    , _cs_throwing ∷ Word
+data ThrowingSkills = ThrowingSkills {
+      _ts_remainingPoints ∷ Word
+
+    , _ts_grenades  ∷ Word
+    , _ts_knives    ∷ Word
+    , _ts_shurikens ∷ Word
+    , _ts_stickies  ∷ Word
     }
     deriving (Eq, Show)
 
---makeLenses ''CombatSkills
 
 -- Holds all the skills needed to deal with electronics
-data ElectronicsSkills = ElectronicsSkills {
+data EngineeringSkills = EngineeringSkills {
       _es_remainingPoints ∷ Word
 
+    -- Ability to create useful items from garbage
     , _es_juryrig ∷ Word
+    -- Ability to modify items to add new abilities or enhance/change existing
     , _es_modify  ∷ Word
+    -- Ability to repair damaged and broken items
+    , _es_repair  ∷ Word
+    -- Ability to figure out what certain item's abilities are
     , _es_analyze ∷ Word
     }
     deriving (Eq, Show)
-
---makeLenses ''ElectronicsSkills
+--makeLenses ''EngineeringSkills
 
 
 data CommunicationSkills = CommunicationSkills {
       _ss_remainingPoints ∷ Word
 
+    -- Extraction of information from smalltalk
     , _ss_smallTalk           ∷ Word
-    , _ss_bodyLanguageReading ∷ Word
+    -- Ability to read body language to detect hidden context
+    , _ss_bodyLanguage        ∷ Word
+    -- Ability to implant ideas into other people's heads
     , _ss_bodyLanguageControl ∷ Word
-    , _ss_trade               ∷ Word
+    -- Ability to trade low-value items for high-value items
+    , _ss_haggle              ∷ Word
+    -- Ability to extract information by coercion
     , _ss_interrogation       ∷ Word
+    -- Ability to extract information through sexual attraction
     , _ss_charm               ∷ Word
     }
     deriving (Eq, Show)
-
 --makeLenses ''CommunicationSkills
 
 
@@ -171,6 +193,7 @@ data InfiltrationSkills = InfiltrationSkills {
     , _is_coverSwitchManeuver ∷ Word
     }
     deriving(Eq, Show)
+--makeLenses ''InfiltrationSkills
 
 --------------------------------------------------------------------------------
 
@@ -198,6 +221,10 @@ data Character i c f = Character {
     -- To train to a certain level, you need to purchase skillpoints
     -- by spending general experience, and then find a person willing to
     -- train you, who has that skill equal or above desired level
+    --
+    -- Total amount of skill points in a skill branch contributes towards
+    -- a bonus. This means that if you'll be a better sword fighter if you're
+    -- also proficient in staves as well.
     -- 
     -- Additionally, abilities are *not* acquired through skills! They are
     -- either "innate", meaning *everyone* can try to perform them once learned,
@@ -209,10 +236,12 @@ data Character i c f = Character {
     -- characters will simply run or walk to next cover. Highly skilled characters
     -- will perform fast and silent maneuver at the right time not to be seen
     -- by NPC's or cameras.
-    , _ch_combat       ∷ CombatSkills
-    , _ch_electronics  ∷ ElectronicsSkills
-    , _ch_social       ∷ CommunicationSkills
-    , _ch_infiltration ∷ InfiltrationSkills
+    , _ch_meleeCombat   ∷ MeleeCombatSkills
+    , _ch_rangedCombat  ∷ RangedCombatSkills
+    , _ch_throwing      ∷ ThrowingSkills
+    , _ch_engineering   ∷ EngineeringSkills
+    , _ch_communication ∷ CommunicationSkills
+    , _ch_infiltration  ∷ InfiltrationSkills
     }
     deriving (Show)
 
@@ -231,11 +260,13 @@ instance Eq (Character i c f) where
 
 newCharacter ∷ String → String → f → c → Character i c f
 newCharacter n d fac cn =
-    Character n RightHand d empty empty empty Upright fac cn 10 10 0 cs es ss is
+    Character n RightHand d empty empty empty Upright fac cn 10 10 0 mcs rcs ts es ss is
     where
         empty = Slot Nothing
-        cs    = CombatSkills 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-        es    = ElectronicsSkills 0 0 0 0
+        mcs   = MeleeCombatSkills 0 0 0 0 0 0
+        rcs   = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
+        ts    = ThrowingSkills 0 0 0 0 0
+        es    = EngineeringSkills 0 0 0 0 0
         ss    = CommunicationSkills 0 0 0 0 0 0 0
         is    = InfiltrationSkills 0 0 0 0 0
 

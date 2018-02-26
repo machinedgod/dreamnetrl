@@ -15,9 +15,11 @@ module Dreamnet.Renderer
 , initRenderer
 , runRenderer
 
+, clear
 , drawMap
 , drawHud
 , drawStatus
+, drawCharacterSheet
 ) where
 
 import Safe                      (atDef)
@@ -107,11 +109,11 @@ data Styles = Styles {
 makeLenses ''Styles
 
 data RendererEnvironment = RendererEnvironment {
-      _rd_styles              ∷ Styles
+      _rd_styles     ∷ Styles
 
-    , _rd_mainWindow          ∷ C.Window
-    , _rd_hudWindow           ∷ C.Window
-    , _rd_interactionWindow   ∷ C.Window
+    , _rd_mainWindow ∷ C.Window
+    , _rd_hudWindow  ∷ C.Window
+    , _rd_uiWindow   ∷ C.Window
     }
 
 makeLenses ''RendererEnvironment
@@ -124,8 +126,9 @@ newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
 
 class (MonadState RendererEnvironment r) ⇒ MonadRender r where
     updateMain ∷ RenderAction () → r ()
-    updateHud ∷ RenderAction () → r ()
-    updateInteraction ∷ RenderAction () → r ()
+    updateHud  ∷ RenderAction () → r ()
+    updateUi   ∷ RenderAction () → r ()
+    screenSize ∷ r (Integer, Integer)
     
 
 -- TODO double buffering
@@ -138,7 +141,9 @@ instance MonadRender RendererF where
 
     updateHud ac = use rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
 
-    updateInteraction ac = use rd_interactionWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+    updateUi ac = use rd_uiWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+
+    screenSize = RendererF $ lift C.screenSize
 
 
 initRenderer ∷ C.Curses RendererEnvironment
@@ -220,6 +225,10 @@ runRenderer rd f = runStateT (runRendererF f) rd
     
 --------------------------------------------------------------------------------
 
+clear ∷ RenderAction ()
+clear = RenderAction $ C.clear
+
+
 drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
 drawMap chf matf w dat vis = do
     u ← use (rd_styles.s_visibilityUnknown)
@@ -254,7 +263,7 @@ watch = [ "    .-------------------------------.    "
         ]
 
 
-watchLength ∷ Integer
+watchLength ∷ (Num n) ⇒ n
 watchLength = fromIntegral . (+1) . length . head $ watch
 
 
@@ -272,7 +281,7 @@ teamBoxes = [ "┏----------------┳----------------┳----------------┓"
             , "┗----------------┻----------------┻----------------┛"
             ]
 
-teamBoxesLength ∷ Integer
+teamBoxesLength ∷ (Num n) ⇒ n
 teamBoxesLength = fromIntegral . length . head $ teamBoxes
 
 
@@ -422,6 +431,66 @@ drawStatus gs msg = do
                     then []
                     else lines' (fromIntegral len) length " " (words msg)
         drawList (fromIntegral start) padding lns
+
+
+drawCharacterSheet ∷ (MonadRender r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawCharacterSheet ch = screenSize >>= \(rows, cols) →
+    pure $ RenderAction $ do
+        let x = (cols - characterSheetWidth) `div` 2
+            y = (rows - characterSheetHeight) `div` 2
+        C.resizeWindow characterSheetHeight characterSheetWidth
+        C.moveWindow y x
+        drawList 0 0 characterSheet
+
+
+characterSheetWidth ∷ (Num n) ⇒ n
+characterSheetWidth = fromIntegral . length . head $ characterSheet
+
+
+characterSheetHeight ∷ (Num n) ⇒ n
+characterSheetHeight = fromIntegral . (+1) . length $ characterSheet
+
+
+characterSheet ∷ [String]
+characterSheet =
+    [ "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  "
+    , "┃ ┌─────────────────────────┐                                                ┃─┐"
+    , "┃ │ Carla D'Addario         │                                                ┃/│"
+    , "┃ ├─────────────────────────┤                                                ┃/│"
+    , "┃ │ Handedness    ╵    Left │                                                ┃/│"
+    , "┃ │ Faction       ╵   Carla │                                                ┃/│"
+    , "┃ │ HP/Max        ╵   10/10 │                                                ┃/│"
+    , "┃ └───────────────┴─────────┘                                                ┃/│"
+    , "┃╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴┨/│"
+    , "┃ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐ ┃/│"
+    , "┃ │ Melee combat   ╵ 000 │ │ Ranged combat  ╵ 000 │ │ Engineering    ╵ 000 │ ┃/│"
+    , "┃ ├────────────────┴─────┤ ├────────────────┴─────┤ ├────────────────┴─────┤ ┃/│"
+    , "┃ │ Melee          ╵ 000 │ │ Ranged         ╵ 000 │ │ Juryrigging    ╵ 000 │ ┃/│"
+    , "┃ │ Barehanded     ╵ 000 │ │ Guns           ╵ 000 │ │ Modding        ╵ 000 │ ┃/│"
+    , "┃ │ Knives         ╵ 000 │ │ SMGs           ╵ 000 │ │ Repair         ╵ 000 │ ┃/│"
+    , "┃ │ Swords         ╵ 000 │ │ Shotguns       ╵ 000 │ │ Analysis       ╵ 000 │ ┃/│"
+    , "┃ │ Staves         ╵ 000 │ │ Assault        ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
+    , "┃ │ Maces          ╵ 000 │ │ Sniper         ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
+    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Bows           ╵ 000 │ └────────────────┴─────┘ ┃/│"
+    , "┃ │ Total          ╵ 000 │ │ Crossbows      ╵ 000 │ ┌──────────────────────┐ ┃/│"
+    , "┃ └────────────────┴─────┘ │ Plasma         ╵ 000 │ │ Communication  ╵ 000 │ ┃/│"
+    , "┃ ┌──────────────────────┐ │ Lasers         ╵ 000 │ ├────────────────┴─────┤ ┃/│"
+    , "┃ │ Throwing       ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Small talk     ╵ 000 │ ┃/│"
+    , "┃ ├────────────────┴─────┤ │ Total          ╵ 000 │ │ Body language  ╵ 000 │ ┃/│"
+    , "┃ │ Throwing       ╵ 000 │ └────────────────┴─────┘ │ Neurolin.prog. ╵ 000 │ ┃/│"
+    , "┃ │ Grenades       ╵ 000 │ ┌──────────────────────┐ │ Haggle         ╵ 000 │ ┃/│"
+    , "┃ │ Knives         ╵ 000 │ │ Infiltration   ╵ 000 │ │ Interrogation  ╵ 000 │ ┃/│"
+    , "┃ │ Shurikens      ╵ 000 │ ├────────────────┴─────┤ │ Seduction      ╵ 000 │ ┃/│"
+    , "┃ │ Stickies       ╵ 000 │ │ Blend in shad. ╵ 000 │ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ ┃/│"
+    , "┃ ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ │ Cover          ╵ 000 │ │ Total          ╵ 000 │ ┃/│"
+    , "┃ │ Total          ╵ 000 │ │ Silent moveme. ╵ 000 │ └────────────────┴─────┘ ┃/│"
+    , "┃ └────────────────┴─────┘ │ Maneuvers      ╵ 000 │                          ┃/│"
+    , "┃                          ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤                          ┃/│"
+    , "┃                          │ Total          ╵ 000 │                          ┃/│"
+    , "┃                          └────────────────┴─────┘                          ┃/│"
+    , "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛/│"
+    , " └─────────────────────────────────────────────────────────────────────────────┘"
+    ]
 
 --------------------------------------------------------------------------------
 
