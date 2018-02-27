@@ -13,6 +13,7 @@ module Dreamnet.Character
 , SlotWrapper(..)
 
 , Stance(..)
+, Orientation(..)
 
 , MeleeCombatSkills(..)
 , mcs_remainingPoints
@@ -105,6 +106,7 @@ module Dreamnet.Character
 
 , newCharacter
 , pickUp
+, equip
 
 , equipmentSlots
 , equippedSlots
@@ -145,6 +147,11 @@ deriving instance (Show i) ⇒ Show (Slot t i)
 deriving instance (Eq i) ⇒ Eq (Slot t i)
 
 
+equipSlot ∷ Maybe i → Slot t i → Slot t i
+equipSlot i s = s { slottedItem = i }
+
+--------------------------------------------------------------------------------
+
 -- Cannot use record syntax due to escaped type variables
 data SlotWrapper i = forall t. SlotWrapper (Slot t i)
 
@@ -160,9 +167,9 @@ data Stance = Upright
             | Prone
             deriving(Eq, Ord, Bounded, Enum, Show)
 
-data Handedness = LeftHand
-                | RightHand
-                deriving (Show)
+data Orientation = LeftSide
+                 | RightSide
+                 deriving (Show)
                 
 --------------------------------------------------------------------------------
 
@@ -364,7 +371,7 @@ data Character i c f = Character {
       _ch_name        ∷ String
     , _ch_lastName    ∷ String
     , _ch_nickName    ∷ String
-    , _ch_handedness  ∷ Handedness
+    , _ch_handedness  ∷ Orientation
     , _ch_description ∷ String
     , _ch_equipment   ∷ Equipment i
     , _ch_stance      ∷ Stance
@@ -410,8 +417,8 @@ makeLenses ''Character
 
 ch_primaryHand ∷ Character i c f → Lens' (Character i c f) (Slot 'Hand i)
 ch_primaryHand ch = slot $ ch ^. ch_handedness
-    where slot LeftHand  = ch_equipment.eq_leftHand
-          slot RightHand = ch_equipment.eq_rightHand
+    where slot LeftSide  = ch_equipment.eq_leftHand
+          slot RightSide = ch_equipment.eq_rightHand
 
 
 instance Eq (Character i c f) where
@@ -425,7 +432,7 @@ newCharacter n ln nn d fac cn =
       _ch_name        = n
     , _ch_lastName    = ln
     , _ch_nickName    = nn
-    , _ch_handedness  = RightHand
+    , _ch_handedness  = RightSide
     , _ch_description = d
 
     , _ch_equipment  = Equipment em em em em em em em em em em em em em em
@@ -451,7 +458,7 @@ newCharacter n ln nn d fac cn =
 
 -- TODO Only if hands not full!
 pickUp ∷ i → Character i c f → Character i c f
-pickUp i ch = (ch_primaryHand ch) %~ equipSlot i $ ch
+pickUp i ch = (ch_primaryHand ch) %~ equipSlot (Just i) $ ch
 
 --------------------------------------------------------------------------------
 
@@ -486,5 +493,18 @@ equippedContainers = filter containers . equippedSlots
         containers (SlotWrapper (Slot i)) = maybe False isContainer i
 
 
-equipSlot ∷ i → Slot t i → Slot t i
-equipSlot i s = s { slottedItem = Just i }
+equip ∷ Orientation → SlotType → Maybe i → Character i c f → Character i c f
+equip RightSide Hand  x = ch_equipment.eq_rightHand %~ equipSlot x
+equip LeftSide  Hand  x = ch_equipment.eq_leftHand %~ equipSlot x
+equip _         Head  x = ch_equipment.eq_head %~ equipSlot x
+equip _         Torso x = ch_equipment.eq_torso %~ equipSlot x
+equip _         Back  x = ch_equipment.eq_back %~ equipSlot x
+equip _         Belt  x = ch_equipment.eq_belt %~ equipSlot x
+equip RightSide Arm   x = ch_equipment.eq_rightArm %~ equipSlot x
+equip LeftSide  Arm   x = ch_equipment.eq_rightArm %~ equipSlot x
+equip RightSide Thigh x = ch_equipment.eq_rightThigh %~ equipSlot x
+equip LeftSide  Thigh x = ch_equipment.eq_leftThigh %~ equipSlot x
+equip RightSide Shin  x = ch_equipment.eq_rightShin %~ equipSlot x
+equip LeftSide  Shin  x = ch_equipment.eq_leftShin %~ equipSlot x
+equip RightSide Foot  x = ch_equipment.eq_rightFoot %~ equipSlot x
+equip LeftSide  Foot  x = ch_equipment.eq_leftFoot %~ equipSlot x

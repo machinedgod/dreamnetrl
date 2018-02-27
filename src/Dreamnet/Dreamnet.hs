@@ -287,6 +287,15 @@ processNormal _ Input.UseHeld = do
             --programAt v >>= maybe (pure ()) (\prg → runProgram v (prg OperateOn))
             --renderNormal
             increaseTurn -- TODO as much as the device wants!
+processNormal _ Input.WearHeld = do
+    g_world %= snd . runWorld
+        (changeActive (o_state %~ (\(Person ch) → Person $ case views (ch_primaryHand ch) slottedItem ch of
+                                                               Nothing → ch
+                                                               Just i  → equip RightSide Hand Nothing . equip LeftSide Torso (Just i) $ ch)
+                      )
+        )
+    increaseTurn
+    renderNormal
 processNormal dd Input.Examine = do
     obtainTarget >>= \case
         Just (v, o)  → do

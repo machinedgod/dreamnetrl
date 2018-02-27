@@ -27,8 +27,9 @@ data WorldEvent = Move (V2 Int)
                 | Examine
                 | Operate
                 | Talk
-                | UseHeld
                 | Get
+                | UseHeld
+                | WearHeld
                 | Wait
                 | HigherStance
                 | LowerStance
@@ -105,8 +106,9 @@ worldEvent (C.EventCharacter 'n')  = Just $ Move (V2  1  1)
 worldEvent (C.EventCharacter 'e')  = Just   Examine
 worldEvent (C.EventCharacter 'o')  = Just   Operate
 worldEvent (C.EventCharacter 't')  = Just   Talk
-worldEvent (C.EventCharacter 'f')  = Just   UseHeld
 worldEvent (C.EventCharacter 'g')  = Just   Get
+worldEvent (C.EventCharacter 'f')  = Just   UseHeld
+worldEvent (C.EventCharacter 'w')  = Just   WearHeld
 worldEvent (C.EventCharacter '.')  = Just   Wait
 worldEvent (C.EventCharacter '[')  = Just   LowerStance
 worldEvent (C.EventCharacter ']')  = Just   HigherStance

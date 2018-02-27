@@ -10,9 +10,10 @@ module Dreamnet.Conversation
 ) where
 
 
-import Safe       (atMay, at)
-import Data.Maybe (fromMaybe)
-import Linear     (V2(V2))
+import Safe           (atMay, at)
+import Data.Semigroup ((<>))
+import Data.Maybe     (fromMaybe)
+import Linear         (V2(V2))
 
 import qualified UI.NCurses as C (Curses, screenSize)
 
@@ -23,7 +24,15 @@ data ConversationNode = TalkNode   String   ConversationNode
                       | ListenNode String   ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | End
-                      deriving (Show)
+
+instance Show ConversationNode where
+    show (TalkNode   t  _) = "TalkNode " <> t
+    show (ListenNode t  _) = "ListenNode " <> t
+    show (ChoiceNode cs _) = "ChoiceNode " <> show cs
+    show End               = "End"
+
+
+
 
 
 pick ∷ ConversationNode → Word → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB

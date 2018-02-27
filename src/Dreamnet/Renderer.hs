@@ -646,7 +646,7 @@ drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
         drawString 40 43 (padC 17 $ views (ch_equipment.eq_leftFoot)   showItem ch)
     where
         showItem ∷ Slot h (Object States) → String
-        showItem = maybe "<EMPTY>" show . slottedItem
+        showItem = maybe "<EMPTY>" (show . view o_state) . slottedItem
 
 
 equipmentDoll ∷ [String]
