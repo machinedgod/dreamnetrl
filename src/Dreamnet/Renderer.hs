@@ -27,6 +27,7 @@ module Dreamnet.Renderer
 , drawHud
 , drawStatus
 , drawCharacterSheet
+, drawEquipmentDoll
 , drawInformation
 ) where
 
@@ -48,13 +49,13 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.World       (o_state)
+import Dreamnet.World       (Object, o_state)
 import Dreamnet.Utils       (lines')
 import Dreamnet.Character   
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
 
-import Design.DesignAPI     (GameState(..), DreamnetCharacter)
+import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 
@@ -64,6 +65,14 @@ pad i  = (<>) <$> id <*> flip replicate ' ' . (`subtract` fromIntegral i) . leng
 
 padL ∷ (Integral a) ⇒ a → String → String
 padL i = (<>) <$> flip replicate ' ' . (`subtract` fromIntegral i) . length <*> id
+
+
+padC ∷ (Integral a) ⇒ a → String → String
+padC i s =
+    let l = subtract (length s) (fromIntegral i) `div` 2
+        r = (l + length s) `subtract` (fromIntegral i)
+    in  replicate l ' ' <> s <> replicate r ' '
+
 
 --------------------------------------------------------------------------------
 
@@ -495,13 +504,13 @@ drawStatus gs msg = do
 drawCharacterSheet ∷ (MonadRender r) ⇒ DreamnetCharacter → r (RenderAction ())
 drawCharacterSheet ch = screenSize >>= \(rows, cols) →
     pure $ RenderAction $ do
-        let x = (cols - characterSheetWidth) `div` 2
-            y = (rows - characterSheetHeight) `div` 2
-        C.resizeWindow characterSheetHeight characterSheetWidth
+        let x = (cols - listDrawingWidth characterSheet) `div` 2
+            y = (rows - listDrawingHeight characterSheet - 1) `div` 2
+        C.resizeWindow (listDrawingHeight characterSheet + 1) (listDrawingWidth characterSheet)
         C.moveWindow y x
         drawList 0 0 characterSheet
 
-        drawString 4 2  (pad 29 $ view ch_name ch <> " " <> view ch_lastName ch) 
+        drawString 4 2  (pad 29 $ view ch_lastName ch <> ", " <> view ch_name ch) 
         drawString 18 4 (padL 15 $ view ch_nickName ch)
         drawString 18 5 (padL 15 $ views ch_handedness show ch)
         drawString 18 6 (padL 15 $ views ch_faction show ch)
@@ -561,13 +570,12 @@ drawCharacterSheet ch = screenSize >>= \(rows, cols) →
         drawThreeDigit x y = drawString x y . padL 3 . show
             
 
+listDrawingWidth ∷ (Num n) ⇒ [String] → n
+listDrawingWidth = fromIntegral . length . head
 
-characterSheetWidth ∷ (Num n) ⇒ n
-characterSheetWidth = fromIntegral . length . head $ characterSheet
 
-
-characterSheetHeight ∷ (Num n) ⇒ n
-characterSheetHeight = fromIntegral . (+1) . length $ characterSheet
+listDrawingHeight ∷ (Num n) ⇒ [String] → n
+listDrawingHeight = fromIntegral . length
 
 
 characterSheet ∷ [String]
@@ -607,6 +615,87 @@ characterSheet =
     , "┃                          ├╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╵╴╴╴╴╴┤ └────────────────┴─────┘ ┃/│"
     , "┃                          │ Total          ╵ 000 │                          ┃/│"
     , "┃                          └────────────────┴─────┘                          ┃/│"
+    , "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛/│"
+    , " └─────────────────────────────────────────────────────────────────────────────┘"
+    ]
+
+
+drawEquipmentDoll ∷ (MonadRender r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
+    pure $ RenderAction $ do
+        let x = (cols - listDrawingWidth equipmentDoll) `div` 2
+            y = (rows - listDrawingHeight equipmentDoll - 1) `div` 2
+        C.resizeWindow (listDrawingHeight equipmentDoll + 1) (listDrawingWidth equipmentDoll)
+        C.moveWindow y x
+        drawList 0 0 equipmentDoll
+
+        drawString  2  1 (pad 18 $ view ch_lastName ch <> ", " <> view ch_name ch)
+        drawString 30  4 (padC 17 $ views (ch_equipment.eq_head)       showItem ch)
+        drawString 30  9 (padC 17 $ views (ch_equipment.eq_torso)      showItem ch)
+        drawString 30 13 (padC 17 $ views (ch_equipment.eq_back)       showItem ch)
+        drawString 30 21 (padC 17 $ views (ch_equipment.eq_belt)       showItem ch)
+        drawString 11 11 (padC 17 $ views (ch_equipment.eq_rightArm)   showItem ch)
+        drawString  9 25 (padC 17 $ views (ch_equipment.eq_rightHand)  showItem ch)
+        drawString 49 11 (padC 17 $ views (ch_equipment.eq_leftArm)    showItem ch)
+        drawString 51 25 (padC 17 $ views (ch_equipment.eq_leftHand)   showItem ch)
+        drawString 20 29 (padC 17 $ views (ch_equipment.eq_rightThigh) showItem ch)
+        drawString 40 29 (padC 17 $ views (ch_equipment.eq_leftThigh)  showItem ch)
+        drawString 20 36 (padC 17 $ views (ch_equipment.eq_rightShin)  showItem ch)
+        drawString 40 36 (padC 17 $ views (ch_equipment.eq_leftShin)   showItem ch)
+        drawString 20 43 (padC 17 $ views (ch_equipment.eq_rightFoot)  showItem ch)
+        drawString 40 43 (padC 17 $ views (ch_equipment.eq_leftFoot)   showItem ch)
+    where
+        showItem ∷ Slot h (Object States) → String
+        showItem = maybe "<EMPTY>" show . slottedItem
+
+
+equipmentDoll ∷ [String]
+equipmentDoll =
+    [ "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  "
+    , "┃ Carla D'Addario    ╵                                                       ┃─┐"
+    , "┃╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴┘       ┌─────────────────┐                             ┃/│"
+    , "┃                            │       Head      │                             ┃/│"
+    , "┃                            │      <GEAR>     │                             ┃/│"
+    , "┃                            └─────────────────┘                             ┃/│"
+    , "┃                                     |                                      ┃/│"
+    , "┃                    +-------┌─────────────────┐-------+                     ┃/│"
+    , "┃                   /        │      Torso      │        \\                    ┃/│"
+    , "┃         ┌─────────────────┐│      <GEAR>     │┌─────────────────┐          ┃/│"
+    , "┃         │      R. arm     │└─────────────────┘│      L. arm     │          ┃/│"
+    , "┃         │      <GEAR>     │┌─────────────────┐│      <GEAR>     │          ┃/│"
+    , "┃         └─────────────────┘│       Back      │└─────────────────┘          ┃/│"
+    , "┃                   |        │      <GEAR>     │        |                    ┃/│"
+    , "┃                   |        └─────────────────┘        |                    ┃/│"
+    , "┃                   |                 |                 |                    ┃/│"
+    , "┃                   |                 |                 |                    ┃/│"
+    , "┃                   |                 |                 |                    ┃/│"
+    , "┃                   |                 |                 |                    ┃/│"
+    , "┃                   |        ┌─────────────────┐        |                    ┃/│"
+    , "┃                   |        │       Belt      │        |                    ┃/│"
+    , "┃                   |        │      <GEAR>     │        |                    ┃/│"
+    , "┃                   |        └─────────────────┘        |                    ┃/│"
+    , "┃       ┌─────────────────┐           |           ┌─────────────────┐        ┃/│"
+    , "┃       │     R. hand     │      +----+----+      │     L. hand     │        ┃/│"
+    , "┃       │     <GEAR>      │     /           \\     │     <GEAR>      │        ┃/│"
+    , "┃       └─────────────────┘    /             \\    └─────────────────┘        ┃/│"
+    , "┃                  ┌─────────────────┐ ┌─────────────────┐                   ┃/│"
+    , "┃                  │    R. thigh     │ │     L. thigh    │                   ┃/│"
+    , "┃                  │     <GEAR>      │ │     <GEAR>      │                   ┃/│"
+    , "┃                  └─────────────────┘ └─────────────────┘                   ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                  ┌─────────────────┐ ┌─────────────────┐                   ┃/│"
+    , "┃                  │    R. shin      │ │     L. shin     │                   ┃/│"
+    , "┃                  │     <GEAR>      │ │     <GEAR>      │                   ┃/│"
+    , "┃                  └─────────────────┘ └─────────────────┘                   ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                              |             |                               ┃/│"
+    , "┃                  ┌─────────────────┐ ┌─────────────────┐                   ┃/│"
+    , "┃                  │    R. foot      │ │     L. foot     │                   ┃/│"
+    , "┃                  │     <GEAR>      │ │     <GEAR>      │                   ┃/│"
+    , "┃                  └─────────────────┘ └─────────────────┘                   ┃/│"
     , "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛/│"
     , " └─────────────────────────────────────────────────────────────────────────────┘"
     ]

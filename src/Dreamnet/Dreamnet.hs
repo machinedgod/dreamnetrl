@@ -398,7 +398,8 @@ processHudTeam dd Input.SelectChoice = do
     g_gameState .= CharacterUI
     tm ← use (g_world.w_active) >>= \cal → uses (g_world.w_team) (cal:)
     ech ← uses g_hudTeamSelector (at tm)
-    doRender $ drawCharacterSheet (views (e_object.o_state) (\(Person ch) → ch) ech) >>= updateUi
+    doRender $ drawEquipmentDoll (views (e_object.o_state) (\(Person ch) → ch) ech) >>= updateUi
+    --doRender $ drawCharacterSheet (views (e_object.o_state) (\(Person ch) → ch) ech) >>= updateUi
 processHudTeam _ Input.Back = do
     g_gameState .= Normal
     renderNormal

@@ -66,15 +66,29 @@ module Dreamnet.Character
 , is_coverSwitchManeuver
 , sumInfiltration
 
+, Equipment
+, eq_leftHand
+, eq_rightHand
+, eq_head
+, eq_torso
+, eq_back
+, eq_belt
+, eq_leftArm
+, eq_rightArm
+, eq_leftThigh
+, eq_rightThigh
+, eq_leftShin
+, eq_rightShin
+, eq_leftFoot
+, eq_rightFoot
+ 
 , Character
 , ch_name
 , ch_lastName
 , ch_nickName
 , ch_handedness
 , ch_description
-, ch_leftHand
-, ch_rightHand
-, ch_torso
+, ch_equipment
 , ch_stance
 , ch_faction
 , ch_conversation
@@ -115,7 +129,14 @@ instance ItemTraits Item where
 --------------------------------------------------------------------------------
 
 data SlotType = Hand
+              | Head
               | Torso
+              | Back
+              | Belt
+              | Arm
+              | Thigh
+              | Shin
+              | Foot
 
 
 newtype Slot (t ∷ SlotType) i = Slot { slottedItem ∷ Maybe i }
@@ -317,17 +338,36 @@ sumInfiltration is = sum $ fmap (\l → view l is)
 
 --------------------------------------------------------------------------------
 
+data Equipment i = Equipment {
+      _eq_leftHand  ∷ Slot 'Hand i
+    , _eq_rightHand ∷ Slot 'Hand i
+
+    , _eq_head       ∷ Slot 'Head i
+    , _eq_torso      ∷ Slot 'Torso i
+    , _eq_back       ∷ Slot 'Back i
+    , _eq_belt       ∷ Slot 'Belt i
+    , _eq_leftArm    ∷ Slot 'Arm i
+    , _eq_rightArm   ∷ Slot 'Arm i
+    , _eq_leftThigh  ∷ Slot 'Thigh i
+    , _eq_rightThigh ∷ Slot 'Thigh i
+    , _eq_leftShin   ∷ Slot 'Shin i
+    , _eq_rightShin  ∷ Slot 'Shin i
+    , _eq_leftFoot   ∷ Slot 'Foot i
+    , _eq_rightFoot  ∷ Slot 'Foot i
+    }
+    deriving(Eq, Show)
+makeLenses ''Equipment
+
+--------------------------------------------------------------------------------
+
 data Character i c f = Character {
       _ch_name        ∷ String
     , _ch_lastName    ∷ String
     , _ch_nickName    ∷ String
     , _ch_handedness  ∷ Handedness
     , _ch_description ∷ String
-
-    , _ch_leftHand  ∷ Slot 'Hand i
-    , _ch_rightHand ∷ Slot 'Hand i
-    , _ch_torso     ∷ Slot 'Torso i
-    , _ch_stance    ∷ Stance
+    , _ch_equipment   ∷ Equipment i
+    , _ch_stance      ∷ Stance
 
     , _ch_faction      ∷ f
     , _ch_conversation ∷ c
@@ -370,8 +410,8 @@ makeLenses ''Character
 
 ch_primaryHand ∷ Character i c f → Lens' (Character i c f) (Slot 'Hand i)
 ch_primaryHand ch = slot $ ch ^. ch_handedness
-    where slot LeftHand  = ch_leftHand
-          slot RightHand = ch_rightHand
+    where slot LeftHand  = ch_equipment.eq_leftHand
+          slot RightHand = ch_equipment.eq_rightHand
 
 
 instance Eq (Character i c f) where
@@ -388,10 +428,8 @@ newCharacter n ln nn d fac cn =
     , _ch_handedness  = RightHand
     , _ch_description = d
 
-    , _ch_leftHand  = Slot Nothing
-    , _ch_rightHand = Slot Nothing
-    , _ch_torso     = Slot Nothing
-    , _ch_stance    = Upright
+    , _ch_equipment  = Equipment em em em em em em em em em em em em em em
+    , _ch_stance     = Upright
 
     , _ch_faction      = fac
     , _ch_conversation = cn
@@ -407,6 +445,8 @@ newCharacter n ln nn d fac cn =
     , _ch_communication = CommunicationSkills 0 0 0 0 0 0 0
     , _ch_infiltration  = InfiltrationSkills 0 0 0 0 0
     }
+    where
+        em = Slot Nothing
 
 
 -- TODO Only if hands not full!
@@ -416,10 +456,22 @@ pickUp i ch = (ch_primaryHand ch) %~ equipSlot i $ ch
 --------------------------------------------------------------------------------
 
 equipmentSlots ∷ Character i c f → [SlotWrapper i]
-equipmentSlots ch = [ SlotWrapper (ch ^. ch_leftHand)
-                    , SlotWrapper (ch ^. ch_rightHand)
-                    , SlotWrapper (ch ^. ch_torso)
-                    ]
+equipmentSlots ch = 
+    [ SlotWrapper $ ch ^. ch_equipment.eq_leftHand
+    , SlotWrapper $ ch ^. ch_equipment.eq_rightHand
+    , SlotWrapper $ ch ^. ch_equipment.eq_head
+    , SlotWrapper $ ch ^. ch_equipment.eq_torso
+    , SlotWrapper $ ch ^. ch_equipment.eq_back
+    , SlotWrapper $ ch ^. ch_equipment.eq_belt
+    , SlotWrapper $ ch ^. ch_equipment.eq_leftArm
+    , SlotWrapper $ ch ^. ch_equipment.eq_rightArm
+    , SlotWrapper $ ch ^. ch_equipment.eq_leftThigh
+    , SlotWrapper $ ch ^. ch_equipment.eq_rightThigh
+    , SlotWrapper $ ch ^. ch_equipment.eq_leftShin
+    , SlotWrapper $ ch ^. ch_equipment.eq_rightShin
+    , SlotWrapper $ ch ^. ch_equipment.eq_leftFoot
+    , SlotWrapper $ ch ^. ch_equipment.eq_rightFoot
+    ]
 
 
 equippedSlots ∷ Character i c f → [SlotWrapper i]
