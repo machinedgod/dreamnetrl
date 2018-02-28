@@ -3,6 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 
 module Dreamnet.Dreamnet
@@ -11,7 +12,7 @@ where
 import Safe                      (succSafe, predSafe, at)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
                                   assign, (+=), (%~))
-import Control.Monad             (void, when)
+import Control.Monad             (void)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
@@ -53,7 +54,6 @@ data Game = Game {
       _g_turn         ∷ Word
     , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
     , _g_gameState    ∷ GameState
-    , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
     }
 
@@ -76,7 +76,6 @@ newGame dd = do
                             , "Annabelle"
                             ])
       , _g_gameState    = Normal 
-      , _g_keepRunning  = True
       , _g_rendererData = rdf
     }
     where
@@ -150,25 +149,67 @@ newGame dd = do
 
 --------------------------------------------------------------------------------
 
-class GameAPI g
+class GameAPI g where
+    currentTurn     ∷ g Word
+    increaseTurn    ∷ g ()
+    nextEvent       ∷ C.Curses a → g a -- TODO type leak
+    gameState       ∷ g GameState
+    changeGameState ∷ (GameState → g GameState) → g GameState
+    world           ∷ g (World States Visibility)
+    changeWorld     ∷ WorldM States Visibility a → g a
+    obtainTarget    ∷ g (Maybe (V2 Int, Object States))
+    runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
+    doRender        ∷ RendererF () → g ()
 
 
-changeWorld ∷ WorldM States Visibility a → StateT Game C.Curses a
-changeWorld m = do
-    w ← use g_world
-    let (x, w') = runWorld m w
-    g_world .= w'
-    pure x
-    
 --------------------------------------------------------------------------------
 
-newtype GameM m a = GameM { runGameM ∷ StateT Game m a }
-                  deriving (Functor, Applicative, Monad, MonadState Game)
+newtype GameM a = GameM { runGameM ∷ StateT Game C.Curses a }
+                deriving (Functor, Applicative, Monad, MonadState Game)
             
 
-instance GameAPI (GameM m a)
--- TODO implement everything
+instance GameAPI GameM where
+    currentTurn = use g_turn
 
+    increaseTurn = g_turn += 1
+
+    nextEvent = GameM . lift
+
+    gameState = use g_gameState
+
+    changeGameState f = use g_gameState >>= f >>= \g → assign g_gameState g >> pure g
+
+    world = use g_world
+
+    changeWorld m =
+        uses g_world (runWorld m) >>= \(x, w') →
+            g_world .= w' >>
+                pure x
+
+    obtainTarget = do
+        --renderMessage "Select direction (h/j/k/l/y/u/b/n/.):"
+        --lift C.render
+        ap ← use (g_world.w_active.e_position)
+        t  ← GameM (lift Input.nextTargetSelectionEvent)
+        uses (g_world.w_map) (valuesAt (ap + t)) >>=
+            \case
+                []  → error "Obtaining target on non-existent tile :-O"
+                l   → pure (Just (ap + t, last l))
+
+    runProgram dd v prg = do
+        o  ← uses (g_world.w_map) (last . valuesAt v)
+        changeWorld $ do
+           (_, gs) ← runObjectMonadWorld dd prg v o
+           updateVisible
+           pure gs
+
+    -- TODO This'll die when renderer gets refactored a bit
+    doRender r = do
+        rd ← use g_rendererData
+        (_, rd') ← GameM (lift (rd `runRenderer` r))
+        g_rendererData .= rd'
+        GameM (lift C.render)
+        
 --------------------------------------------------------------------------------
 
 launchDreamnet ∷ DesignData → IO ()
@@ -180,14 +221,6 @@ launchDreamnet = Dyre.wrapMain Dyre.defaultParams {
 
 --------------------------------------------------------------------------------
 
--- TODO This'll die when renderer gets refactored a bit
-doRender ∷ RendererF () → StateT Game C.Curses ()
-doRender r = use g_rendererData >>=
-    lift . (`runRenderer` r) >>=
-    assign g_rendererData . snd
-        
---------------------------------------------------------------------------------
-
 dreamnet ∷ DesignData → IO ()
 dreamnet dd = C.runCurses $ do
     -- Init curses
@@ -196,38 +229,46 @@ dreamnet dd = C.runCurses $ do
     C.defaultWindow >>= (`C.setKeypad` True)
     void $ C.setCursorMode C.CursorInvisible
     g ← newGame dd
-    void $ flip execStateT g $ do
+    void $ flip execStateT g $ runGameM $ do
         changeWorld updateVisible
-        use g_gameState >>= render
+        gs ← gameState
+        w  ← world
+        t  ← currentTurn
+        doRender (render gs w t)
         loopTheLoop dd
 
+--------------------------------------------------------------------------------
 
-loopTheLoop ∷ DesignData → StateT Game C.Curses ()
+loopTheLoop ∷ ∀ g. (GameAPI g, Monad g) ⇒ DesignData → g ()
 loopTheLoop dd = do
-    r ← use g_keepRunning
-    when r $ do
-        g_world.w_status .= ""
-        use g_gameState >>= gameStateFlow >>= \gs → assign g_gameState gs >> render gs
-        flipBackbuffer
-        loopTheLoop dd
+    changeWorld (setStatus "")
+    gs ← changeGameState gameStateFlow
+    case gs of
+        Quit → pure ()
+        _    → do
+            w  ← world
+            t  ← currentTurn
+            doRender (render gs w t)
+            loopTheLoop dd
     where
-        gameStateFlow Normal                        = lift Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow (Examination et)              = lift Input.nextUiEvent          >>= processExamination et
-        gameStateFlow (HudTeam i)                   = lift Input.nextUiEvent          >>= processHudTeam dd i
-        gameStateFlow HudMessages                   = lift Input.nextUiEvent          >>= processHudMessages
-        gameStateFlow (HudWatch t b)                = lift Input.nextUiEvent          >>= processHudWatch t b
-        gameStateFlow (ConversationFlow ch cn sd)   = lift Input.nextUiEvent          >>= processConversationFlow ch cn sd
-        gameStateFlow (ConversationChoice ch cn cd) = lift Input.nextUiEvent          >>= processConversationChoice ch cn cd
-        gameStateFlow (InventoryUI sd)              = lift Input.nextUiEvent          >>= processInventoryUI sd
-        gameStateFlow (SkillsUI  ch)                = lift Input.nextUiEvent          >>= processSkillsUI ch
-        gameStateFlow (EquipmentUI ch)              = lift Input.nextUiEvent          >>= processEquipmentUI ch
-        gameStateFlow (ComputerOperation cd)        = lift Input.nextInteractionEvent >>= processComputerOperation cd
+        gameStateFlow ∷ GameState → g GameState
+        gameStateFlow Quit                       = pure Quit
+        gameStateFlow Normal                     = nextEvent Input.nextWorldEvent       >>= processNormal dd
+        gameStateFlow (Examination et)           = nextEvent Input.nextUiEvent          >>= processExamination et
+        gameStateFlow (HudTeam i)                = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
+        gameStateFlow HudMessages                = nextEvent Input.nextUiEvent          >>= processHudMessages
+        gameStateFlow (HudWatch t b)             = nextEvent Input.nextUiEvent          >>= processHudWatch t b
+        gameStateFlow (ConversationFlow cn sd)   = nextEvent Input.nextUiEvent          >>= processConversationFlow cn sd
+        gameStateFlow (ConversationChoice cn cd) = nextEvent Input.nextUiEvent          >>= processConversationChoice cn cd
+        gameStateFlow (InventoryUI sd)           = nextEvent Input.nextUiEvent          >>= processInventoryUI sd
+        gameStateFlow (SkillsUI  ch)             = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
+        gameStateFlow (EquipmentUI ch)           = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
+        gameStateFlow (ComputerOperation cd)     = nextEvent Input.nextInteractionEvent >>= processComputerOperation cd
 
 
-processNormal ∷ DesignData → Input.WorldEvent → StateT Game C.Curses GameState
+processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
 processNormal _ Input.Quit = do
-    g_keepRunning .= False
-    pure Normal
+    pure Quit
 processNormal _ Input.SwitchToHud = do
     pure $ HudTeam 0
 processNormal _ (Input.Move v) = do
@@ -284,10 +325,10 @@ processNormal dd Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
         Just (v, o)  → do
-            onHerself ← uses (g_world.w_active.e_position) (==v)
+            onHerself ← views (w_active.e_position) (==v) <$> world
             if onHerself
                 then do
-                    examineText ← uses (g_world.w_map) desc
+                    examineText ← views w_map desc <$> world
                     pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
                     runProgram dd v (programForObject o Examine)
@@ -317,7 +358,7 @@ processNormal dd Input.CharacterSheet =
     pure $ SkillsUI  (characterForName "Carla" (view dd_characters dd))
 
 
-processExamination ∷ ScrollData → Input.UIEvent → StateT Game C.Curses GameState
+processExamination ∷ (GameAPI g, Monad g) ⇒ ScrollData → Input.UIEvent → g GameState
 processExamination sd Input.MoveUp =
     pure $ Examination (scrollUp sd)
 processExamination sd Input.MoveDown =
@@ -326,7 +367,7 @@ processExamination _ _ =
     pure $ Normal
 
 
-processHudTeam ∷ DesignData → Int → Input.UIEvent → StateT Game C.Curses GameState
+processHudTeam ∷ (GameAPI g, Monad g) ⇒ DesignData → Int → Input.UIEvent → g GameState
 processHudTeam _ _ Input.TabNext =
     pure HudMessages
 processHudTeam _ _ Input.TabPrevious =
@@ -334,19 +375,19 @@ processHudTeam _ _ Input.TabPrevious =
 processHudTeam _ i Input.MoveUp =
     pure $ HudTeam (max 0 (i - 3))
 processHudTeam _ i Input.MoveDown =
-    HudTeam . min (i + 3) . fromIntegral . length <$> use (g_world.w_team) 
+    HudTeam . min (i + 3) . fromIntegral . length . view w_team <$> world
 processHudTeam _ i Input.MoveLeft =
     pure $ HudTeam (max 0 (i - 1))
 processHudTeam _ i Input.MoveRight =
-    HudTeam . min (i + 1) . fromIntegral . length <$> use (g_world.w_team)
+    HudTeam . min (i + 1) . fromIntegral . length . view w_team <$> world
 processHudTeam _ i Input.SelectChoice = do
-    tm ← use (g_world.w_active) >>= \cal → uses (g_world.w_team) (cal:)
-    pure $ views (e_object.o_state) (\(Person ch) → SkillsUI ch) (at tm i)
+    tm ← completeTeam <$> world
+    pure $ SkillsUI (at tm i)
 processHudTeam _ _ Input.Back =
     pure Normal
 
 
-processHudMessages ∷ Input.UIEvent → StateT Game C.Curses GameState
+processHudMessages ∷ (GameAPI g, Monad g) ⇒ Input.UIEvent → g GameState
 processHudMessages Input.TabNext =
     pure (HudWatch 0 0)
 processHudMessages Input.TabPrevious =
@@ -366,7 +407,7 @@ processHudMessages _ =
     pure HudMessages
 
 
-processHudWatch ∷ Int → Int → Input.UIEvent → StateT Game C.Curses GameState
+processHudWatch ∷ (GameAPI g, Monad g) ⇒ Int → Int → Input.UIEvent → g GameState
 processHudWatch _ _ Input.TabNext =
     pure (HudTeam 0)
 processHudWatch _ _ Input.TabPrevious =
@@ -386,33 +427,37 @@ processHudWatch _ _ Input.Back =
     pure Normal
 
 
-processConversationFlow ∷ DreamnetCharacter → ConversationNode → ScrollData → Input.UIEvent → StateT Game C.Curses GameState
-processConversationFlow ch cn sd Input.MoveUp =
-    pure $ ConversationFlow ch cn (scrollUp sd)
-processConversationFlow ch cn sd Input.MoveDown =
-    pure $ ConversationFlow ch cn (scrollDown sd)
-processConversationFlow ch cn _ Input.SelectChoice = do
-    pos ← lift (positionFor 0)
-    siz ← lift conversationSize
-    pure $ createConversationState pos siz ch (advance cn)
-processConversationFlow ch cn sd _ =
-    pure $ ConversationFlow ch cn sd
+processConversationFlow ∷ (GameAPI g, Monad g) ⇒ ConversationNode → ScrollData → Input.UIEvent → g GameState
+processConversationFlow cn sd Input.MoveUp =
+    pure $ ConversationFlow cn (scrollUp sd)
+processConversationFlow cn sd Input.MoveDown =
+    pure $ ConversationFlow cn (scrollDown sd)
+processConversationFlow cn _ Input.SelectChoice = do
+    let pos = (V2 1 1)
+        siz = (V2 60 30)
+    --pos ← lift (positionFor 0)
+    --siz ← lift conversationSize
+    pure $ createConversationState pos siz (advance cn)
+processConversationFlow cn sd _ =
+    pure $ ConversationFlow cn sd
 
 
-processConversationChoice ∷ DreamnetCharacter → ConversationNode → ChoiceData → Input.UIEvent → StateT Game C.Curses GameState
-processConversationChoice ch cn cd Input.MoveUp =
-    pure $ ConversationChoice ch cn (selectPrevious cd)
-processConversationChoice ch cn cd Input.MoveDown =
-    pure $ ConversationChoice ch cn (selectNext cd)
-processConversationChoice ch cn cd Input.SelectChoice = do
-    pos ← lift (positionFor 0)
-    siz ← lift conversationSize
-    pure $ createConversationState pos siz ch (pick cn $ fromIntegral $ view cd_currentSelection cd)
-processConversationChoice ch cn cd _ =
-    pure $ ConversationChoice ch cn cd
+processConversationChoice ∷ (GameAPI g, Monad g) ⇒ ConversationNode → ChoiceData → Input.UIEvent → g GameState
+processConversationChoice cn cd Input.MoveUp =
+    pure $ ConversationChoice cn (selectPrevious cd)
+processConversationChoice cn cd Input.MoveDown =
+    pure $ ConversationChoice cn (selectNext cd)
+processConversationChoice cn cd Input.SelectChoice = do
+    let pos = (V2 1 1)
+        siz = (V2 60 30)
+    --pos ← lift (positionFor 0)
+    --siz ← lift conversationSize
+    pure $ createConversationState pos siz (pick cn $ fromIntegral $ view cd_currentSelection cd)
+processConversationChoice cn cd _ =
+    pure $ ConversationChoice cn cd
 
 
-processInventoryUI ∷ ScrollData → Input.UIEvent → StateT Game C.Curses GameState
+processInventoryUI ∷ (GameAPI g, Monad g) ⇒ ScrollData → Input.UIEvent → g GameState
 processInventoryUI sd Input.MoveUp =
     pure $ InventoryUI (scrollUp sd)
 processInventoryUI sd Input.MoveDown =
@@ -421,7 +466,7 @@ processInventoryUI _ _ =
     pure Normal
 
 
-processSkillsUI ∷ DreamnetCharacter → Input.UIEvent → StateT Game C.Curses GameState
+processSkillsUI ∷ (GameAPI g, Monad g) ⇒ DreamnetCharacter → Input.UIEvent → g GameState
 processSkillsUI ch Input.TabNext =
     pure $ EquipmentUI ch
 processSkillsUI ch Input.TabPrevious =
@@ -432,7 +477,7 @@ processSkillsUI ch _ =
     pure $ SkillsUI ch
 
 
-processEquipmentUI ∷ DreamnetCharacter → Input.UIEvent → StateT Game C.Curses GameState
+processEquipmentUI ∷ (GameAPI g, Monad g) ⇒ DreamnetCharacter → Input.UIEvent → g GameState
 processEquipmentUI ch Input.TabNext =
     pure $ SkillsUI ch
 processEquipmentUI ch Input.TabPrevious =
@@ -443,7 +488,7 @@ processEquipmentUI ch _ =
     pure $ EquipmentUI ch
 
 
-processComputerOperation ∷ ComputerData → Input.InteractionEvent → StateT Game C.Curses GameState
+processComputerOperation ∷ (GameAPI g, Monad g) ⇒ ComputerData → Input.InteractionEvent → g GameState
 processComputerOperation cd (Input.PassThrough '\n') = do
     pure $ ComputerOperation (snd $ runComputer commitInput cd)
 processComputerOperation cd (Input.PassThrough '\b') = do
@@ -455,19 +500,6 @@ processComputerOperation _ Input.BackOut =
 
 
 --------------------------------------------------------------------------------
-
-increaseTurn ∷ StateT Game C.Curses ()
-increaseTurn = g_turn += 1
-
-
-runProgram ∷ DesignData → V2 Int → Free ObjectF () → StateT Game C.Curses GameState
-runProgram dd v prg = do
-    o  ← uses (g_world.w_map) (last . valuesAt v)
-    changeWorld $ do
-       (_, gs) ← runObjectMonadWorld dd prg v o
-       updateVisible
-       pure gs
-
 
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do
@@ -502,18 +534,6 @@ runProgram dd v prg = do
 --    | otherwise              = True
 
 
-obtainTarget ∷ StateT Game C.Curses (Maybe (V2 Int, Object States))
-obtainTarget = do
-    --renderMessage "Select direction (h/j/k/l/y/u/b/n/.):"
-    --lift C.render
-
-    ap ← use (g_world.w_active.e_position)
-    t  ← lift Input.nextTargetSelectionEvent
-    uses (g_world.w_map) (valuesAt (ap + t)) >>=
-        \case
-            []  → error "Obtaining target on non-existent tile :-O"
-            l   → pure (Just (ap + t, last l))
-
 --------------------------------------------------------------------------------
 
 --withAimOrElse ∷ (V2 Int → [Object] → StateT Game C.Curses a) → StateT Game C.Curses a → StateT Game C.Curses a
@@ -528,37 +548,35 @@ obtainTarget = do
 
 --------------------------------------------------------------------------------
 
-flipBackbuffer ∷ StateT Game C.Curses ()
-flipBackbuffer = lift C.render
+render ∷ (MonadRender r) ⇒ GameState → World States Visibility → Word → r ()
+render Normal                    w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (view w_status w) >>= updateHud
+render (Examination sd)          _ _ = updateUi $ drawInformation sd
+render (ComputerOperation cd)    _ _ = updateUi $ drawComputer cd
+render gs@(HudTeam _)            w t = renderHud gs (completeTeam w) t
+render HudMessages               w t = renderHud HudMessages (completeTeam w) t
+render gs@(HudWatch _ _)         w t = renderHud gs (completeTeam w) t
+render (ConversationFlow _ sd)   _ _ = updateUi $ drawInformation sd
+render (ConversationChoice _ cd) _ _ = updateUi $ drawChoice cd
+render (InventoryUI  sd)         _ _ = updateUi $ drawInformation sd
+render (SkillsUI  ch)            _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
+render (EquipmentUI  ch)         _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
+render Quit                      _ _ = pure ()
 
 
-render ∷ GameState → StateT Game C.Curses ()
-render Normal                      = renderNormal
-render (Examination sd)            = doRender $ updateUi $ drawInformation sd
-render (ComputerOperation cd)      = doRender $ updateUi $ drawComputer cd
-render (HudTeam _)                 = renderNormal
-render HudMessages                 = renderNormal
-render (HudWatch _ _)              = renderNormal
-render (ConversationFlow _ _ sd)   = doRender $ updateUi $ drawInformation sd
-render (ConversationChoice _ _ cd) = doRender $ updateUi $ drawChoice cd
-render (InventoryUI  sd)           = doRender $ updateUi $ drawInformation sd
-render (SkillsUI  ch)              = doRender $ updateUi clear >> drawCharacterSheet ch >>= updateUi
-render (EquipmentUI  ch)           = doRender $ updateUi clear >> drawEquipmentDoll ch >>= updateUi
+completeTeam ∷ World States Visibility → [DreamnetCharacter]
+completeTeam w = 
+    let t = view w_team w
+    in  views w_active (fmap (views (e_object.o_state) (\(Person ch) → ch)) . (:t)) w
 
 
-renderNormal ∷ StateT Game C.Curses ()
-renderNormal = do
-    w  ← uses (g_world.w_map) width
-    d  ← uses (g_world.w_map.wm_data) (fmap last)
-    v  ← use (g_world.w_vis)
-    s  ← use (g_world.w_status)
+renderWorld ∷ (MonadRender r) ⇒ World States Visibility → r ()
+renderWorld wrld =
+    let w = views w_map width wrld
+        d = views (w_map.wm_data) (fmap last) wrld
+        v = view w_vis wrld
+    in  drawMap (view o_symbol) (view o_material) w d v >>= updateMain
 
-    gs ← use g_gameState
-    tm ← use (g_world.w_team) >>= \t → uses (g_world.w_active) (fmap (views (e_object.o_state)  (\(Person ch) → ch)) . (:t))
-    t  ← use g_turn
-    
-    doRender $ do
-        drawMap (view o_symbol) (view o_material) w d v >>= updateMain
-        drawHud gs tm t >>= updateHud
-        drawStatus gs s >>= updateHud
+
+renderHud ∷ (MonadRender r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
+renderHud gs tm t = drawHud gs tm t >>= updateHud
 

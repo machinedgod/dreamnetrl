@@ -106,7 +106,7 @@ runWithGameState dd _ (cv, o) (Free (ShowComputerWindow cd n)) = do
     runWithGameState dd (ComputerOperation cd) (cv, o) n
 
 runWithGameState dd _ (cv, o) (Free (StartConversation ch n)) = do
-    runWithGameState dd (createConversationState (V2 1 1) (V2 60 30) ch (view ch_conversation ch)) (cv, o) n
+    runWithGameState dd (createConversationState (V2 1 1) (V2 60 30) (view ch_conversation ch)) (cv, o) n
 
 runWithGameState dd gs (cv, o) (Free (Passable fn)) = do
     runWithGameState dd gs (cv, o) (fn $ view o_passable o)

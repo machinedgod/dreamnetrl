@@ -4,7 +4,8 @@
 module Design.DesignAPI
 where
 
-import Control.Lens   (makeLenses, view)
+import Safe           (at)
+import Control.Lens   (makeLenses)
 import Linear         (V2)
 
 import qualified Data.Map as M (Map)
@@ -12,7 +13,7 @@ import qualified Data.Map as M (Map)
 import Dreamnet.ChoiceData    (ChoiceData, newChoiceData)
 import Dreamnet.ScrollData    (ScrollData, newScrollData)
 import Dreamnet.TileMap       (TileMap)
-import Dreamnet.Character     (Character, ch_name)
+import Dreamnet.Character     (Character)
 import Dreamnet.ComputerModel (ComputerData)
 import Dreamnet.Conversation  (ConversationNode(..))
 import Dreamnet.World         (Object)
@@ -69,41 +70,29 @@ type DreamnetCharacter = Character (Object States) ConversationNode Faction
 
 --------------------------------------------------------------------------------
 
--- TODO this could be a Character state,
---      this way it circularly ties back into the game
---      (when rendering characters), rather than World
---      having to produce a new GameState
---
---      Dunno what's better
---
---      After 30 seconds - its the same. *direction* of data
---      is the same.
---
---      Bottomline is, changes in the world dictate changes in the
---      player's domain (UI, controls, etc)
-data GameState = Normal
+data GameState = Quit
+               | Normal
                | Examination        ScrollData
                | ComputerOperation  ComputerData
                | HudTeam            Int
                | HudMessages
                | HudWatch           Int Int
-               | ConversationFlow   DreamnetCharacter ConversationNode ScrollData
-               | ConversationChoice DreamnetCharacter ConversationNode ChoiceData
+               | ConversationFlow   ConversationNode ScrollData
+               | ConversationChoice ConversationNode ChoiceData
                | InventoryUI        ScrollData
                | SkillsUI           DreamnetCharacter
                | EquipmentUI        DreamnetCharacter
 
 
-createConversationState ∷ V2 Integer → V2 Integer → DreamnetCharacter → ConversationNode → GameState
-createConversationState pos siz ch cn@(ChoiceNode opts _) =
-    ConversationChoice ch cn (newChoiceData pos siz opts)
-createConversationState pos siz ch cn@(TalkNode s _) =
-    ConversationFlow ch cn (newScrollData pos siz (Just "<CARLA>") s)
-createConversationState pos siz ch cn@(ListenNode s _) =
-    ConversationFlow ch cn (newScrollData pos siz (Just $ view ch_name ch) s)
-createConversationState _ _ _ End =
+createConversationState ∷ V2 Integer → V2 Integer → ConversationNode → GameState
+createConversationState pos siz cn@(ChoiceNode opts _) =
+    ConversationChoice cn (newChoiceData pos siz opts)
+createConversationState pos siz cn@(TalkNode s i ps _) =
+    ConversationFlow cn (newScrollData pos siz (Just $ at ps i) s)
+createConversationState pos siz cn@(DescriptionNode s _) =
+    ConversationFlow cn (newScrollData pos siz Nothing s) -- TODO centered
+createConversationState _ _ End =
     Normal
-
 
             --use g_gameState >>= \case
             --    Conversation → do
