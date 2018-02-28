@@ -23,6 +23,7 @@ module Dreamnet.Renderer
 , drawEquipmentDoll
 , drawInformation
 , drawChoice
+, drawComputer
 ) where
 
 import Safe                      (atDef)
@@ -49,6 +50,7 @@ import Dreamnet.CoordVector
 import Dreamnet.Visibility
 import Dreamnet.ScrollData
 import Dreamnet.ChoiceData
+import Dreamnet.ComputerModel
 
 import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
 
@@ -710,6 +712,23 @@ drawChoice cd =
             let widgetStart = 2
             C.moveCursor (fromIntegral i + 1) widgetStart
             C.drawGlyph (C.Glyph '»' [])
+
+
+drawComputer ∷ ComputerData → RenderAction ()
+drawComputer cd = RenderAction $ do
+    C.resizeWindow 30 60
+    C.moveWindow 1 1
+    C.drawBorder (Just $ C.Glyph '╷' [])
+                 (Just $ C.Glyph '╷' [])
+                 (Just $ C.Glyph '╶' [])
+                 (Just $ C.Glyph '╶' [])
+                 (Just $ C.Glyph '╭' [])
+                 (Just $ C.Glyph '╮' [])
+                 (Just $ C.Glyph '╰' [])
+                 (Just $ C.Glyph '╯' [])
+    -- TODO need lines' here
+    drawList 2 1 (view cd_frameBuffer cd)
+    drawString 2 28 (pad 58 ("> " <> view cd_inputBuffer cd))
 
 --------------------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ programForObject (view o_symbol → '+')          it      = door it
 programForObject (view o_symbol → '/')          it      = door it
 programForObject (view o_state  → (Camera _ _)) it      = camera it
 programForObject (view o_state  → (Person _))   it      = person it
-programForObject (view o_symbol → '&')          it      = computer it
+programForObject (view o_state  → (Computer _)) it      = computer it
 programForObject (view o_symbol → 'm')          it      = mirror it
 programForObject (view o_state  → (Prop n))     Examine = message $ "A " <> n
 programForObject _                              _       = pure ()
@@ -58,7 +58,7 @@ computer ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
 computer Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
 computer Operate =
-    message "<IMPLEMENT ME>"
+    get >>= \(Computer cd) → showComputerWindow cd
 computer Talk =
     message "*khm* \"LOGIN - CARLA\"..."
 computer _ =
@@ -67,15 +67,12 @@ computer _ =
 
 
 person ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
-person Examine = do
-    desc ← (\(Person ch) → view ch_description ch) <$> get
-    showInfoWindow desc
-person Operate = do
-    name ← (\(Person ch) → view ch_name ch) <$> get
-    message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> name <> " meets your 'operation' attempts with suspicious look."
-person Talk = do
-    ch ← (\(Person ch) → ch) <$> get
-    startConversation ch
+person Examine =
+    get >>= \(Person ch) → showInfoWindow (view ch_description ch)
+person Operate =
+    get >>= \(Person ch) → message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look."
+person Talk =
+    get >>= \(Person ch) → startConversation ch
 person _ =
     pure ()
 

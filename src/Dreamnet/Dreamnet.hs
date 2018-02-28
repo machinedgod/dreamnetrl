@@ -10,12 +10,11 @@ where
 
 import Safe                      (succSafe, predSafe, at)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
-                                  assign, (%=), (+=), (-=), (%~))
+                                  assign, (+=), (%~))
 import Control.Monad             (void, when)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
-import Data.Functor              (($>))
 import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
@@ -56,18 +55,6 @@ data Game = Game {
     , _g_gameState    ∷ GameState
     , _g_keepRunning  ∷ Bool
     , _g_rendererData ∷ RendererEnvironment
-
-    -- This is a correct place to put it for now,
-    -- because later on there'll be multiple 'update' places
-    , _g_conversant   ∷ Maybe DreamnetCharacter
-    , _g_conversation ∷ ConversationNode
-
-    -- TODO take this out, eventually
-    , _g_carlasComputer ∷ ComputerM ()
-    , _g_carlasFramebuffer ∷ String
-
-    , _g_watchAlarmTime ∷ Int
-    , _g_watchButton ∷ Int
     }
 
 makeLenses ''Game
@@ -91,15 +78,6 @@ newGame dd = do
       , _g_gameState    = Normal 
       , _g_keepRunning  = True
       , _g_rendererData = rdf
-
-      , _g_conversant   = Nothing
-      , _g_conversation = End
-
-      , _g_carlasComputer    = newComputer
-      , _g_carlasFramebuffer = "Ready."
-
-      , _g_watchAlarmTime  = 1234
-      , _g_watchButton     = 0
     }
     where
         -- 1) This *could* all be just a single thing. Object type really does not matter here.
@@ -154,7 +132,7 @@ newGame dd = do
                 p  = False
                 s  = True
                 h  = 1
-                st = Empty
+                st = Computer (ComputerData "" [])
             in  Object (view t_char t) m p s h st
         objectFromTile t@(ttype → "Item") = 
             let m  = "blue plastic"
@@ -235,7 +213,6 @@ loopTheLoop dd = do
     where
         gameStateFlow Normal                        = lift Input.nextWorldEvent       >>= processNormal dd
         gameStateFlow (Examination et)              = lift Input.nextUiEvent          >>= processExamination et
-        gameStateFlow Operation                     = lift Input.nextInteractionEvent >>= processOperation
         gameStateFlow (HudTeam i)                   = lift Input.nextUiEvent          >>= processHudTeam dd i
         gameStateFlow HudMessages                   = lift Input.nextUiEvent          >>= processHudMessages
         gameStateFlow (HudWatch t b)                = lift Input.nextUiEvent          >>= processHudWatch t b
@@ -244,6 +221,7 @@ loopTheLoop dd = do
         gameStateFlow (InventoryUI sd)              = lift Input.nextUiEvent          >>= processInventoryUI sd
         gameStateFlow (SkillsUI  ch)                = lift Input.nextUiEvent          >>= processSkillsUI ch
         gameStateFlow (EquipmentUI ch)              = lift Input.nextUiEvent          >>= processEquipmentUI ch
+        gameStateFlow (ComputerOperation cd)        = lift Input.nextInteractionEvent >>= processComputerOperation cd
 
 
 processNormal ∷ DesignData → Input.WorldEvent → StateT Game C.Curses GameState
@@ -363,8 +341,7 @@ processHudTeam _ i Input.MoveRight =
     HudTeam . min (i + 1) . fromIntegral . length <$> use (g_world.w_team)
 processHudTeam _ i Input.SelectChoice = do
     tm ← use (g_world.w_active) >>= \cal → uses (g_world.w_team) (cal:)
-    let ch = views (e_object.o_state) (\(Person ch) → ch) (at tm i)
-    pure $ SkillsUI ch
+    pure $ views (e_object.o_state) (\(Person ch) → SkillsUI ch) (at tm i)
 processHudTeam _ _ Input.Back =
     pure Normal
 
@@ -466,13 +443,16 @@ processEquipmentUI ch _ =
     pure $ EquipmentUI ch
 
 
-processOperation ∷ Input.InteractionEvent → StateT Game C.Curses GameState
-processOperation (Input.PassThrough c) = do
-    updateComputer c
-    qr ← uses g_carlasComputer (view cd_requestedQuit . computerData)
-    if qr
-      then pure Normal
-      else pure Operation
+processComputerOperation ∷ ComputerData → Input.InteractionEvent → StateT Game C.Curses GameState
+processComputerOperation cd (Input.PassThrough '\n') = do
+    pure $ ComputerOperation (snd $ runComputer commitInput cd)
+processComputerOperation cd (Input.PassThrough '\b') = do
+    pure $ ComputerOperation (snd $ runComputer backspace cd)
+processComputerOperation cd (Input.PassThrough c) = do
+    pure $ ComputerOperation (snd $ runComputer (typeIn c) cd)
+processComputerOperation _ Input.BackOut =
+    pure Normal
+
 
 --------------------------------------------------------------------------------
 
@@ -536,14 +516,6 @@ obtainTarget = do
 
 --------------------------------------------------------------------------------
 
-updateComputer ∷ Char → StateT Game C.Curses ()
-updateComputer '\n' = do
-    uses g_carlasComputer (*> commitInput) >>= assign g_carlasFramebuffer . computerOutput
-    g_carlasComputer %= (\l → l *> commitInput $> ())
-updateComputer '\b' = g_carlasComputer %= (*> backspace)
-updateComputer c    = g_carlasComputer %= (*> input c)
-
-
 --withAimOrElse ∷ (V2 Int → [Object] → StateT Game C.Curses a) → StateT Game C.Curses a → StateT Game C.Curses a
 --withAimOrElse f e = fromMaybe e <=< runMaybeT $ do
 --    v  ← MaybeT (use g_aim)
@@ -563,15 +535,15 @@ flipBackbuffer = lift C.render
 render ∷ GameState → StateT Game C.Curses ()
 render Normal                      = renderNormal
 render (Examination sd)            = doRender $ updateUi $ drawInformation sd
-render Operation                   = renderNormal
+render (ComputerOperation cd)      = doRender $ updateUi $ drawComputer cd
 render (HudTeam _)                 = renderNormal
 render HudMessages                 = renderNormal
 render (HudWatch _ _)              = renderNormal
-render (ConversationFlow _ _ sd)   = doRender $ updateUi $ clear >> drawInformation sd
-render (ConversationChoice _ _ cd) = doRender $ updateUi $ clear >> drawChoice cd
+render (ConversationFlow _ _ sd)   = doRender $ updateUi $ drawInformation sd
+render (ConversationChoice _ _ cd) = doRender $ updateUi $ drawChoice cd
 render (InventoryUI  sd)           = doRender $ updateUi $ drawInformation sd
-render (SkillsUI  ch)              = doRender $ drawCharacterSheet ch >>= updateUi
-render (EquipmentUI  ch)           = doRender $ drawEquipmentDoll ch >>= updateUi
+render (SkillsUI  ch)              = doRender $ updateUi clear >> drawCharacterSheet ch >>= updateUi
+render (EquipmentUI  ch)           = doRender $ updateUi clear >> drawEquipmentDoll ch >>= updateUi
 
 
 renderNormal ∷ StateT Game C.Curses ()
@@ -582,8 +554,8 @@ renderNormal = do
     s  ← use (g_world.w_status)
 
     gs ← use g_gameState
-    t  ← use g_turn
     tm ← use (g_world.w_team) >>= \t → uses (g_world.w_active) (fmap (views (e_object.o_state)  (\(Person ch) → ch)) . (:t))
+    t  ← use g_turn
     
     doRender $ do
         drawMap (view o_symbol) (view o_material) w d v >>= updateMain

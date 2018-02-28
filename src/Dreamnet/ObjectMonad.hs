@@ -16,6 +16,7 @@ import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
 import Linear             (V2(V2))
 
+import Dreamnet.ComputerModel
 import Dreamnet.Character
 import Dreamnet.ScrollData
 import Dreamnet.World
@@ -30,6 +31,7 @@ data ObjectF a = GetDesignData (DesignData → a)
                | Move (V2 Int) a
                | Position (V2 Int → a)
                | ShowInfoWindow String a
+               | ShowComputerWindow ComputerData a
                | StartConversation DreamnetCharacter a
                | Passable (Bool → a)
                | SetPassable Bool a
@@ -53,6 +55,8 @@ instance ObjectAPI (Free ObjectF) where
     move v = Free $ Move v (Pure ())
 
     showInfoWindow s = Free $ ShowInfoWindow s (Pure ())
+
+    showComputerWindow cd = Free $ ShowComputerWindow cd (Pure ())
 
     startConversation ch = Free $ StartConversation ch (Pure ())
 
@@ -97,6 +101,9 @@ runWithGameState dd gs (cv, o) (Free (Position fv)) = do
 
 runWithGameState dd _ (cv, o) (Free (ShowInfoWindow txt n)) = do
     runWithGameState dd (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) (cv, o) n
+
+runWithGameState dd _ (cv, o) (Free (ShowComputerWindow cd n)) = do
+    runWithGameState dd (ComputerOperation cd) (cv, o) n
 
 runWithGameState dd _ (cv, o) (Free (StartConversation ch n)) = do
     runWithGameState dd (createConversationState (V2 1 1) (V2 60 30) ch (view ch_conversation ch)) (cv, o) n
