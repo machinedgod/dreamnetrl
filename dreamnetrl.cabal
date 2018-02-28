@@ -62,7 +62,8 @@ executable dreamnetrl
                        Dreamnet.WorldMap
                        Dreamnet.TileData
                        Dreamnet.Renderer
-                       Dreamnet.ChoiceWindow
+                       Dreamnet.ChoiceData
+                       Dreamnet.ScrollData
                        Dreamnet.Visibility
                        Dreamnet.TileMap
                        Dreamnet.Dreamnet

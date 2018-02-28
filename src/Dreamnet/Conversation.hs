@@ -25,6 +25,16 @@ data ConversationNode = TalkNode   String   ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | End
 
+
+-- TODO I wonder if this equality will bite me in the ass later on?
+instance Eq ConversationNode where
+    (TalkNode   _ _) == (TalkNode   _ _) = True
+    (ListenNode _ _) == (ListenNode _ _) = True
+    (ChoiceNode _ _) == (ChoiceNode _ _) = True
+    End              == End              = True
+    _                == _                = False
+
+
 instance Show ConversationNode where
     show (TalkNode   t  _) = "TalkNode " <> t
     show (ListenNode t  _) = "ListenNode " <> t

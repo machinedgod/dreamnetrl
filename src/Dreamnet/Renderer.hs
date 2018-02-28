@@ -11,14 +11,7 @@ module Dreamnet.Renderer
 , MonadRender(..)
 , RendererF
 
-, ScrollData
-, newScrollData
-, scrollUp
-, scrollDown
-
 , RendererEnvironment
-, rd_scrollData
-
 , initRenderer
 , runRenderer
 
@@ -29,15 +22,15 @@ module Dreamnet.Renderer
 , drawCharacterSheet
 , drawEquipmentDoll
 , drawInformation
+, drawChoice
 ) where
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, use, uses, view, views, (+~),
-                                  (%~))
+import Control.Lens              (makeLenses, use, uses, view, views)
 import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.State       (MonadState, StateT, runStateT)
-import Linear                    (V2(V2), _x, _y)
+import Linear                    (V2(V2))
 import Data.Semigroup            ((<>))
 import Data.Maybe                (fromMaybe, isJust, fromJust)
 import Data.Foldable             (traverse_, forM_)
@@ -54,6 +47,8 @@ import Dreamnet.Utils       (lines')
 import Dreamnet.Character   
 import Dreamnet.CoordVector
 import Dreamnet.Visibility
+import Dreamnet.ScrollData
+import Dreamnet.ChoiceData
 
 import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
 
@@ -136,54 +131,8 @@ makeLenses ''Styles
 
 --------------------------------------------------------------------------------
 
-data ScrollData = ScrollData {
-      _sd_lines     ∷ [String]
-    , _sd_startLine ∷ Int
-    , _sd_title     ∷ Maybe String
-
-    , _sd_position  ∷ V2 Integer
-    , _sd_size      ∷ V2 Integer
-    }
-
-makeLenses ''ScrollData
-
-
-newScrollData ∷ V2 Integer → V2 Integer → Maybe String → String → ScrollData
-newScrollData p s t txt =
-    ScrollData {
-      _sd_lines     = intercalate [""] $ lines' (views _x (subtract 6) s) (fromIntegral . length) " " . words <$> lines txt
-    , _sd_startLine = 0
-    , _sd_title     = t
-
-    , _sd_position  = p
-    , _sd_size      = s
-    }
-
-
-scrollUp ∷ ScrollData → ScrollData
-scrollUp = sd_startLine %~ (\i → max 0 (i - 1))
-
-
-scrollDown ∷ ScrollData → ScrollData
-scrollDown sd = let nsl = views sd_startLine (+1) sd -- <------ Where are these +1's coming from???
-                    tlc = views sd_lines length sd
-                in  if nsl <= tlc - (fromIntegral $ maxLines sd)
-                        then sd_startLine +~ 1 $ sd
-                        else sd
-
-
-lineWidth ∷ (Num a) ⇒ ScrollData → a
-lineWidth = fromIntegral . subtract 6 . view (sd_size._x) -- (-6) border, padding, arrow widgets
-
-
-maxLines ∷ (Num a) ⇒ ScrollData → a
-maxLines = fromIntegral . subtract 2 . view (sd_size._y) -- TODO should depend on the title being present!
-
---------------------------------------------------------------------------------
-
 data RendererEnvironment = RendererEnvironment {
       _rd_styles     ∷ Styles
-    , _rd_scrollData ∷ ScrollData
 
     , _rd_mainWindow ∷ C.Window
     , _rd_hudWindow  ∷ C.Window
@@ -239,7 +188,6 @@ initRenderer = do
     pure $
         RendererEnvironment {
           _rd_styles     = styles 
-        , _rd_scrollData = ScrollData [] 0 Nothing (V2 1 1) (V2 60 30)
 
         , _rd_mainWindow = mainWin
         , _rd_hudWindow  = hudWin
@@ -361,11 +309,10 @@ teamBoxesLength ∷ (Num n) ⇒ n
 teamBoxesLength = fromIntegral . length . head $ teamBoxes
 
 
-drawHud ∷ (MonadRender r) ⇒ GameState → Int → Int → [DreamnetCharacter] → Word → Int → r (RenderAction ())
-drawHud gs hms am team turns button = do
-    white   ← use (rd_styles.s_colorWhite)
-    green   ← use (rd_styles.s_colorGreen)
-    blue ← use (rd_styles.s_colorBlue)
+drawHud ∷ (MonadRender r) ⇒ GameState → [DreamnetCharacter] → Word → r (RenderAction ())
+drawHud gs team turns = do
+    white ← use (rd_styles.s_colorWhite)
+    green ← use (rd_styles.s_colorGreen)
     pure $ RenderAction $ do
         C.setColor white
         ox ← subtract watchLength . snd <$> C.windowSize
@@ -374,28 +321,26 @@ drawHud gs hms am team turns button = do
         drawList 0 1 teamBoxes
 
         forM_ (zip [0.. ] (take 6 team)) $ \(ix, ch) → do
-            setDataColor ix white green blue
+            setDataColor ix white green
             drawData
                 (fromIntegral (ix `mod` 3) * 17 + 1)
                 (fromIntegral (ix `div` 3) *  5 + 2)
                 ch
-                
-
 
         C.setColor white
         drawList ox 0 watch
 
-        C.setColor $ if gs == HudWatch
-                        then green
-                        else white
-            
+        C.setColor $ case gs of
+            (HudWatch _ _) → green
+            _              → white
         drawTime (fromSeconds turns)
     where
-        setDataColor ∷ Int → C.ColorID → C.ColorID → C.ColorID → C.Update ()
-        setDataColor i none hud active
-            | gs == HudTeam && hms == i = C.setColor hud
-            |                   am == i = C.setColor active
-            | otherwise                 = C.setColor none
+        setDataColor ∷ Int → C.ColorID → C.ColorID → C.Update ()
+        setDataColor i none hud = C.setColor $ case gs of
+            (HudTeam i') → if i == i'
+                             then hud
+                             else none
+            _ → none
 
         drawData ∷ Integer → Integer → DreamnetCharacter → C.Update ()
         drawData ox oy ch = do
@@ -482,9 +427,9 @@ drawStatus gs msg = do
             padding     = 4
         len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
 
-        C.setColor $ if gs == HudMessages
-                        then green
-                        else white
+        C.setColor $ case gs of
+            HudMessages → green
+            _           → white
 
         draw (fromIntegral start + len `div` 2) 3 '▲'
         draw (fromIntegral start + len `div` 2) 9 '▼' 
@@ -701,17 +646,12 @@ equipmentDoll =
     ]
 
 
-drawInformation ∷ (MonadRender r) ⇒ r (RenderAction ())
-drawInformation = do
-    sd        ← use rd_scrollData
-    (V2 x y)  ← use (rd_scrollData.sd_position)
-    (V2 w h)  ← use (rd_scrollData.sd_size)
-    mt        ← use (rd_scrollData.sd_title)
-    ls        ← use (rd_scrollData.sd_lines)
-    startLine ← use (rd_scrollData.sd_startLine)
-    let visibleLines = V.fromList . take (maxLines sd) . drop startLine $ ls
-        hasMoreLines = length ls >= (startLine + 1) + maxLines sd -- <-------------------------------- Like this one here too!
-    pure $ RenderAction $ do
+drawInformation ∷ ScrollData → RenderAction ()
+drawInformation sd =
+    let (V2 x y)     = view sd_position sd
+        (V2 w h)     = view sd_size sd
+        mt           = view sd_title sd
+    in  RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
         C.drawBorder (Just $ C.Glyph '│' [])
@@ -725,9 +665,9 @@ drawInformation = do
         (rows, cols) ← C.windowSize
         when (isJust mt) $
             drawTitle cols (fromJust mt)
-        V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad (lineWidth sd)) visibleLines
-        draw (cols - 3) 1          (bool ' ' '▲' $ startLine /= 0)
-        draw (cols - 3) (rows - 2) (bool ' ' '▼' $ hasMoreLines)
+        V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad (lineWidth sd)) (visibleLines sd)
+        draw (cols - 3) 1          (bool ' ' '▲' $ isAtTop sd)
+        draw (cols - 3) (rows - 2) (bool ' ' '▼' $ hasMoreLines sd)
     where
         drawTitle ∷ Integer → String → C.Update ()
         drawTitle cols tn = do
@@ -741,6 +681,35 @@ drawInformation = do
                 C.drawLineH (Just $ C.Glyph '─' []) (trimmedLen + 2)
                 draw (trimmedLen + 3) 1 '│'
 
+
+drawChoice ∷ ChoiceData → RenderAction ()
+drawChoice cd =
+    let (V2 x y)     = view cd_position cd
+        (V2 w h)     = view cd_size cd
+    in  RenderAction $ do
+        C.resizeWindow h w
+        C.moveWindow y x
+        C.drawBorder (Just $ C.Glyph '╷' [])
+                     (Just $ C.Glyph '╷' [])
+                     (Just $ C.Glyph '╶' [])
+                     (Just $ C.Glyph '╶' [])
+                     (Just $ C.Glyph '╭' [])
+                     (Just $ C.Glyph '╮' [])
+                     (Just $ C.Glyph '╰' [])
+                     (Just $ C.Glyph '╯' [])
+        V.imapM_ drawChoiceLine (view cd_options cd)
+        drawSelectionWidget (view cd_currentSelection cd)
+    where
+        drawChoiceLine i l = do
+            (_, columns) ← C.windowSize
+            let lineStart     = 5
+            let maxLineLength = columns - lineStart - 2 
+            C.moveCursor (fromIntegral i + 1) lineStart
+            C.drawString (take (fromIntegral maxLineLength) l)
+        drawSelectionWidget i = do
+            let widgetStart = 2
+            C.moveCursor (fromIntegral i + 1) widgetStart
+            C.drawGlyph (C.Glyph '»' [])
 
 --------------------------------------------------------------------------------
 

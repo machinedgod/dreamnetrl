@@ -14,15 +14,13 @@ where
 
 import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
-import Linear             (V2)
+import Linear             (V2(V2))
 
-import Dreamnet.World    (Object, o_symbol, o_material, o_passable,
-                          o_seeThrough, o_state, changeObject_,
-                          WorldReadAPI(castVisibilityRay, worldMap),
-                          WorldAPI(moveObject, setStatus))
-import Dreamnet.WorldMap (valuesAt, interestingObjects)
-import Design.DesignAPI  (DesignData, GameState(..), ObjectAPI(..), States,
-                          DreamnetCharacter)
+import Dreamnet.Character
+import Dreamnet.ScrollData
+import Dreamnet.World
+import Dreamnet.WorldMap
+import Design.DesignAPI
 
 --------------------------------------------------------------------------------
 
@@ -98,12 +96,10 @@ runWithGameState dd gs (cv, o) (Free (Position fv)) = do
     runWithGameState dd gs (cv, o) (fv cv)
 
 runWithGameState dd _ (cv, o) (Free (ShowInfoWindow txt n)) = do
-    setStatus txt
-    runWithGameState dd Examination (cv, o) n
+    runWithGameState dd (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) (cv, o) n
 
-runWithGameState dd _ (cv, o) (Free (StartConversation _ n)) = do
-    -- TODO Move some of the conversation starting code here
-    runWithGameState dd Conversation (cv, o) n
+runWithGameState dd _ (cv, o) (Free (StartConversation ch n)) = do
+    runWithGameState dd (createConversationState (V2 1 1) (V2 60 30) ch (view ch_conversation ch)) (cv, o) n
 
 runWithGameState dd gs (cv, o) (Free (Passable fn)) = do
     runWithGameState dd gs (cv, o) (fn $ view o_passable o)
