@@ -103,7 +103,7 @@ runWithGameState dd _ (cv, o) (Free (ShowInfoWindow txt n)) = do
     runWithGameState dd (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) (cv, o) n
 
 runWithGameState dd _ (cv, o) (Free (ShowComputerWindow cd n)) = do
-    runWithGameState dd (ComputerOperation cd) (cv, o) n
+    runWithGameState dd (ComputerOperation cv 1 cd) (cv, o) n -- TODO use *ACTUAL* IX
 
 runWithGameState dd _ (cv, o) (Free (StartConversation ch n)) = do
     runWithGameState dd (createConversationState (V2 1 1) (V2 60 30) (view ch_conversation ch)) (cv, o) n
@@ -113,7 +113,7 @@ runWithGameState dd gs (cv, o) (Free (Passable fn)) = do
 
 runWithGameState dd gs (cv, o) (Free (SetPassable cl n)) = do
     let no = o_passable .~ cl $ o
-    changeObject_ cv o no
+    replaceObject cv o no
     runWithGameState dd gs (cv, no) n
 
 runWithGameState dd gs (cv, o) (Free (SeeThrough fn)) = do
@@ -121,7 +121,7 @@ runWithGameState dd gs (cv, o) (Free (SeeThrough fn)) = do
 
 runWithGameState dd gs (cv, o) (Free (SetSeeThrough st n)) = do
     let no = o_seeThrough .~ st $ o
-    changeObject_ cv o no
+    replaceObject cv o no
     runWithGameState dd gs (cv, no) n
 
 runWithGameState dd gs (cv, o) (Free (CanSee v fs)) = do
@@ -130,12 +130,12 @@ runWithGameState dd gs (cv, o) (Free (CanSee v fs)) = do
 
 runWithGameState dd gs (cv, o) (Free (ChangeChar c n)) = do
     let no = o_symbol .~ c $ o
-    changeObject_ cv o no
+    replaceObject cv o no
     runWithGameState dd gs (cv, no) n
 
 runWithGameState dd gs (cv, o) (Free (ChangeMat m n)) = do
     let no = o_material .~ m $ o
-    changeObject_ cv o no
+    replaceObject cv o no
     runWithGameState dd gs (cv, no) n
 
 runWithGameState dd gs (cv, o) (Free (Message m n)) = do
@@ -144,7 +144,7 @@ runWithGameState dd gs (cv, o) (Free (Message m n)) = do
 
 runWithGameState dd gs (cv, o) (Free (Put v n)) = do
     let no = o_state .~ v $ o
-    changeObject_ cv o no
+    replaceObject cv o no
     runWithGameState dd gs (cv, no) n
 
 runWithGameState dd gs (cv, o) (Free (Get fn)) = do

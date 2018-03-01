@@ -18,7 +18,7 @@ module Dreamnet.World
 , WorldReadAPI(..)
 
 , WorldAPI(..)
-, changeObject_
+, replaceObject
 
 , World
 -- TODO take out and enforce interaction through API class
@@ -34,11 +34,12 @@ module Dreamnet.World
 ) where
 
 import Prelude hiding (interact, rem)
+import Safe           (at)
 
 import Control.Lens               (makeLenses, (^.), (%=), (.=), use, uses,
                                    view)
 import Control.Monad              (when, void)
-import Control.Monad.State        (MonadState, State, runState, execState, modify)
+import Control.Monad.State.Strict (MonadState, State, runState, execState, modify)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
 import Data.Semigroup             ((<>))
@@ -72,31 +73,6 @@ data Object a = Object {
 makeLenses ''Object
 
 --------------------------------------------------------------------------------
-
-class WorldReadAPI o v w | w → o, w → v where
-    worldMap ∷ w (WorldMap (Object o))
-    team ∷ w [Entity (Object o)]
-    active ∷ w (Entity (Object o))
-    castVisibilityRay ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
-
-
--- TODO seriously refactor this into much better DSL
-class (WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
-    setStatus ∷ String → w ()
-    changeObject ∷ V2 Int → (Object o → w (Object o)) → w ()
-    selectCharacter ∷ o → w ()
-    moveActive ∷ V2 Int → w ()
-    changeActive ∷ (Object o → Object o) → w ()
-    addObject ∷ V2 Int → Object o → w ()
-    deleteObject ∷ V2 Int → Object o → w ()
-    moveObject ∷ V2 Int → Object o → V2 Int → w ()
-    -- TODO redo this, to be a function, and calculate on demand, not prefront
-    updateVisible ∷ w ()
-    -- TODO not really happy with 'update*' anything. Provide a primitive!
-    --updateAi ∷ w ()
-
-
---------------------------------------------------------------------------------
  
 -- | Type variables
 --   v: visibility data
@@ -125,6 +101,45 @@ newWorld m chs =
         , _w_status = ""
         }
 
+
+castVisibilityRay' ∷ WorldMap (Object o) → V2 Int → V2 Int → [(V2 Int, Bool)]
+castVisibilityRay' m o d = let seeThrough = and . fmap (view o_seeThrough) . (`valuesAt` m)
+                           --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
+                           in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
+
+--------------------------------------------------------------------------------
+
+class WorldReadAPI o v w | w → o, w → v where
+    worldMap ∷ w (WorldMap (Object o))
+    team ∷ w [Entity (Object o)]
+    active ∷ w (Entity (Object o))
+    castVisibilityRay ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
+
+
+-- TODO seriously refactor this into much better DSL
+class (WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
+    setStatus ∷ String → w ()
+    changeObject ∷ V2 Int → (Object o → w (Object o)) → w ()
+    modifyObjectAt ∷ V2 Int → Int → (Object o → w (Object o)) → w ()
+    selectCharacter ∷ o → w ()
+    moveActive ∷ V2 Int → w ()
+    changeActive ∷ (Object o → Object o) → w ()
+    addObject ∷ V2 Int → Object o → w ()
+    deleteObject ∷ V2 Int → Object o → w ()
+    moveObject ∷ V2 Int → Object o → V2 Int → w ()
+    replaceObjectAt ∷ V2 Int → Int → Object o → w ()
+    -- TODO redo this, to be a function, and calculate on demand, not prefront
+    updateVisible ∷ w ()
+    -- TODO not really happy with 'update*' anything. Provide a primitive!
+    --updateAi ∷ w ()
+
+
+replaceObject ∷ (Eq o, Applicative w, WorldAPI o v w) ⇒ V2 Int → Object o → Object o → w ()
+replaceObject v oo no = changeObject v (\c → pure $ if c == oo
+                                                      then no
+                                                      else c)
+
+
 --------------------------------------------------------------------------------
 
 -- TODO if I use ST monad, I can get mutable state for cheap
@@ -151,6 +166,17 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
         nc ← traverse fo (valuesAt v m)
         w_map %= replaceCell v nc
 
+    modifyObjectAt v ix f = do
+        no ← uses w_map (valuesAt v) >>= f . (`at` ix)
+        replaceObjectAt v ix no
+
+    selectCharacter n = void $ runMaybeT $ do
+        nc ← MaybeT $ uses w_team (find ((n==) . view (e_object.o_state)))
+        oc ← use w_active
+        w_team %= filter (not . (==nc))
+        w_team %= (<> [oc])
+        w_active .= nc
+
     moveActive v = do
         cp   ← use (w_active.e_position)
         o    ← use (w_active.e_object)
@@ -163,7 +189,7 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
         cp ← use (w_active.e_position)
         o  ← use (w_active.e_object)
         w_active %= fmap f
-        use (w_active.e_object) >>= changeObject_ cp o
+        use (w_active.e_object) >>= replaceObject cp o
 
     addObject v o = w_map %= addToCell v o
 
@@ -171,17 +197,13 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
 
     -- TODO crashes if np is out of map bounds!!!
     moveObject cp o np = do
-        objs  ← uses w_map (valuesAt cp)
+        objs ← uses w_map (valuesAt cp)
         when (o `elem` objs) $ do
             w_map %= addToCell np o . deleteFromCell cp o
 
-    selectCharacter n = void $ runMaybeT $ do
-        nc ← MaybeT $ uses w_team (find ((n==) . view (e_object.o_state)))
-        oc ← use w_active
-        w_team %= filter (not . (==nc))
-        w_team %= (<> [oc])
-        w_active .= nc
-
+    replaceObjectAt v ix o =
+        w_map %= modifyCell v (\l → take ix l <> [o] <> drop (ix + 1) l)
+        
     updateVisible = do
         m ← use w_map
         t ← pure (:)
@@ -210,20 +232,7 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
     --    m ← use w_map
     --    use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
 
-
-castVisibilityRay' ∷ WorldMap (Object o) → V2 Int → V2 Int → [(V2 Int, Bool)]
-castVisibilityRay' m o d = let seeThrough = and . fmap (view o_seeThrough) . (`valuesAt` m)
-                           --in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
-                           in  fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ bla o d
-
-
 runWorld ∷ WorldM o v a → World o v → (a, World o v)
 runWorld wm = runState (runWorldM wm)
 
 --------------------------------------------------------------------------------
-
-changeObject_ ∷ (Eq o, Applicative w, WorldAPI o v w) ⇒ V2 Int → Object o → Object o → w ()
-changeObject_ v oo no = changeObject v (\c → pure $ if c == oo
-                                                      then no
-                                                      else c)
-

@@ -73,7 +73,7 @@ type DreamnetCharacter = Character (Object States) ConversationNode Faction
 data GameState = Quit
                | Normal
                | Examination        ScrollData
-               | ComputerOperation  ComputerData
+               | ComputerOperation  (V2 Int) Int ComputerData
                | HudTeam            Int
                | HudMessages
                | HudWatch           Int Int

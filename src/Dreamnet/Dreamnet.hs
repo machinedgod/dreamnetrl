@@ -11,7 +11,7 @@ where
 
 import Safe                      (succSafe, predSafe, at)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
-                                  assign, (+=), (%~))
+                                  assign, (+=), (%~), set)
 import Control.Monad             (void)
 import Control.Monad.Free        (Free)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
@@ -252,18 +252,18 @@ loopTheLoop dd = do
             loopTheLoop dd
     where
         gameStateFlow ∷ GameState → g GameState
-        gameStateFlow Quit                       = pure Quit
-        gameStateFlow Normal                     = nextEvent Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow (Examination et)           = nextEvent Input.nextUiEvent          >>= processExamination et
-        gameStateFlow (HudTeam i)                = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
-        gameStateFlow HudMessages                = nextEvent Input.nextUiEvent          >>= processHudMessages
-        gameStateFlow (HudWatch t b)             = nextEvent Input.nextUiEvent          >>= processHudWatch t b
-        gameStateFlow (ConversationFlow cn sd)   = nextEvent Input.nextUiEvent          >>= processConversationFlow cn sd
-        gameStateFlow (ConversationChoice cn cd) = nextEvent Input.nextUiEvent          >>= processConversationChoice cn cd
-        gameStateFlow (InventoryUI sd)           = nextEvent Input.nextUiEvent          >>= processInventoryUI sd
-        gameStateFlow (SkillsUI  ch)             = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
-        gameStateFlow (EquipmentUI ch)           = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
-        gameStateFlow (ComputerOperation cd)     = nextEvent Input.nextInteractionEvent >>= processComputerOperation cd
+        gameStateFlow Quit                        = pure Quit
+        gameStateFlow Normal                      = nextEvent Input.nextWorldEvent       >>= processNormal dd
+        gameStateFlow (Examination et)            = nextEvent Input.nextUiEvent          >>= processExamination et
+        gameStateFlow (HudTeam i)                 = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
+        gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
+        gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
+        gameStateFlow (ConversationFlow cn sd)    = nextEvent Input.nextUiEvent          >>= processConversationFlow cn sd
+        gameStateFlow (ConversationChoice cn cd)  = nextEvent Input.nextUiEvent          >>= processConversationChoice cn cd
+        gameStateFlow (InventoryUI sd)            = nextEvent Input.nextUiEvent          >>= processInventoryUI sd
+        gameStateFlow (SkillsUI  ch)              = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
+        gameStateFlow (EquipmentUI ch)            = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
+        gameStateFlow (ComputerOperation v ix cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation v ix cd
 
 
 processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
@@ -488,14 +488,20 @@ processEquipmentUI ch _ =
     pure $ EquipmentUI ch
 
 
-processComputerOperation ∷ (GameAPI g, Monad g) ⇒ ComputerData → Input.InteractionEvent → g GameState
-processComputerOperation cd (Input.PassThrough '\n') = do
-    pure $ ComputerOperation (snd $ runComputer commitInput cd)
-processComputerOperation cd (Input.PassThrough '\b') = do
-    pure $ ComputerOperation (snd $ runComputer backspace cd)
-processComputerOperation cd (Input.PassThrough c) = do
-    pure $ ComputerOperation (snd $ runComputer (typeIn c) cd)
-processComputerOperation _ Input.BackOut =
+-- TODO this should somehow be a part of computer ObjectAPI code, not here!
+-- Note: if I make ability to set the flow function, rather than just gamestate
+-- (setting gamestate should probably be an specialization of setting the flow function)
+-- at Dreamnet:245 from ObjectAPI, this'll be it.
+processComputerOperation ∷ (GameAPI g, Monad g) ⇒ V2 Int → Int → ComputerData → Input.InteractionEvent → g GameState
+processComputerOperation v ix cd (Input.PassThrough '\n') = do
+    pure $ ComputerOperation v ix (snd $ runComputer commitInput cd)
+processComputerOperation v ix cd (Input.PassThrough '\b') = do
+    pure $ ComputerOperation v ix (snd $ runComputer backspace cd)
+processComputerOperation v ix cd (Input.PassThrough c) = do
+    pure $ ComputerOperation v ix (snd $ runComputer (typeIn c) cd)
+processComputerOperation v ix cd Input.BackOut = do
+    changeWorld $
+        modifyObjectAt v ix (pure . set o_state (Computer cd))
     pure Normal
 
 
@@ -549,18 +555,18 @@ processComputerOperation _ Input.BackOut =
 --------------------------------------------------------------------------------
 
 render ∷ (MonadRender r) ⇒ GameState → World States Visibility → Word → r ()
-render Normal                    w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (view w_status w) >>= updateHud
-render (Examination sd)          _ _ = updateUi $ drawInformation sd
-render (ComputerOperation cd)    _ _ = updateUi $ drawComputer cd
-render gs@(HudTeam _)            w t = renderHud gs (completeTeam w) t
-render HudMessages               w t = renderHud HudMessages (completeTeam w) t
-render gs@(HudWatch _ _)         w t = renderHud gs (completeTeam w) t
-render (ConversationFlow _ sd)   _ _ = updateUi $ drawInformation sd
-render (ConversationChoice _ cd) _ _ = updateUi $ drawChoice cd
-render (InventoryUI  sd)         _ _ = updateUi $ drawInformation sd
-render (SkillsUI  ch)            _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
-render (EquipmentUI  ch)         _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
-render Quit                      _ _ = pure ()
+render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (view w_status w) >>= updateHud
+render (Examination sd)           _ _ = updateUi $ drawInformation sd
+render (ComputerOperation _ _ cd) _ _ = updateUi $ drawComputer cd
+render gs@(HudTeam _)             w t = renderHud gs (completeTeam w) t
+render HudMessages                w t = renderHud HudMessages (completeTeam w) t
+render gs@(HudWatch _ _)          w t = renderHud gs (completeTeam w) t
+render (ConversationFlow _ sd)    _ _ = updateUi $ drawInformation sd
+render (ConversationChoice _ cd)  _ _ = updateUi $ drawChoice cd
+render (InventoryUI  sd)          _ _ = updateUi $ drawInformation sd
+render (SkillsUI  ch)             _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
+render (EquipmentUI  ch)          _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
+render Quit                       _ _ = pure ()
 
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
