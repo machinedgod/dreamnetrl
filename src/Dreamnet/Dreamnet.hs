@@ -14,8 +14,10 @@ import Control.Lens              (makeLenses, use, uses, view, views, (.=),
                                   assign, (+=), (%~), set)
 import Control.Monad             (void)
 import Control.Monad.Free        (Free)
+import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
+import Data.List                 (genericLength)
 import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
@@ -61,8 +63,7 @@ makeLenses ''Game
 
 
 newGame ∷ DesignData → C.Curses Game
-newGame dd = do
-    rdf ← initRenderer
+newGame dd = newRenderEnvironment >>= \rdf →
     pure Game {
         _g_turn  = 0
       , _g_world = newWorld
@@ -160,6 +161,7 @@ class GameAPI g where
     obtainTarget    ∷ g (Maybe (V2 Int, Object States))
     runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
     doRender        ∷ RendererF () → g ()
+    queryRenderer   ∷ RendererF a → g a
 
 
 --------------------------------------------------------------------------------
@@ -197,18 +199,18 @@ instance GameAPI GameM where
                 l   → pure (Just (ap + t, last l))
 
     runProgram dd v prg = do
+        ms ← queryRenderer mainSize
         o  ← uses (g_world.w_map) (last . valuesAt v)
         changeWorld $ do
-           (_, gs) ← runObjectMonadWorld dd prg v o
+           (_, gs) ← runObjectMonadWorld dd ms prg v o
            updateVisible
            pure gs
 
-    -- TODO This'll die when renderer gets refactored a bit
-    doRender r = do
-        rd ← use g_rendererData
-        (_, rd') ← GameM (lift (rd `runRenderer` r))
-        g_rendererData .= rd'
-        GameM (lift C.render)
+    doRender r = use g_rendererData >>= \rd → GameM $ lift $ do
+        rd `runRenderer` r
+        C.render
+
+    queryRenderer q = use g_rendererData >>= \rd → GameM $ lift $ rd `runRenderer` q
         
 --------------------------------------------------------------------------------
 
@@ -375,11 +377,11 @@ processHudTeam _ _ Input.TabPrevious =
 processHudTeam _ i Input.MoveUp =
     pure $ HudTeam (max 0 (i - 3))
 processHudTeam _ i Input.MoveDown =
-    HudTeam . min (i + 3) . fromIntegral . length . view w_team <$> world
+    HudTeam . min (i + 3) . genericLength . view w_team <$> world
 processHudTeam _ i Input.MoveLeft =
     pure $ HudTeam (max 0 (i - 1))
 processHudTeam _ i Input.MoveRight =
-    HudTeam . min (i + 1) . fromIntegral . length . view w_team <$> world
+    HudTeam . min (i + 1) . genericLength . view w_team <$> world
 processHudTeam _ i Input.SelectChoice = do
     tm ← completeTeam <$> world
     pure $ SkillsUI (at tm i)
@@ -432,12 +434,9 @@ processConversationFlow cn sd Input.MoveUp =
     pure $ ConversationFlow cn (scrollUp sd)
 processConversationFlow cn sd Input.MoveDown =
     pure $ ConversationFlow cn (scrollDown sd)
-processConversationFlow cn _ Input.SelectChoice = do
-    let pos = (V2 1 1)
-        siz = (V2 60 30)
-    --pos ← lift (positionFor 0)
-    --siz ← lift conversationSize
-    pure $ createConversationState pos siz (advance cn)
+processConversationFlow cn _ Input.SelectChoice =
+    queryRenderer mainSize >>= \ms →
+        pure $ createConversationState ms (advance cn)
 processConversationFlow cn sd _ =
     pure $ ConversationFlow cn sd
 
@@ -448,11 +447,8 @@ processConversationChoice cn cd Input.MoveUp =
 processConversationChoice cn cd Input.MoveDown =
     pure $ ConversationChoice cn (selectNext cd)
 processConversationChoice cn cd Input.SelectChoice = do
-    let pos = (V2 1 1)
-        siz = (V2 60 30)
-    --pos ← lift (positionFor 0)
-    --siz ← lift conversationSize
-    pure $ createConversationState pos siz (pick cn $ fromIntegral $ view cd_currentSelection cd)
+    queryRenderer mainSize >>= \ms →
+        pure $ createConversationState ms (pick cn $ fromIntegral $ view cd_currentSelection cd)
 processConversationChoice cn cd _ =
     pure $ ConversationChoice cn cd
 
@@ -554,7 +550,7 @@ processComputerOperation v ix cd Input.BackOut = do
 
 --------------------------------------------------------------------------------
 
-render ∷ (MonadRender r) ⇒ GameState → World States Visibility → Word → r ()
+render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
 render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (view w_status w) >>= updateHud
 render (Examination sd)           _ _ = updateUi $ drawInformation sd
 render (ComputerOperation _ _ cd) _ _ = updateUi $ drawComputer cd
@@ -575,7 +571,7 @@ completeTeam w =
     in  views w_active (fmap (views (e_object.o_state) (\(Person ch) → ch)) . (:t)) w
 
 
-renderWorld ∷ (MonadRender r) ⇒ World States Visibility → r ()
+renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
 renderWorld wrld =
     let w = views w_map width wrld
         d = views (w_map.wm_data) (fmap last) wrld
@@ -583,6 +579,6 @@ renderWorld wrld =
     in  drawMap (view o_symbol) (view o_material) w d v >>= updateMain
 
 
-renderHud ∷ (MonadRender r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
+renderHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
 renderHud gs tm t = drawHud gs tm t >>= updateHud
 

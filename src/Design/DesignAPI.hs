@@ -1,12 +1,14 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Design.DesignAPI
 where
 
-import Safe           (at)
+import Safe           (at, atMay)
 import Control.Lens   (makeLenses)
-import Linear         (V2)
+import Linear         (V2(V2))
+import Data.Bifunctor (bimap)
+import Data.Maybe     (fromMaybe)
 
 import qualified Data.Map as M (Map)
 
@@ -41,6 +43,7 @@ class ObjectAPI o where
     get                ∷ o States
     scanRange          ∷ Word → (Object States → Bool) → o [(V2 Int, Object States)]
     -- Keep adding primitives until you can describe all Map Objects as programs
+
 
 modify ∷ (ObjectAPI o, Monad o) ⇒ (States → States) → o ()
 modify f = get >>= put . f 
@@ -83,35 +86,45 @@ data GameState = Quit
                | SkillsUI           DreamnetCharacter
                | EquipmentUI        DreamnetCharacter
 
+--------------------------------------------------------------------------------
 
-createConversationState ∷ V2 Integer → V2 Integer → ConversationNode → GameState
-createConversationState pos siz cn@(ChoiceNode opts _) =
-    ConversationChoice cn (newChoiceData pos siz opts)
-createConversationState pos siz cn@(TalkNode s i ps _) =
-    ConversationFlow cn (newScrollData pos siz (Just $ at ps i) s)
-createConversationState pos siz cn@(DescriptionNode s _) =
-    ConversationFlow cn (newScrollData pos siz Nothing s) -- TODO centered
-createConversationState _ _ End =
+createConversationState ∷ (Integer, Integer) → ConversationNode → GameState
+createConversationState ss cn@(ChoiceNode opts _) =
+    let sd = newChoiceData (positionFor 0 ss) (conversationSize ss) opts
+    in  ConversationChoice cn sd
+createConversationState ss cn@(TalkNode s i ps _) =
+    let n  = Just $ at ps (fromIntegral i)
+        sd = newScrollData (positionFor i ss) (conversationSize ss) n s
+    in  ConversationFlow cn sd
+createConversationState ss cn@(DescriptionNode s _) =
+    let sd = newScrollData (positionFor 8 ss) (conversationSize ss) Nothing s
+    in  ConversationFlow cn sd
+createConversationState _ End =
     Normal
 
-            --use g_gameState >>= \case
-            --    Conversation → do
-            --        let ch = views o_state (\(Person ch') → ch') $ o
-            --        g_conversant .= Just ch
-            --        g_conversation .= view ch_conversation ch
 
-            --        use g_conversation >>= \case
-            --            (ChoiceNode opts _) → g_choiceWindow %= setOptions opts
-            --            (TalkNode s _) → do
-            --                pos ← lift (positionFor 0)
-            --                siz ← lift conversationSize
-            --                g_rendererData.rd_scrollData .= newScrollData pos siz (Just (view ch_name ch)) s
-            --            (ListenNode s _) → do
-            --                pos ← lift (positionFor 1)
-            --                siz ← lift conversationSize
-            --                g_rendererData.rd_scrollData .= newScrollData pos siz (Just (view ch_name ch)) s
-            --            _ → pure ()
-            --        use g_conversation >>= renderConversation
+-- Not sure if these belong in here? Maybe somehow in the renderer? Have ConversationFlow carry higher level data?
+positionFor ∷ Word → (Integer, Integer) → V2 Integer
+positionFor (fromIntegral → i) s = fromMaybe (positions s `at` 0) . (`atMay` i) . positions $ s
+    where
+        positions ∷ (Integer, Integer) → [V2 Integer]
+        positions (bimap (`div` 3) (`div` 3) → (w, h)) =
+            [ V2 0       (h * 2)
+            , V2 (w * 2) 0
+            , V2 0       0
+            , V2 (w * 2) (h * 2)
+
+            , V2 (w * 2) h
+            , V2 0       h
+            , V2 w       (h * 2)
+            , V2 w       0
+
+            , V2 w       h
+            ]
+
+
+conversationSize ∷ (Integer, Integer) → V2 Integer
+conversationSize = fmap (`div` 3) . uncurry V2
 
 --------------------------------------------------------------------------------
 

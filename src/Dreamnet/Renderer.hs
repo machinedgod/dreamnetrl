@@ -7,12 +7,13 @@
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
 module Dreamnet.Renderer
-( RenderAction
-, MonadRender(..)
-, RendererF
+( RendererEnvironment
+, newRenderEnvironment
 
-, RendererEnvironment
-, initRenderer
+, RenderAction
+, RenderAPI(..)
+
+, RendererF
 , runRenderer
 
 , clear
@@ -26,18 +27,21 @@ module Dreamnet.Renderer
 , drawComputer
 ) where
 
+
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, use, uses, view, views)
+import Control.Lens              (makeLenses, view, views)
 import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
-import Control.Monad.State       (MonadState, StateT, runStateT)
+import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
 import Linear                    (V2(V2))
 import Data.Semigroup            ((<>))
 import Data.Maybe                (fromMaybe, isJust, fromJust)
+import Data.Bifunctor            (second)
 import Data.Foldable             (traverse_, forM_)
 import Data.Char                 (digitToInt)
-import Data.List                 (intercalate)
+import Data.List                 (intercalate, genericLength, genericReplicate)
 import Data.Bool                 (bool)
+import Data.Tuple                (swap)
 
 import qualified UI.NCurses  as C
 import qualified Data.Map    as M
@@ -57,18 +61,18 @@ import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
 --------------------------------------------------------------------------------
 
 pad ∷ (Integral a) ⇒ a → String → String
-pad i  = (<>) <$> id <*> flip replicate ' ' . (`subtract` fromIntegral i) . length
+pad i  = (<>) <$> id <*> flip genericReplicate ' ' . (`subtract` i) . genericLength
 
 
 padL ∷ (Integral a) ⇒ a → String → String
-padL i = (<>) <$> flip replicate ' ' . (`subtract` fromIntegral i) . length <*> id
+padL i = (<>) <$> flip genericReplicate ' ' . (`subtract` i) . genericLength <*> id
 
 
 padC ∷ (Integral a) ⇒ a → String → String
 padC i s =
-    let l = subtract (length s) (fromIntegral i) `div` 2
-        r = (l + length s) `subtract` (fromIntegral i)
-    in  replicate l ' ' <> s <> replicate r ' '
+    let l = subtract (genericLength s) i `div` 2
+        r = (l + genericLength s) `subtract` i
+    in  genericReplicate l ' ' <> s <> genericReplicate r ' '
 
 
 --------------------------------------------------------------------------------
@@ -145,45 +149,26 @@ makeLenses ''RendererEnvironment
 
 --------------------------------------------------------------------------------
 
-newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
-                       deriving (Functor, Applicative, Monad)
+mainSize' ∷ C.Curses (Integer, Integer)
+mainSize' = do
+    hudHeight ← snd <$> hudSize'
+    second (subtract hudHeight) . swap <$> C.screenSize
 
 
-class (MonadState RendererEnvironment r) ⇒ MonadRender r where
-    updateMain ∷ RenderAction () → r ()
-    updateHud  ∷ RenderAction () → r ()
-    updateUi   ∷ RenderAction () → r ()
-    screenSize ∷ r (Integer, Integer)
-    
-
--- TODO double buffering
-newtype RendererF a = RendererF { runRendererF ∷ StateT RendererEnvironment C.Curses a }
-                    deriving (Functor, Applicative, Monad, MonadState RendererEnvironment)
+hudSize' ∷ C.Curses (Integer, Integer)
+hudSize' = (,13) . snd <$> C.screenSize
 
 
-instance MonadRender RendererF where
-    updateMain ac = use rd_mainWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
-
-    updateHud ac = use rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
-
-    updateUi ac = use rd_uiWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
-
-    screenSize = RendererF $ lift C.screenSize
-
-
-initRenderer ∷ C.Curses RendererEnvironment
-initRenderer = do
+newRenderEnvironment ∷ C.Curses RendererEnvironment
+newRenderEnvironment = do
     -- TODO respond to resize events and resize all the windows!
     --      this should happen automatically and be inacessible by API
     (rows, columns) ← C.screenSize
+    (mw, mh) ← mainSize'
+    (hw, hh) ← hudSize'
 
-    let hudWidth   = columns
-        hudHeight  = 13
-        mainWidth  = columns
-        mainHeight = rows - hudHeight
-
-    mainWin ← C.newWindow mainHeight mainWidth 0 0
-    hudWin  ← C.newWindow hudHeight hudWidth mainHeight 0
+    mainWin ← C.newWindow mh mw 0 0
+    hudWin  ← C.newWindow hh hw mh 0
     uiWin   ← C.newWindow 0 0 (rows - 1) (columns - 1)
     styles  ← C.maxColor >>= createStyles 
 
@@ -245,9 +230,42 @@ initRenderer = do
                    , _s_colorWhite   = cWhite
                    }
 
+--------------------------------------------------------------------------------
 
-runRenderer ∷ RendererEnvironment → RendererF a → C.Curses (a, RendererEnvironment)
-runRenderer rd f = runStateT (runRendererF f) rd
+newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
+                       deriving (Functor, Applicative, Monad)
+
+
+class RenderAPI r where
+    updateMain ∷ RenderAction () → r ()
+    updateHud  ∷ RenderAction () → r ()
+    updateUi   ∷ RenderAction () → r ()
+    screenSize ∷ r (Integer, Integer)
+    mainSize   ∷ r (Integer, Integer)
+    hudSize    ∷ r (Integer, Integer)
+    
+
+-- TODO double buffering
+newtype RendererF a = RendererF { runRendererF ∷ ReaderT RendererEnvironment C.Curses a }
+                    deriving (Functor, Applicative, Monad, MonadReader RendererEnvironment)
+
+
+instance RenderAPI RendererF where
+    updateMain ac = view rd_mainWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+
+    updateHud ac = view rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+
+    updateUi ac = view rd_uiWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+
+    screenSize = RendererF $ lift C.screenSize
+
+    mainSize = RendererF $ lift $ mainSize'
+
+    hudSize = RendererF $ lift $ hudSize'
+
+
+runRenderer ∷ RendererEnvironment → RendererF a → C.Curses a
+runRenderer rd f = runReaderT (runRendererF f) rd
     
 --------------------------------------------------------------------------------
 
@@ -255,10 +273,10 @@ clear ∷ RenderAction ()
 clear = RenderAction $ C.clear
 
 
-drawMap ∷ (MonadRender r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
+drawMap ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
 drawMap chf matf w dat vis = do
-    u ← use (rd_styles.s_visibilityUnknown)
-    k ← use (rd_styles.s_visibilityKnown)
+    u ← view (rd_styles.s_visibilityUnknown)
+    k ← view (rd_styles.s_visibilityKnown)
 
     mats ← V.mapM (lookupMaterial . matf) dat
     pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
@@ -290,7 +308,7 @@ watch = [ "    .-------------------------------.    "
 
 
 watchLength ∷ (Num n) ⇒ n
-watchLength = fromIntegral . (+1) . length . head $ watch
+watchLength = (+1) . genericLength . head $ watch
 
 
 teamBoxes ∷ [String]
@@ -308,13 +326,13 @@ teamBoxes = [ "┏----------------┳----------------┳----------------┓"
             ]
 
 teamBoxesLength ∷ (Num n) ⇒ n
-teamBoxesLength = fromIntegral . length . head $ teamBoxes
+teamBoxesLength = genericLength . head $ teamBoxes
 
 
-drawHud ∷ (MonadRender r) ⇒ GameState → [DreamnetCharacter] → Word → r (RenderAction ())
+drawHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r (RenderAction ())
 drawHud gs team turns = do
-    white ← use (rd_styles.s_colorWhite)
-    green ← use (rd_styles.s_colorGreen)
+    white ← view (rd_styles.s_colorWhite)
+    green ← view (rd_styles.s_colorGreen)
     pure $ RenderAction $ do
         C.setColor white
         ox ← subtract watchLength . snd <$> C.windowSize
@@ -375,7 +393,7 @@ drawHud gs team turns = do
                 mhp   = view ch_maxHealthPoints ch
                 hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
                 hDots = fromIntegral boxWidth - hBars
-            drawString (ox + 1) (fromIntegral oy + 3)
+            drawString (ox + 1) (oy + 3)
                 (concat [ replicate hBars '|'
                         , replicate hDots '.'
                         ])
@@ -415,15 +433,15 @@ drawHud gs team turns = do
 
         drawBorders ∷ C.Update ()
         drawBorders = do
-            len ← fromIntegral . subtract watchLength . snd <$> C.windowSize
-            drawString 0 2 $ replicate len '-'
-            drawString 0 10 $ replicate len '-'
+            len ← subtract watchLength . snd <$> C.windowSize
+            drawString 0 2 $ genericReplicate len '-'
+            drawString 0 10 $ genericReplicate len '-'
 
 
-drawStatus ∷ (MonadRender r) ⇒ GameState → String → r (RenderAction ())
+drawStatus ∷ (MonadReader RendererEnvironment r, RenderAPI r) ⇒ GameState → String → r (RenderAction ())
 drawStatus gs msg = do
-    green ← use (rd_styles.s_colorGreen)
-    white ← use (rd_styles.s_colorWhite)
+    green ← view (rd_styles.s_colorGreen)
+    white ← view (rd_styles.s_colorWhite)
     pure $ RenderAction $ do
         let start       = teamBoxesLength
             padding     = 4
@@ -437,18 +455,18 @@ drawStatus gs msg = do
         draw (fromIntegral start + len `div` 2) 9 '▼' 
 
         -- Clear
-        drawList (fromIntegral start) padding $
+        drawList start padding $
             replicate 5 $
-                replicate (fromIntegral len) ' '
+                genericReplicate len ' '
 
         -- Message
         let lns = if null msg
                     then []
                     else lines' (fromIntegral len) length " " (words msg)
-        drawList (fromIntegral start) padding lns
+        drawList start padding lns
 
 
-drawCharacterSheet ∷ (MonadRender r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawCharacterSheet ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ DreamnetCharacter → r (RenderAction ())
 drawCharacterSheet ch = screenSize >>= \(rows, cols) →
     pure $ RenderAction $ do
         let x = (cols - listDrawingWidth characterSheet) `div` 2
@@ -567,7 +585,7 @@ characterSheet =
     ]
 
 
-drawEquipmentDoll ∷ (MonadRender r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawEquipmentDoll ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ DreamnetCharacter → r (RenderAction ())
 drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
     pure $ RenderAction $ do
         let x = (cols - listDrawingWidth equipmentDoll) `div` 2
@@ -576,7 +594,7 @@ drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
         C.moveWindow y x
         drawList 0 0 equipmentDoll
 
-        drawString  2  1 (pad 18 $ view ch_lastName ch <> ", " <> view ch_name ch)
+        drawString  2  1 (pad  18 $ view ch_lastName ch <> ", " <> view ch_name ch)
         drawString 30  4 (padC 17 $ views (ch_equipment.eq_head)       showItem ch)
         drawString 30  9 (padC 17 $ views (ch_equipment.eq_torso)      showItem ch)
         drawString 30 13 (padC 17 $ views (ch_equipment.eq_back)       showItem ch)
@@ -732,9 +750,9 @@ drawComputer cd = RenderAction $ do
 
 --------------------------------------------------------------------------------
 
-lookupMaterial ∷ (MonadRender r) ⇒ String → r Material
-lookupMaterial n = use (rd_styles.s_unknown) >>= \umat →
-    uses (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
+lookupMaterial ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ String → r Material
+lookupMaterial n = view (rd_styles.s_unknown) >>= \umat →
+    views (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
 
 
 draw' ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
@@ -755,7 +773,7 @@ drawString x y s = do
     C.drawString s
 
 
-drawList ∷ Integer → Integer → [String] → C.Update ()
+drawList ∷ (Integral a) ⇒ a → a → [String] → C.Update ()
 drawList x y =
     traverse_ (\(ix, l) → drawString x ix l)
     . zip [y..]

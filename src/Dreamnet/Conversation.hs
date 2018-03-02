@@ -7,9 +7,6 @@ module Dreamnet.Conversation
 , pick
 , advance
 
-, conversationSize
-, positionFor
-
 , ConversationF
 , runConversationF_temp
 , name
@@ -22,19 +19,15 @@ module Dreamnet.Conversation
 ) where
 
 
-import Safe                (atMay, at)
+import Safe                (at)
 import Control.Monad.Free  (Free(Pure, Free))
 import Data.Monoid         ((<>))
-import Data.Maybe          (fromMaybe)
 import Data.Bool           (bool)
-import Linear              (V2(V2))
-
-import qualified UI.NCurses as C (Curses, screenSize)
 
 --------------------------------------------------------------------------------
 
 -- Note: NEVER slap equality on recursive data structures
-data ConversationNode = TalkNode   String Int [String] ConversationNode
+data ConversationNode = TalkNode   String Word [String] ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | DescriptionNode String ConversationNode
                       | End
@@ -88,35 +81,8 @@ advance End                   = End
 
 --------------------------------------------------------------------------------
 
-positions ∷ (Integer, Integer) → [V2 Integer]
-positions (rows, columns) =
-    let hudHeight  = 13
-        mainWidth  = columns
-        mainHeight = rows - hudHeight
-    in  [ V2 0 (mainHeight `div` 3 * 2)
-        , V2 (mainWidth `div` 3 * 2) 0
-        ]
-
-
-conversationSize ∷ C.Curses (V2 Integer)
-conversationSize = do
-    (rows, columns) ← C.screenSize
-    let hudHeight  = 8
-        mainWidth  = columns
-        mainHeight = rows - hudHeight
-    let w = mainWidth `div` 3
-        h = mainHeight `div` 3
-    pure (V2 w h)
-
-
-positionFor ∷ Word → C.Curses (V2 Integer)
-positionFor i =
-    (\ss → fromMaybe (positions ss `at` 0) $ (`atMay` fromIntegral i) $ positions ss) <$> C.screenSize
-
---------------------------------------------------------------------------------
-
-data ConversationF a = CName      Int (String → a)
-                     | CTalk      Int String a
+data ConversationF a = CName      Word (String → a)
+                     | CTalk      Word String a
                      | CContinue  String a
                      | CReply     String a
                      -- | CChoice    [String] (Int → a)
@@ -130,9 +96,9 @@ runConversationF_temp = runConversationF ["Carla", "Whoeverelse"] 0 1 End
 
 -- TODO I should get away with ConversationNode alltogether and use free monads to render conversations
 --      in realtime, adjusting parameters as necessary
-runConversationF ∷ [String] → Int → Int → ConversationNode → Free ConversationF a → ConversationNode
+runConversationF ∷ [String] → Word → Word → ConversationNode → Free ConversationF a → ConversationNode
 runConversationF ps curr prev cn (Free (CName i fn)) =
-    runConversationF ps curr prev cn (fn $ at ps i)
+    runConversationF ps curr prev cn (fn $ at ps (fromIntegral i))
 
 runConversationF ps curr prev cn (Free (CTalk i s n)) =
     runConversationF ps i (bool curr prev $ i == curr) (prepend cn $ TalkNode s i ps End) n
@@ -159,11 +125,11 @@ runConversationF _ _ _ cn (Pure _) =
 
 --------------------------------------------------------------------------------
 
-name ∷ Int → Free ConversationF String
+name ∷ Word → Free ConversationF String
 name i = Free $ CName i Pure
 
 
-talk ∷ Int → String → Free ConversationF ()
+talk ∷ Word → String → Free ConversationF ()
 talk i s = Free $ CTalk i s (Pure ())
 
 

@@ -87,9 +87,6 @@ fromTileMap tm t2o =
     , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
     }
     where
-        squareSize ∷ Int
-        squareSize = fromIntegral (width tm * height tm)
-
         layerToObject ∷ Tileset → TileLayer → V.Vector a
         layerToObject ts tl = charToObject ts <$> (tl^.l_data)
 
@@ -100,6 +97,8 @@ fromTileMap tm t2o =
 
         transposeAndMerge ∷ V.Vector (V.Vector a) → V.Vector [a]
         transposeAndMerge ls = V.fromList $ mergeIntoList ls <$> [0..squareSize - 1]
+            where
+                squareSize = fromIntegral (width tm * height tm)
 
         mergeIntoList ∷ V.Vector (V.Vector a) → Int → [a]
         mergeIntoList ls i = V.foldl' appendIfDifferent [] ls
