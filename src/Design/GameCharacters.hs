@@ -20,6 +20,7 @@ import Data.Semigroup       ((<>))
 import qualified Data.Map as M (Map, fromList, lookup)
 
 import Dreamnet.Conversation
+import Dreamnet.ConversationMonad
 import Dreamnet.Character
 
 import Design.DesignAPI

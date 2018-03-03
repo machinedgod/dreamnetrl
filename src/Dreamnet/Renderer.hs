@@ -257,7 +257,7 @@ instance RenderAPI RendererF where
 
     updateHud ac = view rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
 
-    updateUi ac = view rd_uiWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
+    updateUi ac = view rd_uiWindow >>= RendererF . lift . (`C.updateWindow` (C.clear >> runAction ac))
 
     screenSize = RendererF $ lift C.screenSize
 

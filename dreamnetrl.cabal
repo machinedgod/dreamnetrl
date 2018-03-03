@@ -72,6 +72,7 @@ executable dreamnetrl
                        Dreamnet.Conversation
                        Dreamnet.CoordVector
                        Dreamnet.ObjectMonad
+                       Dreamnet.ConversationMonad
                        Dreamnet.MapGenerator
                        Design.DesignAPI
                        Design.ObjectPrograms
