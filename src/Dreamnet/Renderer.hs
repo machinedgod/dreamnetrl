@@ -10,11 +10,13 @@ module Dreamnet.Renderer
 ( RendererEnvironment
 , newRenderEnvironment
 
-, RenderAction
+, RenderAction(RenderAction)
 , RenderAPI(..)
 
 , RendererF
 , runRenderer
+
+, drawList
 
 , clear
 , drawMap

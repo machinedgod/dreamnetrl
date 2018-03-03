@@ -18,7 +18,7 @@ import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
-import Linear                    (V2(V2))
+import Linear                    (V2(V2), _x, _y)
 
 import qualified UI.NCurses  as C
 import qualified Data.Vector as V    (fromList)
@@ -189,9 +189,15 @@ instance GameAPI GameM where
                 pure x
 
     obtainTarget = do
+        ap ← use (g_world.w_active.e_position)
+        doRender $ updateMain $ RenderAction $
+            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap $
+                [ "yku"
+                , "h.l"
+                , "bjn"
+                ]
         --renderMessage "Select direction (h/j/k/l/y/u/b/n/.):"
         --lift C.render
-        ap ← use (g_world.w_active.e_position)
         t  ← GameM (lift Input.nextTargetSelectionEvent)
         uses (g_world.w_map) (valuesAt (ap + t)) >>=
             \case

@@ -35,16 +35,6 @@ makeLenses ''ChoiceData
 
 newChoiceData ∷ V2 Integer → V2 Integer → [String] → ChoiceData
 newChoiceData p s o = ChoiceData (V.fromList o) 0 p s
-    --(rows, columns) ← C.screenSize
-    --let mainWidth  = columns
-    --    mainHeight = rows - 12 -- Hud
-
-    --let lowLeftW = mainWidth `div` 3
-    --    lowLeftH = mainHeight `div` 3
-    --    lowLeftX = 0
-    --    lowLeftY = mainHeight `div` 3 * 2
-
-    
 
 --------------------------------------------------------------------------------
 
