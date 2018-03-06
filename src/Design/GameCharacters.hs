@@ -20,7 +20,6 @@ import Data.Semigroup       ((<>))
 import qualified Data.Map as M (Map, fromList, lookup)
 
 import Dreamnet.Conversation
-import Dreamnet.ConversationMonad
 import Dreamnet.Character
 
 import Design.DesignAPI
@@ -58,7 +57,7 @@ facCarla = Faction "carla"
 --------------------------------------------------------------------------------
 
 redshirt ∷ DreamnetCharacter
-redshirt = newCharacter "?" "?" "?" desc facGenpop (runConversationF_temp convo)
+redshirt = newCharacter "?" "?" "?" desc facGenpop convo
     where
         desc  = "You never saw this person in your life."
         convo = talk 1 "Beat it, lizzie!"
@@ -83,7 +82,7 @@ characterForName n = fromMaybe (error "No character with that name!") . M.lookup
 --------------------------------------------------------------------------------
 
 carla ∷ DreamnetCharacter
-carla = newCharacter "Carla" "D'Addario" "La Piovra" desc facCarla (runConversationF_temp convo)
+carla = newCharacter "Carla" "D'Addario" "La Piovra" desc facCarla convo
     where
         desc = intercalate "\n"
             [ "Scrawny, beautiful, capable. You know you are. You also hope no one figures out quickly enough that you are."
@@ -93,21 +92,21 @@ carla = newCharacter "Carla" "D'Addario" "La Piovra" desc facCarla (runConversat
 
 
 hideo ∷ DreamnetCharacter
-hideo = newCharacter "Hideo" "Hattori" "Tetsuo" desc facCarla (runConversationF_temp convo)
+hideo = newCharacter "Hideo" "Hattori" "Tetsuo" desc facCarla convo
     where
         desc = "<DESCRIPTION MISSING>"
         convo = talk 1 "I believe in you, Cal."
 
 
 devin ∷ DreamnetCharacter
-devin = newCharacter "Devin" "Dorsett" "570rm" desc facCarla (runConversationF_temp convo)
+devin = newCharacter "Devin" "Dorsett" "570rm" desc facCarla convo
     where
         desc = "<DESCRIPTION MISSING>"
         convo = talk 1 "I believe in you, Cal."
 
 
 delgado ∷ DreamnetCharacter
-delgado = newCharacter "Phillipe" "Delgado" "Sarge" desc facCarla (runConversationF_temp convo)
+delgado = newCharacter "Phillipe" "Delgado" "Sarge" desc facCarla convo
     where
         desc = intercalate "\n"
             [ "Scrawny, scarred and tough as nails."
@@ -118,7 +117,7 @@ delgado = newCharacter "Phillipe" "Delgado" "Sarge" desc facCarla (runConversati
 
 
 raj ∷ DreamnetCharacter
-raj = newCharacter "Qaayenaat" "Rajan" "Raj" desc facCarla (runConversationF_temp convo)
+raj = newCharacter "Qaayenaat" "Rajan" "Raj" desc facCarla convo
     where
         desc = intercalate "\n"
             [ "Tiny, skinny and looking like she'd bolt in a second if she could."
@@ -129,21 +128,21 @@ raj = newCharacter "Qaayenaat" "Rajan" "Raj" desc facCarla (runConversationF_tem
 
 
 nova ∷ DreamnetCharacter
-nova = newCharacter "Annabelle" "Jenkins" "Nova" desc facCarla (runConversationF_temp convo)
+nova = newCharacter "Annabelle" "Jenkins" "Nova" desc facCarla convo
     where
         desc = "<DESCRIPTION MISSING>"
         convo = talk 1 "I believe in you, Cal."
 
 
 cobra ∷ DreamnetCharacter
-cobra = newCharacter "Eduarda" "Ribeiro" "Cobra" desc facCarla (runConversationF_temp convo)
+cobra = newCharacter "Eduarda" "Ribeiro" "Cobra" desc facCarla convo
     where
         desc = "<DESCRIPTION MISSING>"
         convo = talk 1 "I believe in you, Cal."
 
 
 kman ∷ DreamnetCharacter
-kman = newCharacter "Kelly" "Lafleur" "K-man" desc facCarla (runConversationF_temp convo)
+kman = newCharacter "Kelly" "Lafleur" "K-man" desc facCarla convo
     where
         desc = "<DESCRIPTION MISSING>"
         convo = talk 1 "I believe in you, Cal."
@@ -151,7 +150,7 @@ kman = newCharacter "Kelly" "Lafleur" "K-man" desc facCarla (runConversationF_te
 --------------------------------------------------------------------------------
 
 johnny ∷ DreamnetCharacter
-johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop (runConversationF_temp convo)
+johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop convo
     where
         desc =
             "If he'd have asian facial features, he'd look like a textbook sarariman."
@@ -162,7 +161,7 @@ johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop (runConversationF_te
 
 
 sally ∷ DreamnetCharacter
-sally = newCharacter "Sally" "S." "M" desc facGenpop (runConversationF_temp convo)
+sally = newCharacter "Sally" "S." "M" desc facGenpop convo
     where
         desc =
             "Slim, well-built and gorgeous, this woman looks like she's packing serious hardware. Her scrawny short black hair falls just short of shiny mirrors where her eyes are supposed to be. Probably HUD augments."
@@ -173,7 +172,7 @@ sally = newCharacter "Sally" "S." "M" desc facGenpop (runConversationF_temp conv
 
 
 moe ∷ DreamnetCharacter
-moe = newCharacter "Moe" "Sarlac" "Trigger" desc facGenpop (runConversationF_temp convo)
+moe = newCharacter "Moe" "Sarlac" "Trigger" desc facGenpop convo
     where
         desc = intercalate "\n"
             [ "You never met anyone whose name fit them better. Black side hair and shiny dome, white sleeveless shirt covered with beer and fat stains, covering his giant belly - somehow, you are *sure* Moe would present a formidable opponent in close quarters."
@@ -183,7 +182,6 @@ moe = newCharacter "Moe" "Sarlac" "Trigger" desc facGenpop (runConversationF_tem
             talk 0 "Hey Moe, how's it going?"
             reply "Hey Cal, pissed and shitty, in other words - nothing new. What can I get you?"
             mainBranch
-
         mainBranch = choice_
             [ "Ask about Devin" |=> devinBranch
             , "News"            |=> bizBranch

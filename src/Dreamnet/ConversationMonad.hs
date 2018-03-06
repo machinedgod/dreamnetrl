@@ -3,13 +3,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.ConversationMonad
-( runConversationF_temp
+( ConversationF
+, runConversationF_temp
 ) where
 
 
 import Safe                (at)
 import Control.Monad.Free  (Free(Pure, Free))
 import Data.Bool           (bool)
+import Data.Monoid         ((<>))
 
 import Dreamnet.Conversation
 
@@ -49,21 +51,9 @@ instance ConversationAPI (Free ConversationF) where
     (|=>) = (,)
 
 
+runConversationF_temp ∷ [String] → Free ConversationF a → ConversationNode
+runConversationF_temp names = runConversationF names 0 1 End
 
--- TODO this COULD work, but I see no reason to push it forward
---      conversation monads would be much better choice
-prepend ∷ ConversationNode → ConversationNode → ConversationNode
-prepend End (TalkNode s i ps n)   = TalkNode s i ps (prepend End n)
-prepend End (DescriptionNode s n) = DescriptionNode s (prepend End n)
-prepend End (ChoiceNode o ns)     = ChoiceNode o ns
-prepend cn (TalkNode s i ps n)    = TalkNode s i ps (prepend n cn)
-prepend cn (DescriptionNode s n)  = DescriptionNode s (prepend n cn)
-prepend cn (ChoiceNode o ns)      = ChoiceNode o ns
-prepend cn _                      = cn
-
-
-runConversationF_temp ∷ Free ConversationF a → ConversationNode
-runConversationF_temp = runConversationF ["Carla", "Whoeverelse"] 0 1 End
 
 -- TODO I should get away with ConversationNode alltogether and use free monads to render conversations
 --      in realtime, adjusting parameters as necessary
@@ -78,24 +68,24 @@ runConversationF ps curr prev cn (Free (CNick i fn)) =
     runConversationF ps curr prev cn (fn $ at ps (fromIntegral i)) -- TODO This is incorrect
 
 runConversationF ps curr prev cn (Free (CTalk i s n)) =
-    runConversationF ps i (bool curr prev $ i == curr) (TalkNode s i ps End `prepend` cn) n
+    runConversationF ps i (bool curr prev $ i == curr) (cn <> TalkNode s i ps End) n
 
 runConversationF ps curr prev cn (Free (CContinue s n)) =
-    runConversationF ps curr prev (TalkNode s curr ps End `prepend` cn) n
+    runConversationF ps curr prev (cn <> TalkNode s curr ps End) n
 
 runConversationF ps curr prev cn (Free (CReply s n)) =
-    runConversationF ps prev curr (TalkNode s prev ps End `prepend` cn) n
+    runConversationF ps prev curr (cn <> TalkNode s prev ps End) n
 
-runConversationF ps curr prev cn (Free (CChoice opts fn)) =
+runConversationF ps curr prev cn (Free (CChoice _ fn)) =
     runConversationF ps curr prev cn (fn 0)  -- TODO This is incorrect
 
 runConversationF ps curr prev cn (Free (CChoice_ opts n)) =
     let (ss, prgs) = unzip opts
-        nodes      = fmap (runConversationF ps curr prev cn) prgs
-    in  runConversationF ps curr prev (ChoiceNode ss nodes `prepend` cn) n
+        nodes      = fmap (runConversationF ps curr prev End) prgs
+    in  runConversationF ps curr prev (cn <> ChoiceNode ss nodes) n
 
 runConversationF ps curr prev cn (Free (CDescribe s n)) =
-    runConversationF ps curr prev (DescriptionNode s End `prepend` cn) n
+    runConversationF ps curr prev (cn <> DescriptionNode s End) n
 
 runConversationF _ _ _ cn (Pure _) =
     cn

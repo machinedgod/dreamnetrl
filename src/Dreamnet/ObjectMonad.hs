@@ -18,9 +18,11 @@ import Linear             (V2(V2))
 
 import Dreamnet.ComputerModel
 import Dreamnet.Character
+import Dreamnet.ConversationMonad
 import Dreamnet.ScrollData
 import Dreamnet.World
 import Dreamnet.WorldMap
+
 import Design.DesignAPI
 
 --------------------------------------------------------------------------------
@@ -105,8 +107,9 @@ runWithGameState dd _ ss (cv, o) (Free (ShowInfoWindow txt n)) = do
 runWithGameState dd _ ss (cv, o) (Free (ShowComputerWindow cd n)) = do
     runWithGameState dd (ComputerOperation cv 1 cd) ss (cv, o) n -- TODO use *ACTUAL* IX
 
-runWithGameState dd _ ss (cv, o) (Free (StartConversation ch n)) =
-    runWithGameState dd (createConversationState ss (view ch_conversation ch)) ss (cv, o) n
+runWithGameState dd _ ss (cv, o) (Free (StartConversation ch n)) = do
+    let cnodes = runConversationF_temp ["Carla", "Whoeverelse"] (view ch_conversation ch)
+    runWithGameState dd (createConversationState ss cnodes) ss (cv, o) n
 
 runWithGameState dd gs ss (cv, o) (Free (Passable fn)) = do
     runWithGameState dd gs ss (cv, o) (fn $ view o_passable o)

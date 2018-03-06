@@ -4,21 +4,24 @@
 module Design.DesignAPI
 where
 
-import Safe           (at, atMay)
-import Control.Lens   (makeLenses)
-import Linear         (V2(V2))
-import Data.Bifunctor (bimap)
-import Data.Maybe     (fromMaybe)
+import Safe               (at, atMay)
+import Control.Lens       (makeLenses, view)
+import Control.Monad.Free (Free)
+import Linear             (V2(V2))
+import Data.Bifunctor     (bimap)
+import Data.Maybe         (fromMaybe)
+import Data.Semigroup     ((<>))
 
 import qualified Data.Map as M (Map)
 
-import Dreamnet.ChoiceData    (ChoiceData, newChoiceData)
-import Dreamnet.ScrollData    (ScrollData, newScrollData)
-import Dreamnet.TileMap       (TileMap)
-import Dreamnet.Character     (Character)
-import Dreamnet.ComputerModel (ComputerData)
-import Dreamnet.Conversation  (ConversationNode(..))
-import Dreamnet.World         (Object)
+import Dreamnet.ChoiceData         (ChoiceData, newChoiceData)
+import Dreamnet.ScrollData         (ScrollData, newScrollData)
+import Dreamnet.TileMap            (TileMap)
+import Dreamnet.Character          (Character, ch_name)
+import Dreamnet.ComputerModel      (ComputerData)
+import Dreamnet.Conversation       (ConversationNode(..))
+import Dreamnet.ConversationMonad  (ConversationF)
+import Dreamnet.World              (Object)
 
 --------------------------------------------------------------------------------
 -- Object API and objects
@@ -66,10 +69,18 @@ data States = Prop      String
             | Person    DreamnetCharacter
             | Computer  ComputerData
             | Empty
-            deriving (Eq, Show)
+            deriving (Eq)
 
 
-type DreamnetCharacter = Character (Object States) ConversationNode Faction 
+instance Show States where
+   show (Prop s)      = s
+   show (Camera f l)  = "Camera " <> show f <> ", visible foes: " <> show l
+   show (Person ch)   = view ch_name ch
+   show (Computer cd) = "Computer: " <> show cd
+   show Empty         = "Empty"
+ 
+
+type DreamnetCharacter = Character (Object States) (Free ConversationF ()) Faction 
 
 --------------------------------------------------------------------------------
 

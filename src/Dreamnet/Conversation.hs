@@ -28,12 +28,14 @@ class ConversationAPI c where
     (|=>)    ∷ String → c () → (String, c ())
 
 --------------------------------------------------------------------------------
+-- TODO VINTAGE
 
 -- Note: NEVER slap equality on recursive data structures
 data ConversationNode = TalkNode   String Word [String] ConversationNode
                       | ChoiceNode [String] [ConversationNode]
                       | DescriptionNode String ConversationNode
                       | End
+                      deriving (Show)
 
 
 -- TODO I wonder if this equality will bite me in the ass later on?
@@ -45,11 +47,19 @@ instance Eq ConversationNode where
     _                     == _                     = False
 
 
-instance Show ConversationNode where
-    show (TalkNode t _ _ _)    = "TalkNode " <> t
-    show (ChoiceNode cs _)     = "ChoiceNode " <> show cs
-    show (DescriptionNode s _) = "DescriptionNode " <> show s
-    show End                   = "End"
+--instance Show ConversationNode where
+--    show (TalkNode t _ _ _)    = "TalkNode " <> t
+--    show (ChoiceNode cs _)     = "ChoiceNode " <> show cs
+--    show (DescriptionNode s _) = "DescriptionNode " <> show s
+--    show End                   = "End"
+
+
+instance Monoid ConversationNode where
+    mempty = End
+    mappend (TalkNode s i ns nxt)   c = TalkNode s i ns (nxt `mappend` c)
+    mappend (ChoiceNode opts nxts)  c = ChoiceNode opts ((`mappend` c) <$> nxts)
+    mappend (DescriptionNode s nxt) c = DescriptionNode s (nxt `mappend` c)
+    mappend End                     c = c
 
  
 pick ∷ ConversationNode → Word → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB
