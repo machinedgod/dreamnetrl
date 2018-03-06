@@ -95,7 +95,7 @@ newGame dd = newRenderEnvironment >>= \rdf →
                 p  = 1 `readBoolProperty` t
                 s  = 1 `readBoolProperty` t
                 h  = 5
-                st = Prop "Door"
+                st = Door
             in  Object (view t_char t) m p s h st
         objectFromTile t@(ttype → "Stairs") =
             let m  = "wood"
@@ -158,6 +158,7 @@ class GameAPI g where
     changeGameState ∷ (GameState → g GameState) → g GameState
     world           ∷ g (World States Visibility)
     changeWorld     ∷ WorldM States Visibility a → g a
+    -- TODO change to withTarget to make more functional
     obtainTarget    ∷ g (Maybe (V2 Int, Object States))
     runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
     doRender        ∷ RendererF () → g ()
@@ -307,16 +308,27 @@ processNormal _ Input.Get = do
             changeWorld $ setStatus "There's nothing here."
         Just (v, o) →
             changeWorld $ do
-                changeActive (o_state %~ (\(Person ch) → Person $ pickUp o ch))
+                changeActive (o_state %~ (\(Person ch) → Person $ pickUp (view o_state o) ch))
                 deleteObject v o
     pure Normal
-processNormal _ Input.UseHeld = do
+processNormal dd Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
     obtainTarget >>= \case
         Nothing →
             changeWorld $ setStatus "Nothing there."
-        Just (_, _) →
-            changeWorld $ setStatus "Need to figure out how to run programs for held Objects."
+        Just (v, o) → do
+            -- TODO this should be much easier
+            hv  ← view (w_active.e_position) <$> world
+            mho ← (\(Person ch) → slottedItem . view (ch_primaryHand ch) $ ch) . view (w_active.e_object.o_state) <$> world
+            case mho of
+                Nothing →
+                    changeWorld $ setStatus "You aren't carrying anything in your hands."
+                Just ho → do
+                    let so = view o_state o
+                    _ ← runProgram dd hv (programForState ho (OperateOn so))
+                    _ ← runProgram dd v  (programForState so (OperateWith ho))
+                    changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
+                    pure ()
     pure Normal
 processNormal _ Input.WearHeld = do
     increaseTurn
@@ -339,7 +351,7 @@ processNormal dd Input.Examine = do
                     examineText ← views w_map desc <$> world
                     pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
-                    runProgram dd v (programForObject o Examine)
+                    runProgram dd v (programForState (view o_state o) Examine)
         Nothing → do
             changeWorld $ setStatus "There's nothing there."
             pure Normal
@@ -351,7 +363,7 @@ processNormal dd Input.Operate = do
             changeWorld $ setStatus "There's nothing here."
             pure Normal
         Just (v, o) →
-            runProgram dd v (programForObject o Operate)
+            runProgram dd v (programForState (view o_state o) Operate)
 processNormal dd Input.Talk = do
     increaseTurn
     obtainTarget >>= \case
@@ -359,7 +371,7 @@ processNormal dd Input.Talk = do
             changeWorld $ setStatus "Trying to talk to someone, but there's no one there."
             pure Normal
         Just (v, o) → do
-            runProgram dd v (programForObject o Talk)
+            runProgram dd v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet =
     pure $ InventoryUI (newScrollData (V2 1 1) (V2 60 30) (Just "Inventory sheet") "")
 processNormal dd Input.CharacterSheet =

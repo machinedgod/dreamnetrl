@@ -49,7 +49,6 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.World       (Object, o_state)
 import Dreamnet.Utils       (lines')
 import Dreamnet.Character   
 import Dreamnet.CoordVector
@@ -382,7 +381,7 @@ drawHud gs team turns = do
             -- Weapon
             drawString (ox + 1) (oy + 1) $ 
                 maybe ("<EMPTY>")
-                      (take (fromIntegral boxWidth) . show . view o_state)
+                      (take (fromIntegral boxWidth) . show)
                       (slottedItem . view (ch_primaryHand ch) $ ch)
             
             -- Clip
@@ -612,8 +611,8 @@ drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
         drawString 20 43 (padC 17 $ views (ch_equipment.eq_rightFoot)  showItem ch)
         drawString 40 43 (padC 17 $ views (ch_equipment.eq_leftFoot)   showItem ch)
     where
-        showItem ∷ Slot h (Object States) → String
-        showItem = maybe "<EMPTY>" (show . view o_state) . slottedItem
+        showItem ∷ Slot h States → String
+        showItem = maybe "<EMPTY>" show . slottedItem
 
 
 equipmentDoll ∷ [String]

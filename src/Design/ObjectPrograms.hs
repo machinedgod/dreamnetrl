@@ -7,7 +7,7 @@ import Control.Lens     (view, views)
 import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
-import Dreamnet.World     (Object, o_symbol, o_state)
+import Dreamnet.World     (o_symbol, o_state)
 import Dreamnet.Character (ch_name, ch_faction, ch_description)
 
 import Design.DesignAPI
@@ -15,15 +15,14 @@ import Design.GameCharacters (characterForName)
 
 --------------------------------------------------------------------------------
 
-programForObject ∷ (ObjectAPI o, Monad o) ⇒ Object States → InteractionType → o ()
-programForObject (view o_symbol → '+')          it      = door it
-programForObject (view o_symbol → '/')          it      = door it
-programForObject (view o_state  → (Camera _ _)) it      = camera it
-programForObject (view o_state  → (Person _))   it      = person it
-programForObject (view o_state  → (Computer _)) it      = computer it
-programForObject (view o_symbol → 'm')          it      = mirror it
-programForObject (view o_state  → (Prop n))     Examine = message $ "A " <> n
-programForObject _                              _       = pure ()
+programForState ∷ (ObjectAPI o, Monad o) ⇒ States → InteractionType → o ()
+programForState Door         it      = door it
+programForState (Camera _ _) it      = camera it
+programForState (Person _)   it      = person it
+programForState (Computer _) it      = computer it
+programForState Mirror       it      = mirror it
+programForState (Prop n)     Examine = message $ "A " <> n
+programForState _            _       = pure ()
 
 --------------------------------------------------------------------------------
 
@@ -49,6 +48,10 @@ lock Operate =
     message "Absentmindedly, you try and use your finger as a key, completely oblivious to the fact that this wouldn't work even back when your grandad was a little boy."
 lock Talk =
     message "\"Unlock, NOW!\""
+lock (OperateWith (Prop "key")) =
+    message "Unlocked!"
+lock (OperateWith _) =
+    message "That won't work."
 lock _ =
     pure ()
 

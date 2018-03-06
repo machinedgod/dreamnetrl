@@ -56,7 +56,8 @@ modify f = get >>= put . f
 data InteractionType = Examine
                      | Operate
                      | Talk
-                     | OperateOn
+                     | OperateOn   States
+                     | OperateWith States
                      | AiTick
 
 
@@ -64,23 +65,28 @@ newtype Faction = Faction String
                 deriving (Eq, Show)
 
 
+-- TODO Not happy with this development!
 data States = Prop      String
             | Camera    Faction Word
             | Person    DreamnetCharacter
             | Computer  ComputerData
+            | Door
+            | Mirror
             | Empty
             deriving (Eq)
 
 
 instance Show States where
-   show (Prop s)      = s
+   show (Prop s)      = "Prop " <> s
    show (Camera f l)  = "Camera " <> show f <> ", visible foes: " <> show l
-   show (Person ch)   = view ch_name ch
+   show (Person ch)   = "Person named " <> view ch_name ch
    show (Computer cd) = "Computer: " <> show cd
+   show Door          = "Door"
+   show Mirror        = "Mirror"
    show Empty         = "Empty"
  
 
-type DreamnetCharacter = Character (Object States) (Free ConversationF ()) Faction 
+type DreamnetCharacter = Character States (Free ConversationF ()) Faction 
 
 --------------------------------------------------------------------------------
 
