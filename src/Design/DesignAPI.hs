@@ -21,7 +21,7 @@ import Dreamnet.Character          (Character, ch_name)
 import Dreamnet.ComputerModel      (ComputerData)
 import Dreamnet.Conversation       (ConversationNode(..))
 import Dreamnet.ConversationMonad  (ConversationF)
-import Dreamnet.World              (Object)
+import Dreamnet.World              (Symbol, Object)
 
 --------------------------------------------------------------------------------
 -- Object API and objects
@@ -39,7 +39,7 @@ class ObjectAPI o where
     seeThrough         ∷ o Bool
     setSeeThrough      ∷ Bool → o ()
     canSee             ∷ V2 Int → o Bool
-    changeChar         ∷ Char → o ()
+    changeSymbol       ∷ Symbol → o ()
     changeMat          ∷ String → o ()
     message            ∷ String → o ()
     put                ∷ States → o ()

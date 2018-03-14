@@ -40,7 +40,7 @@ data ObjectF a = GetDesignData (DesignData → a)
                | SeeThrough (Bool → a)
                | SetSeeThrough Bool a
                | CanSee (V2 Int) (Bool → a)
-               | ChangeChar Char a
+               | ChangeSymbol Symbol a
                | ChangeMat String a
                | Message String a
                | Put States a
@@ -72,7 +72,7 @@ instance ObjectAPI (Free ObjectF) where
 
     canSee v = Free $ CanSee v Pure
 
-    changeChar c = Free $ ChangeChar c (Pure ())
+    changeSymbol s = Free $ ChangeSymbol s (Pure ())
 
     changeMat s = Free $ ChangeMat s (Pure ())
 
@@ -131,7 +131,7 @@ runWithGameState dd gs ss (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
     runWithGameState dd gs ss (cv, o) (fs seesV)
 
-runWithGameState dd gs ss (cv, o) (Free (ChangeChar c n)) = do
+runWithGameState dd gs ss (cv, o) (Free (ChangeSymbol c n)) = do
     let no = o_symbol .~ c $ o
     replaceObject cv o no
     runWithGameState dd gs ss (cv, no) n

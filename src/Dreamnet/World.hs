@@ -7,7 +7,9 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, UndecidableInstances #-}
 
 module Dreamnet.World
-( Object(Object)
+( Symbol(Symbol)
+
+, Object(Object)
 , o_symbol
 , o_material
 , o_passable
@@ -42,7 +44,7 @@ import Control.Monad              (when, void)
 import Control.Monad.State.Strict (MonadState, State, runState, execState, modify)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
 import Linear                     (V2)
-import Data.Semigroup             ((<>))
+import Data.Monoid                ((<>))
 import Data.Bool                  (bool)
 import Data.List                  (find)
 
@@ -58,26 +60,44 @@ import Dreamnet.Visibility
 
 --------------------------------------------------------------------------------
 
+newtype Symbol = Symbol Char
+               deriving (Eq, Show)
+
+instance Monoid Symbol where
+    mempty = Symbol ' '
+    (Symbol ' ') `mappend` (Symbol ch') = Symbol ch'
+    (Symbol ch)  `mappend` (Symbol ' ') = Symbol ch
+    _            `mappend` (Symbol ch') = Symbol ch'  -- SOOOOO incorrect!
+
+
 data Object a = Object {
-      _o_symbol      ∷ Char
+      _o_symbol      ∷ Symbol
     , _o_material    ∷ String
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
     , _o_height      ∷ Word
 
     , _o_state ∷ a
-    --, _o_state ∷ M.Map String String
     }
-    deriving (Eq, Show)
-
+    deriving (Eq, Show, Functor)
 makeLenses ''Object
+
+
+instance Applicative Object where
+    pure = Object mempty "" False False 0
+    (Object s m ps st h f) <*> (Object s' m' ps' st' h' x) =
+        Object (s <> s') (m <> m') (ps || ps') (st || st') (h + h') (f x)
+
+
+instance Monad Object where
+    (Object _ _ _ _ _ x)  >>= f = f x
+
 
 --------------------------------------------------------------------------------
  
 -- | Type variables
 --   v: visibility data
 --   c: character data
---   TODO place team and active in the world map
 data World o v = World {
       _w_team    ∷ [Entity (Object o)] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
     , _w_active  ∷ Entity (Object o)
@@ -89,7 +109,6 @@ data World o v = World {
 makeLenses ''World
 
 
--- TODO consolidate Player characters into the WorldMap, somehow
 newWorld ∷ (Monoid v) ⇒ WorldMap (Object o) → [Object o] → World o v
 newWorld m chs =
     let t  = newEntity <$> zip (V.toList $ m^.wm_spawns) chs

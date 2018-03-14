@@ -7,7 +7,7 @@ import Control.Lens     (view, views)
 import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
-import Dreamnet.World     (o_symbol, o_state)
+import Dreamnet.World     (Symbol(Symbol), o_symbol, o_state)
 import Dreamnet.Character (ch_name, ch_faction, ch_description)
 
 import Design.DesignAPI
@@ -33,7 +33,7 @@ door Examine =
 door Operate = do
     c ← passable >>= setPassable . not >> passable
     setSeeThrough c
-    changeChar $ bool '+' '/' c
+    changeSymbol $ bool (Symbol '+') (Symbol '/') c
 door Talk =
     message "\"Open sesame!\""
 door _ =
@@ -85,7 +85,7 @@ camera ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
 camera Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
 camera Operate = do
-    os   ← scanRange 8 ((=='@') . view o_symbol)
+    os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
     traverse isFoe viso >>= (\v → modify (\(Camera f _) → Camera f (fromIntegral v))) . length . filter id

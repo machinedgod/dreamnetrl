@@ -89,35 +89,35 @@ newGame dd = newRenderEnvironment >>= \rdf →
                 s  = 2 `readBoolProperty` t
                 h  = 0
                 st = Empty
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Door") =
             let m  = "wood"
                 p  = 1 `readBoolProperty` t
                 s  = 1 `readBoolProperty` t
                 h  = 5
                 st = Door
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Stairs") =
             let m  = "wood"
                 p  = 1 `readBoolProperty` t
                 s  = True
                 h  = 1
                 st = Prop "Stairs"
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Prop") =
             let m  = 4 `readStringProperty` t
                 p  = 2 `readBoolProperty` t
                 s  = 3 `readBoolProperty` t
                 h  = 5 `readWordProperty` t
                 st = Prop (1 `readStringProperty` t)
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Person") = 
             let m  = "blue"
                 p  = False
                 s  = True
                 h  = 3
                 st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
-            in  Object '@' m p s h st
+            in  Object (Symbol '@') m p s h st
         objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
             objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
         objectFromTile t@(ttype → "Camera") =
@@ -126,27 +126,27 @@ newGame dd = newRenderEnvironment >>= \rdf →
                 s  = True
                 h  = 1
                 st = Camera (Faction $ 1 `readStringProperty` t) 0
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Computer") =
             let m  = "metal"
                 p  = False
                 s  = True
                 h  = 1
                 st = Computer (ComputerData "" [])
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Item") = 
             let m  = "blue plastic"
                 p  = True
                 s  = True
                 h  = 0
                 st = Prop (1 `readStringProperty` t)
-            in  Object (view t_char t) m p s h st
+            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t =
             error $ "Can't convert Tile type into Object: " <> show t
         -- TODO Errrrrr, this should be done through the tileset???
 
         playerPerson ∷ DreamnetCharacter → Object States
-        playerPerson = Object '@' "metal" False True 3 . Person
+        playerPerson = Object (Symbol '@') "metal" False True 3 . Person
 
 --------------------------------------------------------------------------------
 
@@ -275,6 +275,21 @@ loopTheLoop dd = do
         gameStateFlow (ComputerOperation v ix cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation v ix cd
 
 
+fromCharacter ∷ (DreamnetCharacter → a) → a → Object States → a
+fromCharacter f d = stateQuery . view o_state 
+    where
+        stateQuery (Person ch) = f ch
+        stateQuery _           = d
+
+
+withCharacter ∷ (DreamnetCharacter → DreamnetCharacter) → Object States → Object States
+withCharacter f = o_state %~ stateMod
+    where
+        stateMod ∷ States → States
+        stateMod (Person ch) = Person (f ch)
+        stateMod x           = x
+
+
 processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
 processNormal _ Input.Quit = do
     pure Quit
@@ -295,11 +310,11 @@ processNormal _ Input.Wait = do
     pure Normal
 processNormal _ Input.HigherStance = do
     changeWorld $ do
-        changeActive (o_state %~ (\(Person ch) → Person (ch_stance %~ predSafe $ ch)))
+        changeActive (withCharacter (ch_stance %~ predSafe))
     pure Normal
 processNormal _ Input.LowerStance = do
     changeWorld $ do
-        changeActive (o_state %~ (\(Person ch) → Person (ch_stance %~ succSafe $ ch)))
+        changeActive (withCharacter (ch_stance %~ succSafe))
     pure Normal
 processNormal _ Input.Get = do
     increaseTurn
@@ -308,7 +323,15 @@ processNormal _ Input.Get = do
             changeWorld $ setStatus "There's nothing here."
         Just (v, o) →
             changeWorld $ do
-                changeActive (o_state %~ (\(Person ch) → Person $ pickUp (view o_state o) ch))
+                -- Fugly
+                -- One way around:
+                -- o_state contains some kind of a 'pointer'
+                -- into the structure that contains the type and correct state
+                -- of the actual object.
+                -- Second way:
+                -- withState type of function that does something as long as the State
+                -- is of the actual correct type, and does nothing if it isn't
+                changeActive (withCharacter (pickUp (view o_state o)))
                 deleteObject v o
     pure Normal
 processNormal dd Input.UseHeld = do
@@ -319,7 +342,7 @@ processNormal dd Input.UseHeld = do
         Just (v, o) → do
             -- TODO this should be much easier
             hv  ← view (w_active.e_position) <$> world
-            mho ← (\(Person ch) → slottedItem . view (ch_primaryHand ch) $ ch) . view (w_active.e_object.o_state) <$> world
+            mho ← fromCharacter (\ch → slottedItem $ view (ch_primaryHand ch) ch) Nothing . view (w_active.e_object) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
@@ -594,7 +617,7 @@ renderWorld wrld =
     let w = views w_map width wrld
         d = views (w_map.wm_data) (fmap last) wrld
         v = view w_vis wrld
-    in  drawMap (view o_symbol) (view o_material) w d v >>= updateMain
+    in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) w d v >>= updateMain
 
 
 renderHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
