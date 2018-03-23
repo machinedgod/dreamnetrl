@@ -331,11 +331,11 @@ processNormal _ Input.Wait = do
     increaseTurn
     pure Normal
 processNormal _ Input.HigherStance = do
-    changeWorld $ do
+    changeWorld $
         changeActive (withCharacter (ch_stance %~ predSafe))
     pure Normal
 processNormal _ Input.LowerStance = do
-    changeWorld $ do
+    changeWorld $
         changeActive (withCharacter (ch_stance %~ succSafe))
     pure Normal
 processNormal _ Input.Get = do
@@ -392,16 +392,26 @@ processNormal _ Input.Wear = do
         , ('f', "Left foot",   (LeftSide,  Foot))
         , ('F', "Right foot",  (RightSide, Foot))
         ]
-    changeWorld $ do
-        changeActive
-            (o_state %~
-                (\(Person ch) → Person $
-                    case views (ch_primaryHand ch) slottedItem ch of
-                        Nothing → ch
-                        Just i  → equip RightSide Hand Nothing . equip side slot (Just i) $ ch)
-                     )
+    changeWorld $
+        changeActive $
+            withCharacter $
+                \ch → case views (ch_primaryHand ch) slottedItem ch of
+                       Nothing → ch
+                       Just i  → equip RightSide Hand Nothing . equip side slot (Just i) $ ch
     pure Normal
 processNormal _ Input.StoreIn = do
+    increaseTurn
+
+    containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
+    let characters = "fdsahjklrewqyuiovcxzbnmtgp"
+    container ← askChoice (zip3 characters ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
+
+    changeWorld $
+        changeActive $
+            withCharacter $
+                \ch → case views (ch_primaryHand ch) slottedItem ch of
+                       Nothing → ch
+                       Just i  → equip RightSide Hand Nothing . modEquipped eq_back (\(Slot (Just (Clothes wi))) → Slot (Just (Clothes (wi_storedItems %~ (++[i]) $ wi)))) $ ch
     pure Normal
 processNormal dd Input.Examine = do
     increaseTurn

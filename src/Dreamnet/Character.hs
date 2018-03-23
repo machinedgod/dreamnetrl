@@ -82,7 +82,7 @@ module Dreamnet.Character
 , eq_rightShin
 , eq_leftFoot
 , eq_rightFoot
- 
+
 , Character
 , ch_name
 , ch_lastName
@@ -110,6 +110,7 @@ module Dreamnet.Character
 
 , equipmentSlots
 , equippedSlots
+, modEquipped
 , equippedContainers
 ) where
 
@@ -510,18 +511,24 @@ equippedContainers = filter containers . equippedSlots
         containers (SlotWrapper (Slot i)) = maybe False isContainer i
 
 
+modEquipped ∷ Lens' (Equipment i) (Slot t i) → (Slot t i → Slot t i) → Character i c f → Character i c f
+modEquipped eql f = ch_equipment.eql %~ f
+
+
 equip ∷ Orientation → SlotType → Maybe i → Character i c f → Character i c f
-equip RightSide Hand  x = ch_equipment.eq_rightHand %~ equipSlot x
-equip LeftSide  Hand  x = ch_equipment.eq_leftHand %~ equipSlot x
-equip _         Head  x = ch_equipment.eq_head %~ equipSlot x
-equip _         Torso x = ch_equipment.eq_torso %~ equipSlot x
-equip _         Back  x = ch_equipment.eq_back %~ equipSlot x
-equip _         Belt  x = ch_equipment.eq_belt %~ equipSlot x
-equip RightSide Arm   x = ch_equipment.eq_rightArm %~ equipSlot x
-equip LeftSide  Arm   x = ch_equipment.eq_rightArm %~ equipSlot x
-equip RightSide Thigh x = ch_equipment.eq_rightThigh %~ equipSlot x
-equip LeftSide  Thigh x = ch_equipment.eq_leftThigh %~ equipSlot x
-equip RightSide Shin  x = ch_equipment.eq_rightShin %~ equipSlot x
-equip LeftSide  Shin  x = ch_equipment.eq_leftShin %~ equipSlot x
-equip RightSide Foot  x = ch_equipment.eq_rightFoot %~ equipSlot x
-equip LeftSide  Foot  x = ch_equipment.eq_leftFoot %~ equipSlot x
+equip RightSide Hand  x = modEquipped eq_rightHand  (equipSlot x)
+equip LeftSide  Hand  x = modEquipped eq_leftHand   (equipSlot x)
+equip _         Head  x = modEquipped eq_head       (equipSlot x)
+equip _         Torso x = modEquipped eq_torso      (equipSlot x)
+equip _         Back  x = modEquipped eq_back       (equipSlot x)
+equip _         Belt  x = modEquipped eq_belt       (equipSlot x)
+equip RightSide Arm   x = modEquipped eq_rightArm   (equipSlot x)
+equip LeftSide  Arm   x = modEquipped eq_rightArm   (equipSlot x)
+equip RightSide Thigh x = modEquipped eq_rightThigh (equipSlot x)
+equip LeftSide  Thigh x = modEquipped eq_leftThigh  (equipSlot x)
+equip RightSide Shin  x = modEquipped eq_rightShin  (equipSlot x)
+equip LeftSide  Shin  x = modEquipped eq_leftShin   (equipSlot x)
+equip RightSide Foot  x = modEquipped eq_rightFoot  (equipSlot x)
+equip LeftSide  Foot  x = modEquipped eq_leftFoot   (equipSlot x)
+
+

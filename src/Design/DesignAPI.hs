@@ -76,7 +76,7 @@ data WearableItem i = WearableItem {
     -- If Nothing, its not a container. If Just x, then what is the container's volume?
     -- Note, does not necessarily have to be less than _wi_volume, eg. belts and clip carriers
     , _wi_containerVolume ∷ Maybe Word
-    , _wi_storedItems ∷ [i]
+    , _wi_storedItems ∷ [i] -- TODO probably just use a slot, or slots! :-O?
     }
     deriving (Eq, Functor)
 
@@ -218,4 +218,8 @@ data DesignData = DesignData {
     }
 makeLenses ''DesignData
 
-
+--------------------------------------------------------------------------------
+-- TODO can't find shit if placed next to datas :-(
+makeLenses ''WearableItem
+makeLenses ''WeaponItem
+makeLenses ''AmmoItem
