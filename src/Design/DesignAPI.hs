@@ -1,5 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module Design.DesignAPI
 where
@@ -9,7 +10,7 @@ import Control.Lens       (makeLenses, view)
 import Control.Monad.Free (Free)
 import Linear             (V2(V2))
 import Data.Bifunctor     (bimap)
-import Data.Maybe         (fromMaybe)
+import Data.Maybe         (fromMaybe, isJust)
 import Data.Semigroup     ((<>))
 
 import qualified Data.Map as M (Map)
@@ -17,7 +18,7 @@ import qualified Data.Map as M (Map)
 import Dreamnet.ChoiceData         (ChoiceData, newChoiceData)
 import Dreamnet.ScrollData         (ScrollData, newScrollData)
 import Dreamnet.TileMap            (TileMap)
-import Dreamnet.Character          (Character, ch_name)
+import Dreamnet.Character          (ItemTraits(..), SlotType(..), Character, ch_name)
 import Dreamnet.ComputerModel      (ComputerData)
 import Dreamnet.Conversation       (ConversationNode(..))
 import Dreamnet.ConversationMonad  (ConversationF)
@@ -53,6 +54,62 @@ modify f = get >>= put . f
 
 --------------------------------------------------------------------------------
 
+data Material = Kevlar
+              | Polyester
+              | Cotton
+              deriving (Eq, Show)
+
+
+-- TODO I'm just like making shit up here, to define what wearable item is
+data WearableItem i = WearableItem {
+      _wi_name       ∷ String
+    , _wi_equippedAt ∷ SlotType
+    -- Volume of the item
+    , _wi_volume     ∷ Word
+    -- Weight of the item
+    , _wi_weight     ∷ Float
+    -- Material (TODO make a list?)
+    , _wi_material   ∷ Material
+    -- When worn as clothes, what is the coverage percent of the body part?
+    , _wi_coverage   ∷ Float
+
+    -- If Nothing, its not a container. If Just x, then what is the container's volume?
+    -- Note, does not necessarily have to be less than _wi_volume, eg. belts and clip carriers
+    , _wi_containerVolume ∷ Maybe Word
+    , _wi_storedItems ∷ [i]
+    }
+    deriving (Eq, Functor)
+
+
+instance Show (WearableItem i) where
+    show wi = _wi_name wi
+
+instance ItemTraits (WearableItem i) where
+    isContainer = isJust . _wi_containerVolume
+
+--------------------------------------------------------------------------------
+
+data AmmoType = LaserjetBattery
+              deriving (Eq)
+
+
+data WeaponItem = WeaponItem {
+      _wpi_name     ∷ String
+    , _wpi_ammoType ∷ AmmoType
+    }
+    deriving (Eq)
+
+
+data AmmoItem = AmmoItem {
+      _ami_name        ∷ String
+    , _ami_type        ∷ AmmoType
+    , _ami_currentLoad ∷ Word
+    , _ami_maxLoad     ∷ Word
+    }
+    deriving (Eq)
+
+--------------------------------------------------------------------------------
+
 data InteractionType = Examine
                      | Operate
                      | Talk
@@ -72,19 +129,29 @@ data States = Prop      String
             | Computer  ComputerData
             | Door
             | Mirror
+            | Clothes   (WearableItem States)
+            | Weapon    WeaponItem
+            | Ammo      AmmoItem
             | Empty
             deriving (Eq)
 
-
 instance Show States where
-   show (Prop s)      = "Prop " <> s
-   show (Camera f l)  = "Camera " <> show f <> ", visible foes: " <> show l
-   show (Person ch)   = "Person named " <> view ch_name ch
-   show (Computer cd) = "Computer: " <> show cd
-   show Door          = "Door"
-   show Mirror        = "Mirror"
-   show Empty         = "Empty"
- 
+    show (Prop s)     = "A " <> s
+    show (Camera _ _) = "A camera."
+    show (Person ch)  = view ch_name ch
+    show (Computer _) = "A computer"
+    show Door         = "An generic, common object that switches collidable state when activated."
+    show Mirror       = "You're so pretty!"
+    show (Clothes wi) = _wi_name wi
+    show (Weapon wpi) = _wpi_name wpi
+    show (Ammo ami)   = _ami_name ami
+    show Empty        = "This, is, uh... nothing."
+
+
+instance ItemTraits States where
+    isContainer (Clothes wi) = isContainer wi
+    isContainer _            = False
+
 
 type DreamnetCharacter = Character States (Free ConversationF ()) Faction 
 
@@ -147,10 +214,8 @@ conversationSize = fmap (`div` 3) . uncurry V2
 
 data DesignData = DesignData {
       _dd_characters      ∷ M.Map String DreamnetCharacter 
-    , _dd_defaultRedshirt ∷ DreamnetCharacter
     , _dd_startingMap     ∷ TileMap
     }
-
 makeLenses ''DesignData
 
 

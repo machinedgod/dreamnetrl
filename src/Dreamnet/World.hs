@@ -100,7 +100,7 @@ instance Monad Object where
 --   c: character data
 data World o v = World {
       _w_team    ∷ [Entity (Object o)] -- TODO if I make this a set, I can prevent equal objects, but put Ord constraint
-    , _w_active  ∷ Entity (Object o)
+    , _w_active  ∷ Entity (Object o) -- TODO remove active. Carla is *always* active, the other ones just follow orders!
     , _w_map     ∷ WorldMap (Object o)
     , _w_vis     ∷ V.Vector v
     , _w_status  ∷ String

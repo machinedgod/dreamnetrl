@@ -1,16 +1,22 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Design.GameCharacters
-( redshirt
+( randomCharacter
+
 , characters
 , characterForName
 , characterDictionary
 
-, randomizeStats
+-- DEBUG
+, randomName
+, randomOrientation
+
+, carla
 )
 where
 
 
+import Safe                 (at)
 import Control.Lens         (view, (.~))
 import Control.Monad.Random (MonadRandom, getRandomR)
 import Data.List            (intercalate)
@@ -23,45 +29,147 @@ import Dreamnet.Conversation
 import Dreamnet.Character
 
 import Design.DesignAPI
-
---------------------------------------------------------------------------------
-
-randomizeStats ∷ (MonadRandom r) ⇒ DreamnetCharacter → r DreamnetCharacter
-randomizeStats ch = do
-    rndMelee         ← MeleeCombatSkills   <$> pure 0 <*> r <*> r <*> r <*> r <*> r
-    rndRanged        ← RangedCombatSkills  <$> pure 0 <*> r <*> r <*> r <*> r <*> r <*> r <*> r <*> r <*> r
-    rndThrowing      ← ThrowingSkills      <$> pure 0 <*> r <*> r <*> r <*> r
-    rndEngineering   ← EngineeringSkills   <$> pure 0 <*> r <*> r <*> r <*> r <*> r     
-    rndCommunication ← CommunicationSkills <$> pure 0 <*> r <*> r <*> r <*> r <*> r <*> r
-    rndInfiltration  ← InfiltrationSkills  <$> pure 0 <*> r <*> r <*> r <*> r
-
-    pure . (ch_meleeCombat   .~ rndMelee)
-         . (ch_rangedCombat  .~ rndRanged)
-         . (ch_throwing      .~ rndThrowing)
-         . (ch_engineering   .~ rndEngineering)
-         . (ch_communication .~ rndCommunication)
-         . (ch_infiltration  .~ rndInfiltration)
-         $ ch
-    where
-        r = getRandomR (1, 99)
-    
+import Design.Items
 
 --------------------------------------------------------------------------------
 
 facGenpop ∷ Faction
 facGenpop = Faction "genpop"
 
+
 facCarla ∷ Faction
 facCarla = Faction "carla"
 
+
+
 --------------------------------------------------------------------------------
 
-redshirt ∷ DreamnetCharacter
-redshirt = newCharacter "?" "?" "?" desc facGenpop convo
+randomName ∷ (MonadRandom r) ⇒ r (String, String)
+randomName = pure (,) <*> name <*> lname
     where
-        desc  = "You never saw this person in your life."
-        convo = talk 1 "Beat it, lizzie!"
+        name = at englishNames <$> getRandomR (0, length englishNames - 1)
+        lname = at englishSurnames <$> getRandomR (0, length englishSurnames - 1)
+        englishNames =
+            [ "Aaron", "Abbott", "Abel", "Abner", "Abraham", "Adam", "Addison"
+            , "Adler", "Adley", "Adrian", "Aedan", "Aiken", "Alan"
+            , "Alastair", "Albern", "Albert", "Albion", "Alden", "Aldis"
+            , "Aldrich", "Alexander", "Alfie", "Alfred", "Algernon"
+            , "Alston", "Alton", "Alvin", "Ambrose", "Amery", "Amos"
+            , "Andrew", "Angus", "Ansel", "Anthony", "Archer", "Archibald"
+            , "Arlen", "Arnold", "Arthur", "Arvel", "Atwater", "Atwood"
+            , "Aubrey", "Austin", "Avery", "Axel", "Baird", "Baldwin"
+            , "Barclay", "Barnaby", "Baron", "Barrett", "Barry"
+            , "Bartholomew", "Basil", "Benedict", "Benjamin", "Benton"
+            , "Bernard", "Bert", "Bevis", "Blaine", "Blair", "Blake"
+            , "Bond", "Boris", "Bowen", "Braden", "Bradley", "Brandan"
+            , "Brent", "Bret", "Brian", "Brice", "Brigham", "Brock"
+            , "Broderick", "Brooke", "Bruce", "Bruno", "Bryant", "Buck"
+            , "Bud", "Burgess", "Burton", "Byron", "Cadman", "Calvert"
+            , "Caldwell", "Caleb", "Calvin", "Carrick", "Carl", "Carlton"
+            , "Carney", "Carroll", "Carter", "Carver", "Cary", "Casey"
+            , "Casper", "Cecil", "Cedric", "Chad", "Chalmers", "Chandler"
+            , "Channing", "Chapman", "Charles", "Chatwin", "Chester"
+            , "Christian", "Christopher", "Clarence", "Claude", "Clayton"
+            , "Clifford", "Clive", "Clyde", "Coleman", "Colin", "Collier"
+            , "Conan", "Connell", "Connor", "Conrad", "Conroy", "Conway"
+            , "Corwin", "Crispin", "Crosby", "Culbert", "Culver", "Curt"
+            , "Curtis", "Cuthbert", "Craig", "Cyril"
+            ]
+        englishSurnames =
+            [ "Smith", "Mitchell", "Jones", "Kelly", "Williams", "Cook"
+            , "Taylor", "Carter", "Brown", "Richardson", "Davies", "Bailey"
+            , "Evans", "Collins", "Wilson", "Bell", "Thomas", "Shaw"
+            , "Johnson", "Murphy", "Roberts", "Miller", "Robinson", "Cox"
+            , "Thompson", "Richards", "Wright", "Khan", "Walker", "Marshall"
+            , "White", "Anderson", "Edwards", "Simpson", "Hughes", "Ellis"
+            , "Green", "Adams", "Hall", "Singh", "Lewis", "Begum"
+            , "Harris", "Wilkinson", "Clarke", "Foster", "Patel", "Chapman"
+            , "Jackson", "Powell", "Wood", "Webb", "Turner", "Rogers"
+            , "Martin", "Gray", "Cooper", "Mason", "Hill", "Ali", "Ward"
+            , "Hunt", "Morris", "Hussain", "Moore", "Campbell", "Clark"
+            , "Matthews", "Lee", "Owen", "King", "Palmer", "Baker"
+            , "Holmes", "Harrison", "Mills", "Morgan", "Barnes", "Allen"
+            , "Knight", "James", "Lloyd", "Scott", "Butler", "Phillips"
+            , "Russell", "Watson", "Barker", "Davis", "Fisher", "Parker"
+            , "Stevens", "Price", "Jenkins", "Bennett", "Murray", "Young"
+            , "Dixon", "Griffiths", "Harvey"
+            ]
 
+
+randomNickname ∷ (MonadRandom r) ⇒ r String
+randomNickname = at nouns <$> getRandomR (0, length nouns - 1)
+    where
+        nouns =
+            [ "Galadriel", "Zen", "Saint", "Strange", "Prophet", "Binary"
+            , "Storm", "Doctor", "Chaos", "Cyber", "God", "Zombie"
+            , "Daemon", "Neon", "Wizard", "Pirate", "Wicked", "Comrade"
+            , "Radical", "God", "Psycho", "Phantom", "Strange", "Blade"
+            , "Lord", "Tempest", "Dark", "Alias", "Shogun", "Edward"
+            , "Teach", "Machiavelli", "Perfect", "Demon"
+            ]
+
+--------------------------------------------------------------------------------
+
+randomOrientation ∷ (MonadRandom r) ⇒ r Orientation
+randomOrientation = toEnum <$> getRandomR (fromEnum (minBound ∷ Orientation), fromEnum (maxBound ∷ Orientation))
+
+--------------------------------------------------------------------------------
+
+em ∷ Slot t i
+em = Slot Nothing
+
+
+randomEquipment ∷ (MonadRandom r) ⇒ r (Equipment i)
+randomEquipment = pure $ Equipment em em em em em em em em em em em em em em
+
+--------------------------------------------------------------------------------
+
+randomCharacter ∷ (MonadRandom r) ⇒ r DreamnetCharacter
+randomCharacter = do
+    (n, ln) ← randomName
+    nn      ← randomNickname
+    hnd     ← randomOrientation
+    equ     ← randomEquipment
+    msk     ← pure (MeleeCombatSkills 0 0 0 0 0 0)
+    rsk     ← pure (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+    tsk     ← pure (ThrowingSkills 0 0 0 0 0)
+    esk     ← pure (EngineeringSkills 0 0 0 0 0 0)
+    csk     ← pure (CommunicationSkills 0 0 0 0 0 0 0)
+    isk     ← pure (InfiltrationSkills 0 0 0 0 0)
+    desc    ← generateDescription msk rsk tsk esk csk isk
+    convo   ← pure generateConvo
+
+    pure $ newCharacter
+        n ln
+        nn
+        hnd
+        desc
+        equ
+        facGenpop
+        convo
+        10
+        msk rsk tsk esk csk isk
+
+
+generateDescription ∷ (MonadRandom r)
+                    ⇒ MeleeCombatSkills
+                    → RangedCombatSkills
+                    → ThrowingSkills
+                    → EngineeringSkills
+                    → CommunicationSkills
+                    → InfiltrationSkills
+                    → r String
+generateDescription _ _ _ _ _ _ = pure "You never saw this person in your life."
+
+
+generateConvo ∷ (ConversationAPI c) ⇒ c () -- TODO I should be able to mix conversation monad with monad random!
+generateConvo = talk 1 "Beat it, lizzie!"
+
+
+generateEquipment ∷ (MonadRandom r) ⇒ r (Equipment States)
+generateEquipment = randomEquipment
+
+--------------------------------------------------------------------------------
 
 characters ∷ [DreamnetCharacter]
 characters =
@@ -81,79 +189,229 @@ characterForName n = fromMaybe (error "No character with that name!") . M.lookup
 
 --------------------------------------------------------------------------------
 
+
 carla ∷ DreamnetCharacter
-carla = newCharacter "Carla" "D'Addario" "La Piovra" desc facCarla convo
+carla = newCharacter
+            "Carla" "D'Addario"
+            "La Piovra"
+            RightSide
+            desc
+            equ
+            facCarla
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc = intercalate "\n"
             [ "Scrawny, beautiful, capable. You know you are. You also hope no one figures out quickly enough that you are."
             , "In this business, being considered green has certain advantages."
             ]
-        convo = talk 0 "Hi."
+        equ = Equipment
+                (Slot Nothing) -- lhand
+                (Slot Nothing) -- rhand
+                (Slot . pure . Clothes $ headband) -- head
+                (Slot . pure . Clothes $ armourPiece Torso Kevlar) -- torso
+                (Slot . pure . Clothes $ backpack [ Weapon laserjet ] ) -- back
+                (Slot . pure . Clothes $ clipBelt [ Weapon fragmentGrenade, Ammo laserjetClip, Ammo laserjetClip ]) -- belt
+                (Slot . pure . Clothes $ armourPiece Arm Kevlar) -- larm
+                (Slot . pure . Clothes $ armourPiece Arm Kevlar) -- rarm
+                (Slot . pure . Clothes $ armourPiece Thigh Kevlar) -- lthigh
+                (Slot . pure . Clothes $ armourPiece Thigh Kevlar) -- rthigh
+                (Slot . pure . Clothes $ armourPiece Shin Kevlar) -- lshin
+                (Slot . pure . Clothes $ armourPiece Shin Kevlar) -- rshin
+                (Slot . pure . Clothes $ boot Kevlar) -- lfoot
+                (Slot . pure . Clothes $ boot Kevlar) -- rfoot
+        convo = talk 0 "Hi." -- TODO Carla talks to herself in the mirror and gets stat boost?
 
 
 hideo ∷ DreamnetCharacter
-hideo = newCharacter "Hideo" "Hattori" "Tetsuo" desc facCarla convo
+hideo = newCharacter
+            "Hideo" "Hattori"
+            "Tetsuo"
+            RightSide
+            desc
+            equ
+            facCarla
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc = "<DESCRIPTION MISSING>"
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 
 devin ∷ DreamnetCharacter
-devin = newCharacter "Devin" "Dorsett" "570rm" desc facCarla convo
+devin = newCharacter
+            "Devin" "Dorsett"
+            "570rm"
+            RightSide
+            desc
+            equ
+            facCarla
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc = "<DESCRIPTION MISSING>"
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 
 delgado ∷ DreamnetCharacter
-delgado = newCharacter "Phillipe" "Delgado" "Sarge" desc facCarla convo
+delgado = newCharacter
+            "Phillipe" "Delgado"
+            "Sarge"
+            RightSide
+            desc
+            equ
+            facCarla
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc = intercalate "\n"
             [ "Scrawny, scarred and tough as nails."
             , "When you look in his eyes without giving a tell, you see that there's unspeakable depth and pain, but as soon as he catches your eyes, an imaginary door comes slamming down, the depth disappears and and Delgado's face takes that of the one everyone knows the best: mean SOB."
             , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
             ]
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "Cal, lets wrap this up quickly and get the fuck out of here."
 
 
 raj ∷ DreamnetCharacter
-raj = newCharacter "Qaayenaat" "Rajan" "Raj" desc facCarla convo
+raj = newCharacter
+        "Qaayenaat" "Rajan"
+        "Raj"
+        RightSide
+        desc
+        equ
+        facCarla
+        convo
+        10
+        (MeleeCombatSkills 0 0 0 0 0 0)
+        (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+        (ThrowingSkills 0 0 0 0 0)
+        (EngineeringSkills 0 0 0 0 0 0)
+        (CommunicationSkills 0 0 0 0 0 0 0)
+        (InfiltrationSkills 0 0 0 0 0)
     where
         desc = intercalate "\n"
             [ "Tiny, skinny and looking like she'd bolt in a second if she could."
             , "Poor Raj, you think, wondering if she understands how much you feel out of place as well. Looking at her cute, young face, you find that she's beautiful in her own way."
             , " If things didn't happen for her the way they did, it'd be hard to imagine her even throwing a look down your way, if you'd happen to pass her by in the street."
             ]
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 
 nova ∷ DreamnetCharacter
-nova = newCharacter "Annabelle" "Jenkins" "Nova" desc facCarla convo
+nova = newCharacter
+        "Annabelle" "Jenkins"
+        "Nova"
+        RightSide
+        desc
+        equ
+        facCarla
+        convo
+        10
+        (MeleeCombatSkills 0 0 0 0 0 0)
+        (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+        (ThrowingSkills 0 0 0 0 0)
+        (EngineeringSkills 0 0 0 0 0 0)
+        (CommunicationSkills 0 0 0 0 0 0 0)
+        (InfiltrationSkills 0 0 0 0 0)
     where
         desc = "<DESCRIPTION MISSING>"
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 
 cobra ∷ DreamnetCharacter
-cobra = newCharacter "Eduarda" "Ribeiro" "Cobra" desc facCarla convo
+cobra = newCharacter
+            "Eduarda" "Ribeiro"
+            "Cobra"
+            RightSide
+            desc
+            equ
+            facCarla
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc = "<DESCRIPTION MISSING>"
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 
 kman ∷ DreamnetCharacter
-kman = newCharacter "Kelly" "Lafleur" "K-man" desc facCarla convo
+kman = newCharacter
+        "Kelly" "Lafleur"
+        "K-man"
+        RightSide
+        desc
+        equ
+        facCarla
+        convo
+        10
+        (MeleeCombatSkills 0 0 0 0 0 0)
+        (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+        (ThrowingSkills 0 0 0 0 0)
+        (EngineeringSkills 0 0 0 0 0 0)
+        (CommunicationSkills 0 0 0 0 0 0 0)
+        (InfiltrationSkills 0 0 0 0 0)
     where
         desc = "<DESCRIPTION MISSING>"
+        equ = Equipment em em em em em em em em em em em em em em
         convo = talk 1 "I believe in you, Cal."
 
 --------------------------------------------------------------------------------
 
 johnny ∷ DreamnetCharacter
-johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop convo
+johnny = newCharacter
+            "Johnny" "M."
+            "Jockey"
+            RightSide
+            desc
+            equ
+            facGenpop
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc =
             "If he'd have asian facial features, he'd look like a textbook sarariman."
+        equ = Equipment em em em em em em em em em em em em em em
         convo = do
             talk 1 "Yea?"
             name 0 >>= reply . ("Hey dude, I'm " <>)
@@ -161,10 +419,25 @@ johnny = newCharacter "Johnny" "M." "Jockey" desc facGenpop convo
 
 
 sally ∷ DreamnetCharacter
-sally = newCharacter "Sally" "S." "M" desc facGenpop convo
+sally = newCharacter
+            "Sally" "S."
+            "M"
+            RightSide
+            desc
+            equ
+            facGenpop
+            convo
+            10
+            (MeleeCombatSkills 0 0 0 0 0 0)
+            (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+            (ThrowingSkills 0 0 0 0 0)
+            (EngineeringSkills 0 0 0 0 0 0)
+            (CommunicationSkills 0 0 0 0 0 0 0)
+            (InfiltrationSkills 0 0 0 0 0)
     where
         desc =
             "Slim, well-built and gorgeous, this woman looks like she's packing serious hardware. Her scrawny short black hair falls just short of shiny mirrors where her eyes are supposed to be. Probably HUD augments."
+        equ = Equipment em em em em em em em em em em em em em em
         convo = do
             talk 1 "Mmmm, hello _there_ hot stuff."
             reply "Hi, I am..."
@@ -172,12 +445,27 @@ sally = newCharacter "Sally" "S." "M" desc facGenpop convo
 
 
 moe ∷ DreamnetCharacter
-moe = newCharacter "Moe" "Sarlac" "Trigger" desc facGenpop convo
+moe = newCharacter
+        "Moe" "Sarlac"
+        "Trigger"
+        RightSide
+        desc
+        equ
+        facGenpop
+        convo
+        10
+        (MeleeCombatSkills 0 0 0 0 0 0)
+        (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+        (ThrowingSkills 0 0 0 0 0)
+        (EngineeringSkills 0 0 0 0 0 0)
+        (CommunicationSkills 0 0 0 0 0 0 0)
+        (InfiltrationSkills 0 0 0 0 0)
     where
         desc = intercalate "\n"
             [ "You never met anyone whose name fit them better. Black side hair and shiny dome, white sleeveless shirt covered with beer and fat stains, covering his giant belly - somehow, you are *sure* Moe would present a formidable opponent in close quarters."
             , "Its common knowledge that he used to run, but Devin told you bits and pieces of his past that make you feel tremendous respect towards this relic of the old age."
             ]
+        equ = Equipment em em em em em em em em em em em em em em
         convo = do
             talk 0 "Hey Moe, how's it going?"
             reply "Hey Cal, pissed and shitty, in other words - nothing new. What can I get you?"

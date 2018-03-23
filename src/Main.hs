@@ -18,12 +18,10 @@ defaultDesignData = do
 --  m ← generateMap 50 30
     m ← loadTileMap "res/bar"
     --m ← loadTileMap "res/apartmentblock"
-    rnd ← traverse randomizeStats characters
     pure $
         DesignData {
-          _dd_characters      = characterDictionary rnd
-        , _dd_defaultRedshirt = redshirt
-        , _dd_startingMap     = m
+          _dd_characters  = characterDictionary characters
+        , _dd_startingMap = m
         }
 
 

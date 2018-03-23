@@ -67,7 +67,7 @@ module Dreamnet.Character
 , is_coverSwitchManeuver
 , sumInfiltration
 
-, Equipment
+, Equipment(Equipment)
 , eq_leftHand
 , eq_rightHand
 , eq_head
@@ -139,6 +139,7 @@ data SlotType = Hand
               | Thigh
               | Shin
               | Foot
+              deriving (Eq, Show)
 
 
 newtype Slot (t ∷ SlotType) i = Slot { slottedItem ∷ Maybe i }
@@ -167,9 +168,10 @@ data Stance = Upright
             | Prone
             deriving(Eq, Ord, Bounded, Enum, Show)
 
+
 data Orientation = LeftSide
                  | RightSide
-                 deriving (Show)
+                 deriving (Eq, Ord, Bounded, Enum, Show)
                 
 --------------------------------------------------------------------------------
 
@@ -345,6 +347,8 @@ sumInfiltration is = sum $ fmap (\l → view l is)
 
 --------------------------------------------------------------------------------
 
+-- TODO some items should be able to take over multiple slots, like two-handed
+--      items or whole-body armours
 data Equipment i = Equipment {
       _eq_leftHand  ∷ Slot 'Hand i
     , _eq_rightHand ∷ Slot 'Hand i
@@ -426,34 +430,47 @@ instance Eq (Character i c f) where
 
 --------------------------------------------------------------------------------
 
-newCharacter ∷ String → String → String → String → f → c → Character i c f
-newCharacter n ln nn d fac cn =
+newCharacter ∷ String
+             → String
+             → String
+             → Orientation
+             → String
+             → Equipment i
+             → f
+             → c
+             → Word
+             → MeleeCombatSkills
+             → RangedCombatSkills
+             → ThrowingSkills
+             → EngineeringSkills
+             → CommunicationSkills
+             → InfiltrationSkills
+             → Character i c f
+newCharacter n ln nn hnd d eq fac cn mhp msk rsk tsk esk csk isk =
     Character {
       _ch_name        = n
     , _ch_lastName    = ln
     , _ch_nickName    = nn
-    , _ch_handedness  = RightSide
+    , _ch_handedness  = hnd
     , _ch_description = d
 
-    , _ch_equipment  = Equipment em em em em em em em em em em em em em em
+    , _ch_equipment  = eq
     , _ch_stance     = Upright
 
     , _ch_faction      = fac
     , _ch_conversation = cn
 
-    , _ch_healthPoints    = 10
-    , _ch_maxHealthPoints = 10
+    , _ch_healthPoints    = mhp
+    , _ch_maxHealthPoints = mhp
     , _ch_experience      = 0
 
-    , _ch_meleeCombat   = MeleeCombatSkills 0 0 0 0 0 0
-    , _ch_rangedCombat  = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
-    , _ch_throwing      = ThrowingSkills 0 0 0 0 0
-    , _ch_engineering   = EngineeringSkills 0 0 0 0 0 0
-    , _ch_communication = CommunicationSkills 0 0 0 0 0 0 0
-    , _ch_infiltration  = InfiltrationSkills 0 0 0 0 0
+    , _ch_meleeCombat   = msk
+    , _ch_rangedCombat  = rsk
+    , _ch_throwing      = tsk
+    , _ch_engineering   = esk
+    , _ch_communication = csk
+    , _ch_infiltration  = isk
     }
-    where
-        em = Slot Nothing
 
 
 -- TODO Only if hands not full!

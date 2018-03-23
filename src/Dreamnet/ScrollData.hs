@@ -8,6 +8,7 @@ module Dreamnet.ScrollData
 , sd_title
 
 , newScrollData
+, newScrollData'
 , scrollUp
 , scrollDown
 , visibleLines
@@ -22,7 +23,7 @@ module Dreamnet.ScrollData
 
 import Control.Lens (makeLenses, view, views, (%~), (+~))
 import Linear       (V2, _x, _y)
-import Data.List    (intercalate)
+import Data.List    (intercalate, genericTake)
 
 import qualified Data.Vector as V (Vector, fromList)
 
@@ -47,6 +48,18 @@ newScrollData ∷ V2 Integer → V2 Integer → Maybe String → String → Scro
 newScrollData p s t txt =
     ScrollData {
       _sd_lines     = intercalate [""] $ lines' (views _x (subtract 6) s) (fromIntegral . length) " " . words <$> lines txt
+    , _sd_startLine = 0
+    , _sd_title     = t
+
+    , _sd_position  = p
+    , _sd_size      = s
+    }
+
+
+newScrollData' ∷ V2 Integer → V2 Integer → Maybe String → [String] → ScrollData
+newScrollData' p s t lst =
+    ScrollData {
+      _sd_lines     = genericTake (views _x (subtract 6) s) <$> lst
     , _sd_startLine = 0
     , _sd_title     = t
 

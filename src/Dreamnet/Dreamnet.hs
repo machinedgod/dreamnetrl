@@ -395,10 +395,19 @@ processNormal dd Input.Talk = do
             pure Normal
         Just (v, o) → do
             runProgram dd v (programForState (view o_state o) Talk)
-processNormal _ Input.InventorySheet =
-    pure $ InventoryUI (newScrollData (V2 1 1) (V2 60 30) (Just "Inventory sheet") "")
+processNormal _ Input.InventorySheet = do
+    itemList ← fromCharacter listOfItemsFromContainers [] . view (w_active.e_object) <$> world
+    pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
+    where
+        listOfItemsFromContainers ∷ DreamnetCharacter → [String]
+        listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
+        -- TODO again, annoying. We don't know its "Clothes" inside Slot.
+        --      why is my typing logic so bad here???
+        makeItemList ∷ SlotWrapper States → [String]
+        makeItemList (SlotWrapper (Slot (Just (Clothes wi)))) = _wi_name wi : (("- "<>) . show <$> _wi_storedItems wi)
+        makeItemList (SlotWrapper (Slot Nothing))             = []
 processNormal dd Input.CharacterSheet =
-    pure $ SkillsUI  (characterForName "Carla" (view dd_characters dd))
+    pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
 
 processExamination ∷ (GameAPI g, Monad g) ⇒ ScrollData → Input.UIEvent → g GameState
@@ -407,7 +416,7 @@ processExamination sd Input.MoveUp =
 processExamination sd Input.MoveDown =
     pure $ Examination (scrollDown sd)
 processExamination _ _ =
-    pure $ Normal
+    pure Normal
 
 
 processHudTeam ∷ (GameAPI g, Monad g) ⇒ DesignData → Int → Input.UIEvent → g GameState

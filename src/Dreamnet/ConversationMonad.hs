@@ -29,6 +29,11 @@ data ConversationF a = CName      Word (String → a)
                      deriving (Functor)
 
 
+-- So that we can debug-print characters
+instance Show (ConversationF a) where
+    show _ = "[CONV]"
+
+
 instance ConversationAPI (Free ConversationF) where
     name i = Free $ CName i Pure
 
