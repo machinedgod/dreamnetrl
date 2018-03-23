@@ -16,6 +16,8 @@ module Dreamnet.Renderer
 , RendererF
 , runRenderer
 
+, draw
+, drawString
 , drawList
 
 , clear
@@ -778,6 +780,7 @@ drawList ∷ (Integral a) ⇒ a → a → [String] → C.Update ()
 drawList x y =
     traverse_ (\(ix, l) → drawString x ix l)
     . zip [y..]
+
 
 digit ∷ Word → [String]
 digit 0 = [ " ━ "

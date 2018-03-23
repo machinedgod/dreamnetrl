@@ -10,7 +10,9 @@ module Dreamnet.Input
 , nextWorldEvent
 , nextUiEvent
 , nextInteractionEvent
+
 , nextTargetSelectionEvent
+, nextAllowedCharEvent
 ) where
 
 
@@ -29,7 +31,8 @@ data WorldEvent = Move (V2 Int)
                 | Talk
                 | Get
                 | UseHeld
-                | WearHeld
+                | Wear
+                | StoreIn
                 | Wait
                 | HigherStance
                 | LowerStance
@@ -77,7 +80,8 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 't')  = Just   Talk
         worldEvent (C.EventCharacter 'g')  = Just   Get
         worldEvent (C.EventCharacter 'f')  = Just   UseHeld
-        worldEvent (C.EventCharacter 'w')  = Just   WearHeld
+        worldEvent (C.EventCharacter 'w')  = Just   Wear
+        worldEvent (C.EventCharacter 'S')  = Just   StoreIn
         worldEvent (C.EventCharacter '.')  = Just   Wait
         worldEvent (C.EventCharacter '[')  = Just   LowerStance
         worldEvent (C.EventCharacter ']')  = Just   HigherStance
@@ -126,6 +130,13 @@ nextTargetSelectionEvent = repeatUntilEvent targetEvent
         targetEvent (C.EventCharacter 'b') = Just (V2 -1  1)
         targetEvent (C.EventCharacter 'n') = Just (V2  1  1)
         targetEvent _                      = Nothing
+
+
+nextAllowedCharEvent ∷ [Char] → C.Curses Char
+nextAllowedCharEvent ac = repeatUntilEvent charEvent
+    where
+        charEvent (C.EventCharacter c) = if c `elem` ac then Just c else Nothing
+        charEvent _                    = Nothing
 
 
 repeatUntilEvent ∷ (C.Event → Maybe a) → C.Curses a

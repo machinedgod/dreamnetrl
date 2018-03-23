@@ -18,6 +18,8 @@ import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
+import Data.Foldable             (traverse_, find)
+import Data.Maybe                (fromJust)
 import Linear                    (V2(V2), _x, _y)
 
 import qualified UI.NCurses  as C
@@ -160,6 +162,8 @@ class GameAPI g where
     changeWorld     ∷ WorldM States Visibility a → g a
     -- TODO change to withTarget to make more functional
     obtainTarget    ∷ g (Maybe (V2 Int, Object States))
+    -- TODO offer abort!
+    askChoice       ∷ [(Char, String, a)] → g a
     runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
     doRender        ∷ RendererF () → g ()
     queryRenderer   ∷ RendererF a → g a
@@ -197,13 +201,31 @@ instance GameAPI GameM where
                 , "h.l"
                 , "bjn"
                 ]
-        --renderMessage "Select direction (h/j/k/l/y/u/b/n/.):"
-        --lift C.render
-        t  ← GameM (lift Input.nextTargetSelectionEvent)
+        t ← GameM (lift Input.nextTargetSelectionEvent)
         uses (g_world.w_map) (valuesAt (ap + t)) >>=
             \case
                 []  → error "Obtaining target on non-existent tile :-O"
                 l   → pure (Just (ap + t, last l))
+
+    askChoice lst = do
+        doRender $ updateUi $ RenderAction $ do
+            C.clear
+            C.resizeWindow (genericLength lst + 4) 30 -- TODO Enough to fit all
+            C.moveWindow 10 10 -- TODO Center
+            C.drawBorder (Just $ C.Glyph '│' [])
+                         (Just $ C.Glyph '│' [])
+                         (Just $ C.Glyph '─' [])
+                         (Just $ C.Glyph '─' [])
+                         (Just $ C.Glyph '╭' [])
+                         (Just $ C.Glyph '╮' [])
+                         (Just $ C.Glyph '╰' [])
+                         (Just $ C.Glyph '╯' [])
+            traverse_ (\(i, (ch, str, _)) → drawString 2 (i + 2) (ch : " - " <> str)) $ zip [0..] lst
+        t ← GameM (lift $ Input.nextAllowedCharEvent  (fst3 $ unzip3 lst))
+        pure $ trd3 $ fromJust $ find ((== t) . fst3) lst 
+        where
+            fst3 (x, _, _) = x
+            trd3 (_, _, x) = x
 
     runProgram dd v prg = do
         ms ← queryRenderer mainSize
@@ -353,16 +375,33 @@ processNormal dd Input.UseHeld = do
                     changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
                     pure ()
     pure Normal
-processNormal _ Input.WearHeld = do
+processNormal _ Input.Wear = do
+    -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
+    (side, slot) ← askChoice
+        [ ('h', "Head",        (LeftSide,  Head))
+        , ('t', "Torso",       (LeftSide,  Torso))
+        , ('T', "Back",        (LeftSide,  Back))
+        , ('b', "Belt",        (LeftSide,  Belt))
+        , ('a', "Left arm",    (LeftSide,  Arm))
+        , ('A', "Right arm",   (RightSide, Arm))
+        , ('h', "Left thigh",  (LeftSide,  Thigh))
+        , ('H', "Right thigh", (RightSide, Thigh))
+        , ('s', "Left shin",   (LeftSide,  Shin))
+        , ('S', "Right shin",  (RightSide, Shin))
+        , ('f', "Left foot",   (LeftSide,  Foot))
+        , ('F', "Right foot",  (RightSide, Foot))
+        ]
     changeWorld $ do
         changeActive
             (o_state %~
                 (\(Person ch) → Person $
                     case views (ch_primaryHand ch) slottedItem ch of
                         Nothing → ch
-                        Just i  → equip RightSide Hand Nothing . equip LeftSide Torso (Just i) $ ch)
+                        Just i  → equip RightSide Hand Nothing . equip side slot (Just i) $ ch)
                      )
+    pure Normal
+processNormal _ Input.StoreIn = do
     pure Normal
 processNormal dd Input.Examine = do
     increaseTurn
