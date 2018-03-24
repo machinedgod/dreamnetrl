@@ -3,17 +3,20 @@
 {-# LANGUAGE ExistentialQuantification, StandaloneDeriving #-}
 {-# LANGUAGE DataKinds, KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeInType #-}
 
 module Dreamnet.Character
-( ItemTraits(..)
-, Item(..)
-
+( Orientation(..)
 , SlotType(..)
-, Slot(..)
-, SlotWrapper(..)
+, Slot(Slot)
+, s_item
+, slotType
+, slotOrientation
 
 , Stance(..)
-, Orientation(..)
 
 , MeleeCombatSkills(..)
 , mcs_remainingPoints
@@ -102,34 +105,33 @@ module Dreamnet.Character
 , ch_engineering
 , ch_communication
 , ch_infiltration
-, ch_primaryHand
 
 , newCharacter
+, modifySlotContent
 , pickUp
-, equip
 
-, equipmentSlots
+, SlotWrapper(..)
+, slotWrapperOrientation
+, slotWrapperType
+, slotWrapperItem
 , equippedSlots
-, modEquipped
-, equippedContainers
+, primaryHandSlot
+, secondaryHandSlot
 ) where
 
 
-import Control.Lens (Lens', makeLenses, view, (^.), (%~))
-import Data.Maybe   (isJust)
+import Control.Lens            (makeLenses, view, views, (^.), (%~))
+import Data.Maybe              (isJust, isNothing)
+import Data.Singletons         (Demote, Sing, SingI, fromSing, sing)
+import Data.Singletons.TH      (genSingletons)
 
 --------------------------------------------------------------------------------
 
-class ItemTraits i where
-    isContainer ∷ i → Bool
+data Orientation = LeftSide
+                 | RightSide
+                 deriving (Eq, Ord, Bounded, Enum, Show)
+$(genSingletons [ ''Orientation ])
 
-newtype Item = Item String
-             deriving (Eq, Show)
-
-instance ItemTraits Item where
-    isContainer = const False
-
---------------------------------------------------------------------------------
 
 data SlotType = Hand
               | Head
@@ -141,26 +143,23 @@ data SlotType = Hand
               | Shin
               | Foot
               deriving (Eq, Show)
+$(genSingletons [ ''SlotType ])
 
 
-newtype Slot (t ∷ SlotType) i = Slot { slottedItem ∷ Maybe i }
+newtype Slot (o ∷ Maybe Orientation) (t ∷ SlotType) i = Slot { _s_item ∷ Maybe i }
+                                                      deriving (Functor, Applicative, Monad)
+makeLenses ''Slot
 
-deriving instance (Show i) ⇒ Show (Slot t i)
-deriving instance (Eq i) ⇒ Eq (Slot t i)
+deriving instance (Show i) ⇒ Show (Slot o t i)
+deriving instance (Eq i) ⇒ Eq (Slot o t i)
 
 
-equipSlot ∷ Maybe i → Slot t i → Slot t i
-equipSlot i s = s { slottedItem = i }
+slotType ∷ ∀ o t i. (SingI t) ⇒ Slot o t i → Demote SlotType
+slotType _ = fromSing (sing ∷ Sing t)
 
---------------------------------------------------------------------------------
 
--- Cannot use record syntax due to escaped type variables
-data SlotWrapper i = forall t. SlotWrapper (Slot t i)
-
-deriving instance (Show i) ⇒ Show (SlotWrapper i)
-
-instance (Eq i) ⇒ Eq (SlotWrapper i) where
-    (SlotWrapper (Slot i)) == (SlotWrapper (Slot i')) = i == i'
+slotOrientation ∷ ∀ o t i. (SingI o) ⇒ Slot o t i → Demote (Maybe Orientation)
+slotOrientation _ = fromSing (sing ∷ Sing o)
 
 --------------------------------------------------------------------------------
 
@@ -169,11 +168,6 @@ data Stance = Upright
             | Prone
             deriving(Eq, Ord, Bounded, Enum, Show)
 
-
-data Orientation = LeftSide
-                 | RightSide
-                 deriving (Eq, Ord, Bounded, Enum, Show)
-                
 --------------------------------------------------------------------------------
 
 -- All combat-related skills
@@ -351,21 +345,21 @@ sumInfiltration is = sum $ fmap (\l → view l is)
 -- TODO some items should be able to take over multiple slots, like two-handed
 --      items or whole-body armours
 data Equipment i = Equipment {
-      _eq_leftHand  ∷ Slot 'Hand i
-    , _eq_rightHand ∷ Slot 'Hand i
+      _eq_leftHand  ∷ Slot ('Just 'LeftSide) 'Hand i
+    , _eq_rightHand ∷ Slot ('Just 'RightSide) 'Hand i
 
-    , _eq_head       ∷ Slot 'Head i
-    , _eq_torso      ∷ Slot 'Torso i
-    , _eq_back       ∷ Slot 'Back i
-    , _eq_belt       ∷ Slot 'Belt i
-    , _eq_leftArm    ∷ Slot 'Arm i
-    , _eq_rightArm   ∷ Slot 'Arm i
-    , _eq_leftThigh  ∷ Slot 'Thigh i
-    , _eq_rightThigh ∷ Slot 'Thigh i
-    , _eq_leftShin   ∷ Slot 'Shin i
-    , _eq_rightShin  ∷ Slot 'Shin i
-    , _eq_leftFoot   ∷ Slot 'Foot i
-    , _eq_rightFoot  ∷ Slot 'Foot i
+    , _eq_head       ∷ Slot 'Nothing 'Head i
+    , _eq_torso      ∷ Slot 'Nothing 'Torso i
+    , _eq_back       ∷ Slot 'Nothing 'Back i
+    , _eq_belt       ∷ Slot 'Nothing 'Belt i
+    , _eq_leftArm    ∷ Slot ('Just 'LeftSide) 'Arm i
+    , _eq_rightArm   ∷ Slot ('Just 'RightSide) 'Arm i
+    , _eq_leftThigh  ∷ Slot ('Just 'LeftSide) 'Thigh i
+    , _eq_rightThigh ∷ Slot ('Just 'RightSide) 'Thigh i
+    , _eq_leftShin   ∷ Slot ('Just 'LeftSide) 'Shin i
+    , _eq_rightShin  ∷ Slot ('Just 'RightSide) 'Shin i
+    , _eq_leftFoot   ∷ Slot ('Just 'LeftSide) 'Foot i
+    , _eq_rightFoot  ∷ Slot ('Just 'RightSide) 'Foot i
     }
     deriving(Eq, Show)
 makeLenses ''Equipment
@@ -420,12 +414,6 @@ data Character i c f = Character {
     deriving (Show)
 makeLenses ''Character
 
-ch_primaryHand ∷ Character i c f → Lens' (Character i c f) (Slot 'Hand i)
-ch_primaryHand ch = slot $ ch ^. ch_handedness
-    where slot LeftSide  = ch_equipment.eq_leftHand
-          slot RightSide = ch_equipment.eq_rightHand
-
-
 instance Eq (Character i c f) where
     ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
 
@@ -473,15 +461,58 @@ newCharacter n ln nn hnd d eq fac cn mhp msk rsk tsk esk csk isk =
     , _ch_infiltration  = isk
     }
 
+--------------------------------------------------------------------------------
 
--- TODO Only if hands not full!
+modifySlotContent ∷ Maybe Orientation → SlotType → (Maybe i → Maybe i) → Character i c f → Character i c f
+modifySlotContent (Just LeftSide)  Hand  f = ch_equipment.eq_leftHand.s_item %~ f
+modifySlotContent (Just RightSide) Hand  f = ch_equipment.eq_rightHand.s_item %~ f
+modifySlotContent _                Head  f = ch_equipment.eq_head.s_item %~ f
+modifySlotContent _                Torso f = ch_equipment.eq_torso.s_item %~ f
+modifySlotContent _                Back  f = ch_equipment.eq_back.s_item %~ f
+modifySlotContent _                Belt  f = ch_equipment.eq_belt.s_item %~ f
+modifySlotContent (Just LeftSide)  Arm   f = ch_equipment.eq_rightArm.s_item %~ f
+modifySlotContent (Just RightSide) Arm   f = ch_equipment.eq_rightArm.s_item %~ f
+modifySlotContent (Just LeftSide)  Thigh f = ch_equipment.eq_leftThigh.s_item %~ f
+modifySlotContent (Just RightSide) Thigh f = ch_equipment.eq_rightThigh.s_item %~ f
+modifySlotContent (Just LeftSide)  Shin  f = ch_equipment.eq_leftShin.s_item %~ f
+modifySlotContent (Just RightSide) Shin  f = ch_equipment.eq_rightShin.s_item %~ f
+modifySlotContent (Just LeftSide)  Foot  f = ch_equipment.eq_leftFoot.s_item %~ f
+modifySlotContent (Just RightSide) Foot  f = ch_equipment.eq_rightFoot.s_item %~ f
+modifySlotContent _                _     _ = id
+
+
 pickUp ∷ i → Character i c f → Character i c f
-pickUp i ch = (ch_primaryHand ch) %~ equipSlot (Just i) $ ch
+pickUp i ch =
+    let phsw = primaryHandSlot ch
+    in  if isNothing (slotWrapperItem phsw)
+            then modifySlotContent (slotWrapperOrientation phsw) (slotWrapperType phsw) (const (Just i)) $ ch
+            else ch
 
 --------------------------------------------------------------------------------
 
-equipmentSlots ∷ Character i c f → [SlotWrapper i]
-equipmentSlots ch = 
+-- Cannot use record syntax due to escaped type variables
+data SlotWrapper i = ∀ o t. (SingI o, SingI t) ⇒ SlotWrapper (Slot o t i)
+
+deriving instance (Show i) ⇒ Show (SlotWrapper i)
+deriving instance Functor SlotWrapper
+
+instance (Eq i) ⇒ Eq (SlotWrapper i) where
+    (SlotWrapper (Slot i)) == (SlotWrapper (Slot i')) = i == i'
+
+slotWrapperOrientation ∷ SlotWrapper i → Maybe Orientation
+slotWrapperOrientation (SlotWrapper s) = slotOrientation s
+
+
+slotWrapperType ∷ SlotWrapper i → SlotType
+slotWrapperType (SlotWrapper s) = slotType s
+
+
+slotWrapperItem ∷ SlotWrapper i → Maybe i
+slotWrapperItem (SlotWrapper s) = view s_item s
+
+
+slotsAsList ∷ Character i c f → [SlotWrapper i]
+slotsAsList ch = 
     [ SlotWrapper $ ch ^. ch_equipment.eq_leftHand
     , SlotWrapper $ ch ^. ch_equipment.eq_rightHand
     , SlotWrapper $ ch ^. ch_equipment.eq_head
@@ -500,35 +531,21 @@ equipmentSlots ch =
 
 
 equippedSlots ∷ Character i c f → [SlotWrapper i]
-equippedSlots = filter hasItem . equipmentSlots
+equippedSlots = filter hasItem . slotsAsList
     where
-        hasItem (SlotWrapper (Slot mi)) = isJust mi
+        hasItem (SlotWrapper s) = views s_item isJust s
 
 
-equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
-equippedContainers = filter containers . equippedSlots
+primaryHandSlot ∷ Character i c f → SlotWrapper i
+primaryHandSlot ch = views ch_handedness fetch ch
     where
-        containers (SlotWrapper (Slot i)) = maybe False isContainer i
+        fetch LeftSide  = SlotWrapper (ch ^. ch_equipment.eq_leftHand)
+        fetch RightSide = SlotWrapper (ch ^. ch_equipment.eq_rightHand)
 
 
-modEquipped ∷ Lens' (Equipment i) (Slot t i) → (Slot t i → Slot t i) → Character i c f → Character i c f
-modEquipped eql f = ch_equipment.eql %~ f
-
-
-equip ∷ Orientation → SlotType → Maybe i → Character i c f → Character i c f
-equip RightSide Hand  x = modEquipped eq_rightHand  (equipSlot x)
-equip LeftSide  Hand  x = modEquipped eq_leftHand   (equipSlot x)
-equip _         Head  x = modEquipped eq_head       (equipSlot x)
-equip _         Torso x = modEquipped eq_torso      (equipSlot x)
-equip _         Back  x = modEquipped eq_back       (equipSlot x)
-equip _         Belt  x = modEquipped eq_belt       (equipSlot x)
-equip RightSide Arm   x = modEquipped eq_rightArm   (equipSlot x)
-equip LeftSide  Arm   x = modEquipped eq_rightArm   (equipSlot x)
-equip RightSide Thigh x = modEquipped eq_rightThigh (equipSlot x)
-equip LeftSide  Thigh x = modEquipped eq_leftThigh  (equipSlot x)
-equip RightSide Shin  x = modEquipped eq_rightShin  (equipSlot x)
-equip LeftSide  Shin  x = modEquipped eq_leftShin   (equipSlot x)
-equip RightSide Foot  x = modEquipped eq_rightFoot  (equipSlot x)
-equip LeftSide  Foot  x = modEquipped eq_leftFoot   (equipSlot x)
-
+secondaryHandSlot ∷ Character i c f → SlotWrapper i
+secondaryHandSlot ch = views ch_handedness fetch ch
+    where
+        fetch LeftSide  = SlotWrapper (ch ^. ch_equipment.eq_rightHand)
+        fetch RightSide = SlotWrapper (ch ^. ch_equipment.eq_leftHand)
 

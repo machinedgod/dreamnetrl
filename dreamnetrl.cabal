@@ -77,6 +77,7 @@ executable dreamnetrl
                        Design.DesignAPI
                        Design.ObjectPrograms
                        Design.GameCharacters
+                       Design.Items
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
@@ -97,7 +98,8 @@ executable dreamnetrl
                        cassava,
                        directory,
                        free,
-                       binary
+                       binary,
+                       singletons
   -- Directories containing source files.
   hs-source-dirs:      src
   

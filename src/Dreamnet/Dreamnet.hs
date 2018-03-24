@@ -3,6 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 
@@ -19,7 +20,7 @@ import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
 import Data.Foldable             (traverse_, find)
-import Data.Maybe                (fromJust)
+import Data.Maybe                (fromJust, fromMaybe)
 import Linear                    (V2(V2), _x, _y)
 
 import qualified UI.NCurses  as C
@@ -220,7 +221,7 @@ instance GameAPI GameM where
                          (Just $ C.Glyph '╮' [])
                          (Just $ C.Glyph '╰' [])
                          (Just $ C.Glyph '╯' [])
-            traverse_ (\(i, (ch, str, _)) → drawString 2 (i + 2) (ch : " - " <> str)) $ zip [0..] lst
+            traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
         t ← GameM (lift $ Input.nextAllowedCharEvent  (fst3 $ unzip3 lst))
         pure $ trd3 $ fromJust $ find ((== t) . fst3) lst 
         where
@@ -364,7 +365,7 @@ processNormal dd Input.UseHeld = do
         Just (v, o) → do
             -- TODO this should be much easier
             hv  ← view (w_active.e_position) <$> world
-            mho ← fromCharacter (\ch → slottedItem $ view (ch_primaryHand ch) ch) Nothing . view (w_active.e_object) <$> world
+            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . view (w_active.e_object) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
@@ -379,40 +380,47 @@ processNormal _ Input.Wear = do
     -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
     (side, slot) ← askChoice
-        [ ('h', "Head",        (LeftSide,  Head))
-        , ('t', "Torso",       (LeftSide,  Torso))
-        , ('T', "Back",        (LeftSide,  Back))
-        , ('b', "Belt",        (LeftSide,  Belt))
-        , ('a', "Left arm",    (LeftSide,  Arm))
-        , ('A', "Right arm",   (RightSide, Arm))
-        , ('h', "Left thigh",  (LeftSide,  Thigh))
-        , ('H', "Right thigh", (RightSide, Thigh))
-        , ('s', "Left shin",   (LeftSide,  Shin))
-        , ('S', "Right shin",  (RightSide, Shin))
-        , ('f', "Left foot",   (LeftSide,  Foot))
-        , ('F', "Right foot",  (RightSide, Foot))
+        [ ('h', "Head",        (Nothing,  Head))
+        , ('t', "Torso",       (Nothing,  Torso))
+        , ('T', "Back",        (Nothing,  Back))
+        , ('b', "Belt",        (Nothing,  Belt))
+        , ('a', "Left arm",    ((Just LeftSide),  Arm))
+        , ('A', "Right arm",   ((Just RightSide), Arm))
+        , ('h', "Left thigh",  ((Just LeftSide),  Thigh))
+        , ('H', "Right thigh", ((Just RightSide), Thigh))
+        , ('s', "Left shin",   ((Just LeftSide),  Shin))
+        , ('S', "Right shin",  ((Just RightSide), Shin))
+        , ('f', "Left foot",   ((Just LeftSide),  Foot))
+        , ('F', "Right foot",  ((Just RightSide), Foot))
         ]
     changeWorld $
         changeActive $
             withCharacter $
-                \ch → case views (ch_primaryHand ch) slottedItem ch of
+                \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
-                       Just i  → equip RightSide Hand Nothing . equip side slot (Just i) $ ch
+                       Just i  → modifySlotContent (Just RightSide) Hand (const Nothing)
+                                 . modifySlotContent side slot (const (Just i)) $ ch
     pure Normal
 processNormal _ Input.StoreIn = do
     increaseTurn
 
     containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
-    let characters = "fdsahjklrewqyuiovcxzbnmtgp"
-    container ← askChoice (zip3 characters ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
-
+    let chs = "fdsahjklrewqyuiovcxzbnmtgp"
+    (SlotWrapper s) ← askChoice (zip3 chs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     changeWorld $
         changeActive $
             withCharacter $
-                \ch → case views (ch_primaryHand ch) slottedItem ch of
+                \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
-                       Just i  → equip RightSide Hand Nothing . modEquipped eq_back (\(Slot (Just (Clothes wi))) → Slot (Just (Clothes (wi_storedItems %~ (++[i]) $ wi)))) $ ch
+                       Just i  → modifySlotContent (Just RightSide) Hand (const Nothing)
+                                 . modifySlotContent (slotOrientation s) (slotType s) (appendToContainer i) $ ch
+                                 -- . (ch_equipment.correctLen s.s_item._Just %~ (\(Clothes wi) → Clothes (wi_storedItems %~ (++[i]) $ wi))) $ ch
     pure Normal
+    where
+        appendToContainer ∷ States → Maybe States → Maybe States
+        appendToContainer i (Just (Clothes wi)) = Just $ Clothes (wi_storedItems %~ (++[i]) $ wi)
+        appendToContainer _ x                   = x
+
 processNormal dd Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
@@ -454,7 +462,7 @@ processNormal _ Input.InventorySheet = do
         --      why is my typing logic so bad here???
         makeItemList ∷ SlotWrapper States → [String]
         makeItemList (SlotWrapper (Slot (Just (Clothes wi)))) = _wi_name wi : (("- "<>) . show <$> _wi_storedItems wi)
-        makeItemList (SlotWrapper (Slot Nothing))             = []
+        makeItemList _                                        = []
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
@@ -601,6 +609,12 @@ processComputerOperation v ix cd Input.BackOut = do
 
 
 --------------------------------------------------------------------------------
+
+equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
+equippedContainers = filter containers . equippedSlots
+    where
+        containers (SlotWrapper s) = views s_item (fromMaybe False . fmap isContainer) s
+
 
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do

@@ -18,7 +18,7 @@ import qualified Data.Map as M (Map)
 import Dreamnet.ChoiceData         (ChoiceData, newChoiceData)
 import Dreamnet.ScrollData         (ScrollData, newScrollData)
 import Dreamnet.TileMap            (TileMap)
-import Dreamnet.Character          (ItemTraits(..), SlotType(..), Character, ch_name)
+import Dreamnet.Character          (SlotType(..), Character, ch_name)
 import Dreamnet.ComputerModel      (ComputerData)
 import Dreamnet.Conversation       (ConversationNode(..))
 import Dreamnet.ConversationMonad  (ConversationF)
@@ -53,6 +53,10 @@ modify ∷ (ObjectAPI o, Monad o) ⇒ (States → States) → o ()
 modify f = get >>= put . f 
 
 --------------------------------------------------------------------------------
+
+class ItemTraits i where
+    isContainer ∷ i → Bool
+    -- TODO container of what type?
 
 data Material = Kevlar
               | Polyester
@@ -108,6 +112,12 @@ data AmmoItem = AmmoItem {
     }
     deriving (Eq)
 
+
+data ThrownWeaponItem = ThrownWeaponItem {
+      _twi_name ∷ String
+    }
+    deriving (Eq)
+
 --------------------------------------------------------------------------------
 
 data InteractionType = Examine
@@ -132,20 +142,22 @@ data States = Prop      String
             | Clothes   (WearableItem States)
             | Weapon    WeaponItem
             | Ammo      AmmoItem
+            | Throwable ThrownWeaponItem
             | Empty
             deriving (Eq)
 
 instance Show States where
-    show (Prop s)     = "A " <> s
-    show (Camera _ _) = "A camera."
-    show (Person ch)  = view ch_name ch
-    show (Computer _) = "A computer"
-    show Door         = "An generic, common object that switches collidable state when activated."
-    show Mirror       = "You're so pretty!"
-    show (Clothes wi) = _wi_name wi
-    show (Weapon wpi) = _wpi_name wpi
-    show (Ammo ami)   = _ami_name ami
-    show Empty        = "This, is, uh... nothing."
+    show (Prop s)        = "A " <> s
+    show (Camera _ _)    = "A camera."
+    show (Person ch)     = view ch_name ch
+    show (Computer _)    = "A computer"
+    show Door            = "An generic, common object that switches collidable state when activated."
+    show Mirror          = "You're so pretty!"
+    show (Clothes wi)    = _wi_name wi
+    show (Weapon wpi)    = _wpi_name wpi
+    show (Ammo ami)      = _ami_name ami
+    show (Throwable twi) = _twi_name twi
+    show Empty           = "This, is, uh... nothing."
 
 
 instance ItemTraits States where
@@ -213,7 +225,7 @@ conversationSize = fmap (`div` 3) . uncurry V2
 --------------------------------------------------------------------------------
 
 data DesignData = DesignData {
-      _dd_characters      ∷ M.Map String DreamnetCharacter 
+      _dd_characters      ∷ M.Map String DreamnetCharacter
     , _dd_startingMap     ∷ TileMap
     }
 makeLenses ''DesignData

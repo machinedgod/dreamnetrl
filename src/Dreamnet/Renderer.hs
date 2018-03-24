@@ -384,7 +384,7 @@ drawHud gs team turns = do
             drawString (ox + 1) (oy + 1) $ 
                 maybe ("<EMPTY>")
                       (take (fromIntegral boxWidth) . show)
-                      (slottedItem . view (ch_primaryHand ch) $ ch)
+                      (slotWrapperItem . primaryHandSlot $ ch)
             
             -- Clip
             --let clipStr = show cl <> "/" <> show mcl
@@ -613,8 +613,8 @@ drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
         drawString 20 43 (padC 17 $ views (ch_equipment.eq_rightFoot)  showItem ch)
         drawString 40 43 (padC 17 $ views (ch_equipment.eq_leftFoot)   showItem ch)
     where
-        showItem ∷ Slot h States → String
-        showItem = maybe "<EMPTY>" show . slottedItem
+        showItem ∷ Slot o t States → String
+        showItem = maybe "<EMPTY>" show . view s_item
 
 
 equipmentDoll ∷ [String]

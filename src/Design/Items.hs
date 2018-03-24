@@ -32,9 +32,9 @@ laserjetClip = AmmoItem {
 --------------------------------------------------------------------------------
 -- Weapons: throwable
 
-fragmentGrenade ∷ WeaponItem
-fragmentGrenade = WeaponItem {
-      _wpi_name = "Fragment grenade"
+fragmentGrenade ∷ ThrownWeaponItem
+fragmentGrenade = ThrownWeaponItem {
+      _twi_name = "Fragment grenade"
     }
 
 --------------------------------------------------------------------------------

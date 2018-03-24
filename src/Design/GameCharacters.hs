@@ -17,10 +17,11 @@ where
 
 
 import Safe                 (at)
-import Control.Lens         (view, (.~))
-import Control.Monad.Random (MonadRandom, getRandomR)
+import Control.Lens         (view)
+import Control.Monad.Random (MonadRandom, getRandom, getRandomR)
 import Data.List            (intercalate)
 import Data.Maybe           (fromMaybe)
+import Data.Bool            (bool)
 import Data.Semigroup       ((<>))
 
 import qualified Data.Map as M (Map, fromList, lookup)
@@ -41,14 +42,13 @@ facCarla ∷ Faction
 facCarla = Faction "carla"
 
 
-
 --------------------------------------------------------------------------------
 
 randomName ∷ (MonadRandom r) ⇒ r (String, String)
-randomName = pure (,) <*> name <*> lname
+randomName = pure (,) <*> rndname <*> rndlname
     where
-        name = at englishNames <$> getRandomR (0, length englishNames - 1)
-        lname = at englishSurnames <$> getRandomR (0, length englishSurnames - 1)
+        rndname = at englishNames <$> getRandomR (0, length englishNames - 1)
+        rndlname = at englishSurnames <$> getRandomR (0, length englishSurnames - 1)
         englishNames =
             [ "Aaron", "Abbott", "Abel", "Abner", "Abraham", "Adam", "Addison"
             , "Adler", "Adley", "Adrian", "Aedan", "Aiken", "Alan"
@@ -111,11 +111,11 @@ randomNickname = at nouns <$> getRandomR (0, length nouns - 1)
 --------------------------------------------------------------------------------
 
 randomOrientation ∷ (MonadRandom r) ⇒ r Orientation
-randomOrientation = toEnum <$> getRandomR (fromEnum (minBound ∷ Orientation), fromEnum (maxBound ∷ Orientation))
+randomOrientation = bool LeftSide RightSide <$> getRandom
 
 --------------------------------------------------------------------------------
 
-em ∷ Slot t i
+em ∷ Slot o t i
 em = Slot Nothing
 
 
@@ -129,7 +129,7 @@ randomCharacter = do
     (n, ln) ← randomName
     nn      ← randomNickname
     hnd     ← randomOrientation
-    equ     ← randomEquipment
+    equ     ← generateEquipment
     msk     ← pure (MeleeCombatSkills 0 0 0 0 0 0)
     rsk     ← pure (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
     tsk     ← pure (ThrowingSkills 0 0 0 0 0)
@@ -217,7 +217,7 @@ carla = newCharacter
                 (Slot . pure . Clothes $ headband) -- head
                 (Slot . pure . Clothes $ armourPiece Torso Kevlar) -- torso
                 (Slot . pure . Clothes $ backpack [ Weapon laserjet ] ) -- back
-                (Slot . pure . Clothes $ clipBelt [ Weapon fragmentGrenade, Ammo laserjetClip, Ammo laserjetClip ]) -- belt
+                (Slot . pure . Clothes $ clipBelt [ Throwable fragmentGrenade, Ammo laserjetClip, Ammo laserjetClip ]) -- belt
                 (Slot . pure . Clothes $ armourPiece Arm Kevlar) -- larm
                 (Slot . pure . Clothes $ armourPiece Arm Kevlar) -- rarm
                 (Slot . pure . Clothes $ armourPiece Thigh Kevlar) -- lthigh
