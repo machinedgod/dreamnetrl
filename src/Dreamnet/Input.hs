@@ -33,6 +33,7 @@ data WorldEvent = Move (V2 Int)
                 | UseHeld
                 | Wear
                 | StoreIn
+                | PullFrom
                 | Wait
                 | HigherStance
                 | LowerStance
@@ -82,6 +83,7 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 'f')  = Just   UseHeld
         worldEvent (C.EventCharacter 'w')  = Just   Wear
         worldEvent (C.EventCharacter 'S')  = Just   StoreIn
+        worldEvent (C.EventCharacter 'P')  = Just   PullFrom
         worldEvent (C.EventCharacter '.')  = Just   Wait
         worldEvent (C.EventCharacter '[')  = Just   LowerStance
         worldEvent (C.EventCharacter ']')  = Just   HigherStance

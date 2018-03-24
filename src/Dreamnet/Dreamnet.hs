@@ -153,6 +153,10 @@ newGame dd = newRenderEnvironment >>= \rdf →
 
 --------------------------------------------------------------------------------
 
+choiceChs ∷ [Char]
+choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added to be able to back out
+
+
 class GameAPI g where
     currentTurn     ∷ g Word
     increaseTurn    ∷ g ()
@@ -402,25 +406,48 @@ processNormal _ Input.Wear = do
                                  . modifySlotContent side slot (const (Just i)) $ ch
     pure Normal
 processNormal _ Input.StoreIn = do
+    -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
-
     containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
-    let chs = "fdsahjklrewqyuiovcxzbnmtgp"
-    (SlotWrapper s) ← askChoice (zip3 chs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
+    sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     changeWorld $
         changeActive $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
                        Just i  → modifySlotContent (Just RightSide) Hand (const Nothing)
-                                 . modifySlotContent (slotOrientation s) (slotType s) (appendToContainer i) $ ch
-                                 -- . (ch_equipment.correctLen s.s_item._Just %~ (\(Clothes wi) → Clothes (wi_storedItems %~ (++[i]) $ wi))) $ ch
+                                 . modifySlotContent (slotWrapperOrientation sw) (slotWrapperType sw) (appendToContainer i) $ ch
     pure Normal
     where
         appendToContainer ∷ States → Maybe States → Maybe States
         appendToContainer i (Just (Clothes wi)) = Just $ Clothes (wi_storedItems %~ (++[i]) $ wi)
         appendToContainer _ x                   = x
+processNormal _ Input.PullFrom = do
+    -- TODO pulling stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
+    increaseTurn
 
+    -- TODO make this single-step choice (show containers and items as tree)
+    containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
+    sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
+
+    let (Just (Clothes wi)) = slotWrapperItem sw
+        itemList            = view wi_storedItems wi
+
+    item ← askChoice (zip3 choiceChs (show <$> itemList) itemList)
+
+    changeWorld $
+        changeActive $
+            withCharacter $
+                \ch → modifySlotContent
+                        (slotWrapperOrientation (primaryHandSlot ch))
+                        (slotWrapperType (primaryHandSlot ch))
+                        (const (Just item))
+                      . modifySlotContent
+                        (slotWrapperOrientation sw)
+                        (slotWrapperType sw)
+                        (\(Just (Clothes wi)) → Just (Clothes (wi { _wi_storedItems = filter ((/=) item) (_wi_storedItems wi) })))
+                      $ ch
+    pure Normal
 processNormal dd Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
@@ -455,14 +482,6 @@ processNormal dd Input.Talk = do
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . view (w_active.e_object) <$> world
     pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
-    where
-        listOfItemsFromContainers ∷ DreamnetCharacter → [String]
-        listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
-        -- TODO again, annoying. We don't know its "Clothes" inside Slot.
-        --      why is my typing logic so bad here???
-        makeItemList ∷ SlotWrapper States → [String]
-        makeItemList (SlotWrapper (Slot (Just (Clothes wi)))) = _wi_name wi : (("- "<>) . show <$> _wi_storedItems wi)
-        makeItemList _                                        = []
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
@@ -615,6 +634,15 @@ equippedContainers = filter containers . equippedSlots
     where
         containers (SlotWrapper s) = views s_item (fromMaybe False . fmap isContainer) s
 
+
+listOfItemsFromContainers ∷ Character States c f → [String]
+listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
+    where
+        -- TODO again, annoying. We don't know its "Clothes" inside Slot.
+        --      why is my typing logic so bad here???
+        makeItemList ∷ SlotWrapper States → [String]
+        makeItemList (SlotWrapper (Slot (Just (Clothes wi)))) = _wi_name wi : (("- "<>) . show <$> _wi_storedItems wi)
+        makeItemList _                                        = []
 
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do

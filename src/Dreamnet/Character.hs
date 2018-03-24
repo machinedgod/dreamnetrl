@@ -114,6 +114,7 @@ module Dreamnet.Character
 , slotWrapperOrientation
 , slotWrapperType
 , slotWrapperItem
+, slotsAsList
 , equippedSlots
 , primaryHandSlot
 , secondaryHandSlot
@@ -146,6 +147,8 @@ data SlotType = Hand
 $(genSingletons [ ''SlotType ])
 
 
+-- TODO we probably should keep type as a single variable, and then join
+--      whatever we want in (Slot type, orientation, allowed items, etc)
 newtype Slot (o ∷ Maybe Orientation) (t ∷ SlotType) i = Slot { _s_item ∷ Maybe i }
                                                       deriving (Functor, Applicative, Monad)
 makeLenses ''Slot
@@ -344,6 +347,7 @@ sumInfiltration is = sum $ fmap (\l → view l is)
 
 -- TODO some items should be able to take over multiple slots, like two-handed
 --      items or whole-body armours
+-- NOTE support for different types of items in different slots? Eg "Any" type of items or "Clothes" items?
 data Equipment i = Equipment {
       _eq_leftHand  ∷ Slot ('Just 'LeftSide) 'Hand i
     , _eq_rightHand ∷ Slot ('Just 'RightSide) 'Hand i
@@ -498,6 +502,7 @@ deriving instance Functor SlotWrapper
 
 instance (Eq i) ⇒ Eq (SlotWrapper i) where
     (SlotWrapper (Slot i)) == (SlotWrapper (Slot i')) = i == i'
+
 
 slotWrapperOrientation ∷ SlotWrapper i → Maybe Orientation
 slotWrapperOrientation (SlotWrapper s) = slotOrientation s
