@@ -368,16 +368,16 @@ processNormal dd Input.UseHeld = do
             changeWorld $ setStatus "Nothing there."
         Just (v, o) → do
             -- TODO this should be much easier
-            hv  ← view (w_active.e_position) <$> world
             mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . view (w_active.e_object) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
                 Just ho → do
+                    hv  ← view (w_active.e_position) <$> world
                     let so = view o_state o
                     _ ← runProgram dd hv (programForState ho (OperateOn so))
                     _ ← runProgram dd v  (programForState so (OperateWith ho))
-                    changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
+                    --changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
                     pure ()
     pure Normal
 processNormal _ Input.Wear = do

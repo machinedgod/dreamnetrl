@@ -125,7 +125,6 @@ data InteractionType = Examine
                      | Talk
                      | OperateOn   States
                      | OperateWith States
-                     | AiTick
 
 
 newtype Faction = Faction String

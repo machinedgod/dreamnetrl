@@ -15,14 +15,20 @@ import Design.GameCharacters (characterForName)
 
 --------------------------------------------------------------------------------
 
+-- TODO So, I get all States data here. Maybe this is the place to feed it
+--      into programs?
 programForState ∷ (ObjectAPI o, Monad o) ⇒ States → InteractionType → o ()
-programForState Door         it      = door it
-programForState (Camera _ _) it      = camera it
-programForState (Person _)   it      = person it
-programForState (Computer _) it      = computer it
-programForState Mirror       it      = mirror it
-programForState (Prop n)     Examine = message $ "A " <> n
-programForState _            _       = pure ()
+programForState (Prop _)      it = genericProp it
+programForState (Camera _ _)  it = camera it
+programForState (Person _)    it = person it
+programForState (Computer _)  it = computer it
+programForState Door          it = door it
+programForState Mirror        it = mirror it
+programForState (Clothes _)   it = genericClothes it
+programForState (Weapon _)    it = genericWeapon it
+programForState (Ammo _)      it = genericAmmo it
+programForState (Throwable _) it = genericThrowable it
+programForState Empty         _  = pure ()
 
 --------------------------------------------------------------------------------
 
@@ -98,11 +104,67 @@ camera _ =
 
 
 mirror ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
-mirror Examine = do
+mirror Examine =
     designData >>= showInfoWindow . view ch_description . characterForName "Carla" . view dd_characters
 mirror Talk =
     designData >>= startConversation . characterForName "Carla" . view dd_characters
 mirror _ =
+    pure ()
+
+
+genericProp ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericProp Examine =
+    get >>= message . ("A " <>) . (\(Prop n) → n)
+genericProp _ =
+    pure ()
+
+
+genericClothes ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericClothes Examine =
+    get >>= message . ("A " <>) . (\(Clothes wi) → view wi_name wi)
+genericClothes _ =
+    pure ()
+
+
+genericWeapon ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericWeapon Examine =
+    get >>= message . ("Nice weapon, a " <>) . (\(Weapon wpi) → view wpi_name wpi)
+genericWeapon Operate =
+    message "This weapon doesn't seem to have any configs or settings."
+genericWeapon Talk =
+    message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
+genericWeapon (OperateOn s) =
+    message $ "Boom boom! " <> show s <> " is dead!"
+genericWeapon (OperateWith (Ammo ami)) =
+    message $ "You reload the gun with ammo clip: " <> view ami_name ami
+genericWeapon _ =
+    pure ()
+
+
+genericAmmo ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericAmmo Examine =
+    get >>= message . ("Nice ammo, a " <>) . (\(Ammo ami) → view ami_name ami)
+genericAmmo Operate =
+    get >>= message . ("You change configuration of this " <>)  . (\(Ammo ami) → view ami_name ami)
+genericAmmo (OperateOn s) =
+    message $ "You reload the " <> show s
+genericAmmo (OperateWith (Weapon wpi)) =
+    message $ "While you find its really difficult and time consuming, somehow you manage to insert the clip into " <> view wpi_name wpi <> " by ramming it over the clip."
+genericAmmo _ =
+    pure ()
+    
+
+
+genericThrowable ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericThrowable Examine =
+    get >>= message . ("Nice throwable, a " <>) . (\(Ammo ami) → view ami_name ami)
+genericThrowable Operate =
+    message "The thing is now armed, gulp."
+genericThrowable (OperateOn (Person ch)) =
+    message $ "You try to show your grenade up " <> view ch_name ch <> "'s ass."
+genericThrowable (OperateWith s) =
+    message $ "You try and hit the grenade with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
+genericThrowable _ =
     pure ()
 
 
