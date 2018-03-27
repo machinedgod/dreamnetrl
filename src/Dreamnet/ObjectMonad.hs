@@ -154,10 +154,9 @@ runWithGameState dd gs ss (cv, o) (Free (Get fn)) = do
     runWithGameState dd gs ss (cv, o) (fn . view o_state $ o)
 
 runWithGameState dd gs ss (cv, o) (Free (ScanRange r f fn)) = do
-    m ← worldMap
-    let points = interestingObjects cv r f m
-    let v      = zip points (last . (`valuesAt` m) <$> points)
-    runWithGameState dd gs ss (cv, o) (fn v)
+    points ← interestingObjects cv r f
+    values ← traverse (fmap last . valuesAt) points
+    runWithGameState dd gs ss (cv, o) (fn (zip points values))
 
 runWithGameState _ gs _ _ (Pure x) =
     pure (x, gs)

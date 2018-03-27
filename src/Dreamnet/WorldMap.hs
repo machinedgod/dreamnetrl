@@ -4,10 +4,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
 
 module Dreamnet.WorldMap
 ( WorldMap
-, desc
 
 -- TODO convert to API
 , wm_data
@@ -16,22 +16,25 @@ module Dreamnet.WorldMap
 , newWorldMap
 , fromTileMap
 
-, outOfBounds
-, valuesAt
-, modifyCell
-, replaceCell
-, addToCell
-, deleteFromCell
-, interestingObjects
+, WorldMapReadAPI(..)
+, WorldMapAPI(..)
+, WorldMapM
+, runWorldMap
+, evalWorldMap
+, execWorldMap
 ) where
 
-import Control.Lens   (makeLenses, view, views, (^.), (%~))
-import Data.Bool      (bool)
-import Data.Semigroup ((<>))
-import Data.List      (delete)
-import Linear         (V2(V2))
+import Safe                (atMay)
+import Control.Lens        (makeLenses, view, use, uses, (^.), (%=))
+import Control.Monad       (filterM, foldM)
+import Control.Monad.State (State, MonadState, runState, get)
+import Data.Bool           (bool)
+import Data.Semigroup      ((<>))
+import Data.List           (delete)
+import Data.Maybe          (fromMaybe)
+import Linear              (V2(V2))
 
-import qualified Data.Vector         as V  (Vector, (!), imap, replicate, fromList, head,
+import qualified Data.Vector         as V  (Vector, (!), (!?), imap, replicate, fromList, head,
                                             foldl', modify)
 import qualified Data.Vector.Mutable as MV (write, read)
 import qualified Data.Map            as M  (lookup)
@@ -41,6 +44,23 @@ import Dreamnet.CoordVector
 import Dreamnet.Utils
 import Dreamnet.TileMap
 
+--------------------------------------------------------------------------------
+
+class WorldMapReadAPI a wm | wm → a where
+    desc               ∷ wm String
+    valuesAt           ∷ V2 Int → wm [a]
+    valueAt            ∷ V2 Int → Int → wm (Maybe a)
+    interestingObjects ∷ V2 Int → Range → (a → Bool) → wm [V2 Int]
+    oob                ∷ V2 Int → wm Bool
+
+
+class (WorldMapReadAPI a wm) ⇒ WorldMapAPI a wm | wm → a where
+    modifyCell     ∷ V2 Int → ([a] → [a]) → wm ()
+    replaceCell    ∷ V2 Int → [a] → wm ()
+    replaceInCell  ∷ V2 Int → Int → a → wm ()
+    addToCell      ∷ V2 Int → a → wm ()
+    deleteFromCell ∷ (Eq a) ⇒ V2 Int → a → wm ()
+    
 --------------------------------------------------------------------------------
 
 type Range = Word
@@ -63,12 +83,12 @@ instance CoordVector (WorldMap a) where
     height = view wm_height
 
 
-newWorldMap ∷ (Monoid a) ⇒ Width → Height → WorldMap a
-newWorldMap w h = 
+newWorldMap ∷ Width → Height → a →  WorldMap a
+newWorldMap w h x = 
     WorldMap {
       _wm_width   = w
     , _wm_height  = h
-    , _wm_data    = V.replicate (fromIntegral (w * h)) [mempty] 
+    , _wm_data    = V.replicate (fromIntegral (w * h)) [x] 
     , _wm_desc    = "Debug generated map!"
     , _wm_spawns  = V.fromList $ [V2 0 0]
     }
@@ -108,41 +128,57 @@ fromTileMap tm t2o =
                                            then l
                                            else l ++ [v V.! i]
 
+--------------------------------------------------------------------------------
 
-desc ∷ WorldMap a → String
-desc = view wm_desc
-
-
--- TODO partial function! :-O
-valuesAt ∷ V2 Int → WorldMap a → [a]
-valuesAt v m = views wm_data (V.! linCoord m v) m
+newtype WorldMapM o a = WorldMapM { runWorldMapM ∷ State (WorldMap o) a }
+                      deriving (Functor, Applicative, Monad, MonadState (WorldMap o))
 
 
-modifyCell ∷ V2 Int → ([a] → [a]) → WorldMap a → WorldMap a
-modifyCell v f m = wm_data %~ V.modify modifyInPlace $ m
-    where
-        modifyInPlace vec = do
-            let i = linCoord m v
-            os ← MV.read vec i
-            MV.write vec i (f os)
+runWorldMap ∷ WorldMapM o a → WorldMap o → (a, WorldMap o)
+runWorldMap wmm wm = runState (runWorldMapM wmm) wm
 
 
-replaceCell ∷ V2 Int → [a] → WorldMap a → WorldMap a
-replaceCell v os = modifyCell v (const os)
+evalWorldMap ∷ WorldMapM o a → WorldMap o → a
+evalWorldMap wmm = fst . runWorldMap wmm
 
 
-addToCell ∷ V2 Int → a → WorldMap a → WorldMap a
-addToCell v x = modifyCell v (<> [x])
+execWorldMap ∷ WorldMapM o a → WorldMap o → WorldMap o
+execWorldMap wmm = snd . runWorldMap wmm
+
+--------------------------------------------------------------------------------
+
+instance WorldMapReadAPI a (WorldMapM a) where
+    desc = use wm_desc
+    
+    -- TODO partial function! :-O
+    valuesAt v = get >>= \m → uses wm_data (fromMaybe [] . (V.!? linCoord m v))
+
+    valueAt v i = (`atMay` i) <$> valuesAt v
+
+    interestingObjects v r ff = do
+        points ← filterM (fmap not . oob) (floodFillRange r v)
+        foldM collectObjects [] points
+        where
+            collectObjects l x = valuesAt x >>= \o → pure $ bool l (x : l) (or $ ff <$> o)
+
+    oob v = flip outOfBounds v <$> get
 
 
-deleteFromCell ∷ (Eq a) ⇒ V2 Int → a → WorldMap a → WorldMap a
-deleteFromCell v x = modifyCell v (x `delete`)
+instance WorldMapAPI a (WorldMapM a) where
+    modifyCell v f = do
+        m ← get
+        wm_data %= V.modify (modifyInPlace m)
+        where
+            modifyInPlace m vec = do
+                let i = linCoord m v
+                os ← MV.read vec i
+                MV.write vec i (f os)
 
+    replaceCell v c = modifyCell v (const c)
 
-interestingObjects ∷ V2 Int → Range → (a → Bool) → WorldMap a → [V2 Int]
-interestingObjects v r ff m =
-    let points = filter (not . outOfBounds m) (floodFillRange r v)
-    in  foldr collectObjects [] points
-    where
-        collectObjects x l = let o = valuesAt x m
-                             in  bool l (x : l) (or $ ff <$> o)
+    replaceInCell v ix x = modifyCell v (\l → take ix l <> [x] <> drop (ix + 1) l)
+
+    addToCell v x = modifyCell v (<> [x])
+
+    deleteFromCell v x = modifyCell v (x `delete`)
+

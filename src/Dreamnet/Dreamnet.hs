@@ -10,9 +10,9 @@
 module Dreamnet.Dreamnet
 where
 
-import Safe                      (succSafe, predSafe, at)
+import Safe                      (succSafe, predSafe, at, fromJustNote)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
-                                  assign, (+=), (%~), set)
+                                  assign, (+=), (%~), (^.), set)
 import Control.Monad             (void)
 import Control.Monad.Free        (Free)
 import Control.Monad.Reader      (MonadReader)
@@ -20,7 +20,7 @@ import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
 import Data.Foldable             (traverse_, find)
-import Data.Maybe                (fromJust, fromMaybe)
+import Data.Maybe                (fromMaybe)
 import Linear                    (V2(V2), _x, _y)
 
 import qualified UI.NCurses  as C
@@ -37,7 +37,6 @@ import Dreamnet.TileMap
 import Dreamnet.TileData
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
-import Dreamnet.Entity
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer
 import Dreamnet.Visibility
@@ -55,8 +54,11 @@ import Design.GameCharacters
 -- TODO explore the idea of moving all this data into appropriate Game States
 --      that interact with each other and never having any 'overlord-level'
 --      data
+-- TODO try making World Objects keep ObjectPrograms in them, rather than states
+--      then, somehow, programs can keep the state by themselves. Its a monad
+--      after all.
 data Game = Game {
-      _g_turn         ∷ Word
+      _g_turn         ∷ Word -- TODO move turn into World?
     , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
     , _g_gameState    ∷ GameState
     , _g_rendererData ∷ RendererEnvironment
@@ -71,14 +73,7 @@ newGame dd = newRenderEnvironment >>= \rdf →
         _g_turn  = 0
       , _g_world = newWorld
                        (fromTileMap (view dd_startingMap dd) objectFromTile)
-                       (playerPerson . (`characterForName` view dd_characters dd) <$>
-                            [ "Carla"
-                            , "Devin"
-                            , "Hideo"
-                            , "Phillipe"
-                            , "Qaayenaat"
-                            , "Annabelle"
-                            ])
+                       (playerPerson ( "Carla" `characterForName` view dd_characters dd))
       , _g_gameState    = Normal 
       , _g_rendererData = rdf
     }
@@ -199,7 +194,7 @@ instance GameAPI GameM where
                 pure x
 
     obtainTarget = do
-        ap ← use (g_world.w_active.e_position)
+        ap ← uses g_world (evalWorld (horizontalCoord <$> playerPosition))
         doRender $ updateMain $ RenderAction $
             (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap $
                 [ "yku"
@@ -207,10 +202,10 @@ instance GameAPI GameM where
                 , "bjn"
                 ]
         t ← GameM (lift Input.nextTargetSelectionEvent)
-        uses (g_world.w_map) (valuesAt (ap + t)) >>=
+        uses g_world (evalWorld (valuesAt (ap + t))) >>=
             \case
-                []  → error "Obtaining target on non-existent tile :-O"
-                l   → pure (Just (ap + t, last l))
+                [] → error "Obtaining target on non-existent tile :-O"
+                l  → pure (Just (ap + t, last l))
 
     askChoice lst = do
         doRender $ updateUi $ RenderAction $ do
@@ -227,14 +222,14 @@ instance GameAPI GameM where
                          (Just $ C.Glyph '╯' [])
             traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
         t ← GameM (lift $ Input.nextAllowedCharEvent  (fst3 $ unzip3 lst))
-        pure $ trd3 $ fromJust $ find ((== t) . fst3) lst 
+        pure $ trd3 $ fromJustNote "Picking up correct choice from askChoice" $ find ((== t) . fst3) lst 
         where
             fst3 (x, _, _) = x
             trd3 (_, _, x) = x
 
     runProgram dd v prg = do
         ms ← queryRenderer mainSize
-        o  ← uses (g_world.w_map) (last . valuesAt v)
+        o  ← uses g_world (evalWorld (last <$> valuesAt v))
         changeWorld $ do
            (_, gs) ← runObjectMonadWorld dd ms prg v o
            updateVisible
@@ -324,7 +319,7 @@ processNormal _ Input.SwitchToHud = do
     pure $ HudTeam 0
 processNormal _ (Input.Move v) = do
     changeWorld $ do
-        moveActive v
+        movePlayer v
         updateVisible
     increaseTurn
     pure Normal
@@ -337,11 +332,11 @@ processNormal _ Input.Wait = do
     pure Normal
 processNormal _ Input.HigherStance = do
     changeWorld $
-        changeActive (withCharacter (ch_stance %~ predSafe))
+        changePlayer (withCharacter (ch_stance %~ predSafe))
     pure Normal
 processNormal _ Input.LowerStance = do
     changeWorld $
-        changeActive (withCharacter (ch_stance %~ succSafe))
+        changePlayer (withCharacter (ch_stance %~ succSafe))
     pure Normal
 processNormal _ Input.Get = do
     increaseTurn
@@ -358,8 +353,8 @@ processNormal _ Input.Get = do
                 -- Second way:
                 -- withState type of function that does something as long as the State
                 -- is of the actual correct type, and does nothing if it isn't
-                changeActive (withCharacter (pickUp (view o_state o)))
-                deleteObject v o
+                changePlayer (withCharacter (pickUp (view o_state o)))
+                deleteFromCell v o
     pure Normal
 processNormal dd Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
@@ -368,12 +363,12 @@ processNormal dd Input.UseHeld = do
             changeWorld $ setStatus "Nothing there."
         Just (v, o) → do
             -- TODO this should be much easier
-            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . view (w_active.e_object) <$> world
+            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= fmap (fromJustNote "useHeld") . uncurry valueAt . unwrapWorldCoord) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
                 Just ho → do
-                    hv  ← view (w_active.e_position) <$> world
+                    hv  ← evalWorld (horizontalCoord <$> playerPosition) <$> world
                     let so = view o_state o
                     _ ← runProgram dd hv (programForState ho (OperateOn so))
                     _ ← runProgram dd v  (programForState so (OperateWith ho))
@@ -398,7 +393,7 @@ processNormal _ Input.Wear = do
         , ('F', "Right foot",  ((Just RightSide), Foot))
         ]
     changeWorld $
-        changeActive $
+        changePlayer $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
@@ -408,10 +403,10 @@ processNormal _ Input.Wear = do
 processNormal _ Input.StoreIn = do
     -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
-    containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "storeIn") . uncurry valueAt . unwrapWorldCoord) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     changeWorld $
-        changeActive $
+        changePlayer $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
@@ -427,7 +422,7 @@ processNormal _ Input.PullFrom = do
     increaseTurn
 
     -- TODO make this single-step choice (show containers and items as tree)
-    containerList ← fromCharacter equippedContainers [] . view (w_active.e_object) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "pullfrom") . uncurry valueAt . unwrapWorldCoord) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
 
     let (Just (Clothes wi)) = slotWrapperItem sw
@@ -436,7 +431,7 @@ processNormal _ Input.PullFrom = do
     item ← askChoice (zip3 choiceChs (show <$> itemList) itemList)
 
     changeWorld $
-        changeActive $
+        changePlayer $
             withCharacter $
                 \ch → modifySlotContent
                         (slotWrapperOrientation (primaryHandSlot ch))
@@ -452,10 +447,10 @@ processNormal dd Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
         Just (v, o)  → do
-            onHerself ← views (w_active.e_position) (==v) <$> world
+            onHerself ← (==v) . evalWorld (horizontalCoord <$> playerPosition) <$> world
             if onHerself
                 then do
-                    examineText ← views w_map desc <$> world
+                    examineText ← evalWorld desc <$> world
                     pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
                     runProgram dd v (programForState (view o_state o) Examine)
@@ -480,7 +475,7 @@ processNormal dd Input.Talk = do
         Just (v, o) → do
             runProgram dd v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
-    itemList ← fromCharacter listOfItemsFromContainers [] . view (w_active.e_object) <$> world
+    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "invsheet") . uncurry valueAt . unwrapWorldCoord) <$> world
     pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
@@ -503,11 +498,11 @@ processHudTeam _ _ Input.TabPrevious =
 processHudTeam _ i Input.MoveUp =
     pure $ HudTeam (max 0 (i - 3))
 processHudTeam _ i Input.MoveDown =
-    HudTeam . min (i + 3) . genericLength . view w_team <$> world
+    HudTeam . min (i + 3) . genericLength . evalWorld team <$> world
 processHudTeam _ i Input.MoveLeft =
     pure $ HudTeam (max 0 (i - 1))
 processHudTeam _ i Input.MoveRight =
-    HudTeam . min (i + 1) . genericLength . view w_team <$> world
+    HudTeam . min (i + 1) . genericLength . evalWorld team <$> world
 processHudTeam _ i Input.SelectChoice = do
     tm ← completeTeam <$> world
     pure $ SkillsUI (at tm i)
@@ -623,7 +618,7 @@ processComputerOperation v ix cd (Input.PassThrough c) = do
     pure $ ComputerOperation v ix (snd $ runComputer (typeIn c) cd)
 processComputerOperation v ix cd Input.BackOut = do
     changeWorld $
-        modifyObjectAt v ix (pure . set o_state (Computer cd))
+        modifyObjectAt (WorldCoord (v, ix)) (pure . set o_state (Computer cd))
     pure Normal
 
 
@@ -661,7 +656,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 -- TODO reuse code for aiming weapons
 --switchAim ∷ Maybe (Object → Bool) → StateT Game C.Curses ()
 --switchAim (Just nof) = do
---    pp ← use  (g_world.w_active.e_position)
+--    pp ← use  (g_world.w_player.e_position)
 --    os ← uses (g_world.w_map) (interestingObjects pp 2 nof)
 --    ca ← use  g_aim
 --    case ca of
@@ -692,7 +687,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 --------------------------------------------------------------------------------
 
 render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
-render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (view w_status w) >>= updateHud
+render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (evalWorld status w) >>= updateHud
 render (Examination sd)           _ _ = updateUi $ drawInformation sd
 render (ComputerOperation _ _ cd) _ _ = updateUi $ drawComputer cd
 render gs@(HudTeam _)             w t = renderHud gs (completeTeam w) t
@@ -708,16 +703,25 @@ render Quit                       _ _ = pure ()
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
 completeTeam w = 
-    let t = view w_team w
-    in  views w_active (fmap (views (e_object.o_state) (\(Person ch) → ch)) . (:t)) w
+    let p = flip evalWorld w $ playerPosition >>=
+                               fmap (fromJustNote "complTeam") . uncurry valueAt . unwrapWorldCoord
+    in  [(\(Person chp) → chp) (p ^. o_state)]
+    {-
+    let t = flip evalWorld w $ team >>= 
+                               traverse (fmap fromJustNote . teamMemberPosition) >>=
+                               traverse (fmap fromJustNote . uncurry valueAt . unwrapWorldCoord)
+        p = flip evalWorld w $ playerPosition >>=
+                               fmap fromJustNote . uncurry valueAt . unwrapWorldCoord
+    in  (\(Person chp) → chp) (p ^. o_state) : ((\(Person tm) → tm) . view o_state <$> t)
+    -}
 
 
 renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
-renderWorld wrld =
-    let w = views w_map width wrld
-        d = views (w_map.wm_data) (fmap last) wrld
-        v = view w_vis wrld
-    in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) w d v >>= updateMain
+renderWorld w =
+    let m = evalWorld currentMap w
+        d = views wm_data (fmap last) m
+        v = evalWorld visibility w
+    in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
 
 
 renderHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
