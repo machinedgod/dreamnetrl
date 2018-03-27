@@ -22,10 +22,6 @@ module Dreamnet.World
 , WorldAPI(..)
 , replaceObject
 
-, WorldCoord(..)
-, horizontalCoord
-, verticalCoord
-
 , World
 , newWorld
 
@@ -35,7 +31,8 @@ module Dreamnet.World
 , execWorld
 ) where
 
-import Prelude hiding (interact, rem)
+
+import Prelude hiding (interact, rem, map)
 
 import Control.Lens               (makeLenses, (%=), (.=), use, uses, view,
                                    views)
@@ -96,9 +93,9 @@ instance Monad Object where
 class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
     currentMap         ∷ w (WorldMap (Object o)) -- TODO not liking this
     visibility         ∷ w (V.Vector v) -- TODO or this
-    playerPosition     ∷ w WorldCoord
+    playerPosition     ∷ w (V2 Int, Int)
     team               ∷ w [String]
-    teamMemberPosition ∷ String → w (Maybe WorldCoord)
+    teamMemberPosition ∷ String → w (Maybe (V2 Int, Int))
     castVisibilityRay  ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
@@ -108,7 +105,7 @@ class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → 
     status          ∷ w String
     setStatus       ∷ String → w ()
     changeObject    ∷ V2 Int → (Object o → w (Object o)) → w ()
-    modifyObjectAt  ∷ WorldCoord → (Object o → w (Object o)) → w ()
+    modifyObjectAt  ∷ V2 Int → Int → (Object o → w (Object o)) → w ()
     movePlayer      ∷ V2 Int → w ()
     changePlayer    ∷ (Object o → Object o) → w ()
     moveObject      ∷ V2 Int → Object o → V2 Int → w ()
@@ -125,24 +122,12 @@ replaceObject v oo no = changeObject v (\c → pure $ if c == oo
 
 --------------------------------------------------------------------------------
  
-newtype WorldCoord = WorldCoord { unwrapWorldCoord ∷ (V2 Int, Int) } -- Eventually should point into a specific WorldMap as well
-                   deriving (Eq, Show)
-
-
-horizontalCoord ∷ WorldCoord → V2 Int
-horizontalCoord (WorldCoord (c, _)) = c
-
-
-verticalCoord ∷ WorldCoord → Int
-verticalCoord (WorldCoord (_, i)) = i
-
-
 -- | Type variables
 --   v: visibility data
 --   c: character data
 data World o v = World {
-      _w_player ∷ WorldCoord
-    , _w_team   ∷ M.Map String WorldCoord  -- Charname to position
+      _w_player ∷ (V2 Int, Int)
+    , _w_team   ∷ M.Map String (V2 Int, Int)
     , _w_map    ∷ WorldMap (Object o)
     , _w_vis    ∷ V.Vector v
     , _w_status ∷ String
@@ -152,11 +137,14 @@ makeLenses ''World
 
 newWorld ∷ (Monoid v) ⇒ WorldMap (Object o) → Object o → World o v
 newWorld m p =
-    let ppos = views wm_spawns V.head m
+    let ppos       = views wm_spawns V.head m
+        (pix, map) = flip runWorldMap m $ do
+                        addToCell ppos p
+                        subtract 1 . length <$> valuesAt ppos
     in  World {
-          _w_player = WorldCoord (ppos, 1) -- TODO use a function to find out what index is above the floor
+          _w_player = (ppos, pix)
         , _w_team   = M.empty
-        , _w_map    = execWorldMap (addToCell ppos p) m
+        , _w_map    = map
         , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
         , _w_status = ""
         }
@@ -228,22 +216,23 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
         nc ← valuesAt v >>= traverse fo 
         replaceCell v nc
 
-    modifyObjectAt wc f =
-        valueAt (horizontalCoord wc) (verticalCoord wc) >>=
-        traverse_ (f >=> replaceInCell (horizontalCoord wc) (verticalCoord wc)) -- traversal over Maybe
+    modifyObjectAt v ix f =
+        valueAt v ix >>=
+        traverse_ (f >=> replaceInCell v ix) -- traversal over Maybe
 
     movePlayer v = do
-        pp ← playerPosition
-        uncurry valueAt (unwrapWorldCoord pp) >>= \s → for_ s $ \o → do
-            tv ← valuesAt (horizontalCoord pp + v)
-            when (and $ fmap (view o_passable) tv) $ do -- TODO replace with height management
-                moveObject (horizontalCoord pp) o (horizontalCoord pp + v)
-                w_player .= WorldCoord (horizontalCoord pp + v, 1)
+        (pp, ix) ← playerPosition
+        valueAt pp ix >>= \s → for_ s $ \o → do
+            tv ← valuesAt (pp + v)
+            when (and (view o_passable <$> tv)) $ do -- TODO replace with height management
+                moveObject pp o (pp + v)
+                nix ← subtract 1 . length <$> valuesAt (pp + v)
+                w_player .= (pp + v, nix)
 
     changePlayer f = do
         pp ← playerPosition
-        uncurry valueAt (unwrapWorldCoord pp) >>= \s → for_ s $ \o → do
-            replaceObject (horizontalCoord pp) o (f o)
+        uncurry valueAt pp >>= \s → for_ s $ \o → do
+            replaceObject (fst pp) o (f o)
 
     -- TODO crashes if np is out of map bounds!!!
     moveObject cp o np = do
@@ -254,8 +243,8 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
  
     updateVisible = do
         t ← pure (:)
-            <*> fmap horizontalCoord playerPosition
-            <*> (team >>= traverse (fmap (maybe (error "Team member without position!") horizontalCoord) . teamMemberPosition))
+            <*> (fst <$> playerPosition)
+            <*> (team >>= traverse (fmap (maybe (error "Team member without position!") fst) . teamMemberPosition))
 
         linPoints ← uses w_map (\m → mconcat $ fmap (pointsForOne m) t)
         -- NOTE resolving 'x' causes lag

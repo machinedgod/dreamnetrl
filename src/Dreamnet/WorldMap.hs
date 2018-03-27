@@ -7,17 +7,16 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
 
 module Dreamnet.WorldMap
-( WorldMap
+( WorldMapReadAPI(..)
+, WorldMapAPI(..)
 
+, WorldMap
 -- TODO convert to API
 , wm_data
 , wm_spawns
-
 , newWorldMap
 , fromTileMap
 
-, WorldMapReadAPI(..)
-, WorldMapAPI(..)
 , WorldMapM
 , runWorldMap
 , evalWorldMap

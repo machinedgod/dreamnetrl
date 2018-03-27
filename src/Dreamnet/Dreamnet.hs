@@ -194,7 +194,7 @@ instance GameAPI GameM where
                 pure x
 
     obtainTarget = do
-        ap ← uses g_world (evalWorld (horizontalCoord <$> playerPosition))
+        ap ← uses g_world (evalWorld (fst <$> playerPosition))
         doRender $ updateMain $ RenderAction $
             (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap $
                 [ "yku"
@@ -363,12 +363,12 @@ processNormal dd Input.UseHeld = do
             changeWorld $ setStatus "Nothing there."
         Just (v, o) → do
             -- TODO this should be much easier
-            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= fmap (fromJustNote "useHeld") . uncurry valueAt . unwrapWorldCoord) <$> world
+            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= fmap (fromJustNote "useHeld") . uncurry valueAt) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
                 Just ho → do
-                    hv  ← evalWorld (horizontalCoord <$> playerPosition) <$> world
+                    hv  ← evalWorld (fst <$> playerPosition) <$> world
                     let so = view o_state o
                     _ ← runProgram dd hv (programForState ho (OperateOn so))
                     _ ← runProgram dd v  (programForState so (OperateWith ho))
@@ -403,7 +403,7 @@ processNormal _ Input.Wear = do
 processNormal _ Input.StoreIn = do
     -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "storeIn") . uncurry valueAt . unwrapWorldCoord) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "storeIn") . uncurry valueAt) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     changeWorld $
         changePlayer $
@@ -422,7 +422,7 @@ processNormal _ Input.PullFrom = do
     increaseTurn
 
     -- TODO make this single-step choice (show containers and items as tree)
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "pullfrom") . uncurry valueAt . unwrapWorldCoord) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "pullfrom") . uncurry valueAt) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
 
     let (Just (Clothes wi)) = slotWrapperItem sw
@@ -447,7 +447,7 @@ processNormal dd Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
         Just (v, o)  → do
-            onHerself ← (==v) . evalWorld (horizontalCoord <$> playerPosition) <$> world
+            onHerself ← (==v) . evalWorld (fst <$> playerPosition) <$> world
             if onHerself
                 then do
                     examineText ← evalWorld desc <$> world
@@ -475,7 +475,7 @@ processNormal dd Input.Talk = do
         Just (v, o) → do
             runProgram dd v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
-    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "invsheet") . uncurry valueAt . unwrapWorldCoord) <$> world
+    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "invsheet") . uncurry valueAt) <$> world
     pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
@@ -618,7 +618,7 @@ processComputerOperation v ix cd (Input.PassThrough c) = do
     pure $ ComputerOperation v ix (snd $ runComputer (typeIn c) cd)
 processComputerOperation v ix cd Input.BackOut = do
     changeWorld $
-        modifyObjectAt (WorldCoord (v, ix)) (pure . set o_state (Computer cd))
+        modifyObjectAt v ix (pure . set o_state (Computer cd))
     pure Normal
 
 
@@ -704,7 +704,7 @@ render Quit                       _ _ = pure ()
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
 completeTeam w = 
     let p = flip evalWorld w $ playerPosition >>=
-                               fmap (fromJustNote "complTeam") . uncurry valueAt . unwrapWorldCoord
+                               fmap (fromJustNote "complTeam") . uncurry valueAt
     in  [(\(Person chp) → chp) (p ^. o_state)]
     {-
     let t = flip evalWorld w $ team >>= 
