@@ -155,8 +155,11 @@ runWithGameState dd gs ss (cv, o) (Free (Get fn)) = do
 
 runWithGameState dd gs ss (cv, o) (Free (ScanRange r f fn)) = do
     points ← interestingObjects cv r f
-    values ← traverse (fmap last . valuesAt) points
+    values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
     runWithGameState dd gs ss (cv, o) (fn (zip points values))
+    where
+        onlyJust (Just x) l = x : l
+        onlyJust Nothing  l = l
 
 runWithGameState _ gs _ _ (Pure x) =
     pure (x, gs)

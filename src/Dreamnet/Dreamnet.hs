@@ -202,10 +202,10 @@ instance GameAPI GameM where
                 , "bjn"
                 ]
         t ← GameM (lift Input.nextTargetSelectionEvent)
-        uses g_world (evalWorld (valuesAt (ap + t))) >>=
+        uses g_world (evalWorld (fmap lastValue $ cellAt (ap + t))) >>=
             \case
-                [] → error "Obtaining target on non-existent tile :-O"
-                l  → pure (Just (ap + t, last l))
+                Nothing → pure Nothing
+                Just x  → pure (Just (ap + t, x))
 
     askChoice lst = do
         doRender $ updateUi $ RenderAction $ do
@@ -229,11 +229,13 @@ instance GameAPI GameM where
 
     runProgram dd v prg = do
         ms ← queryRenderer mainSize
-        o  ← uses g_world (evalWorld (last <$> valuesAt v))
-        changeWorld $ do
-           (_, gs) ← runObjectMonadWorld dd ms prg v o
-           updateVisible
-           pure gs
+        mo ← uses g_world (evalWorld (lastValue <$> cellAt v))
+        case mo of
+            Nothing → pure Normal
+            Just o  → changeWorld $ do
+               (_, gs) ← runObjectMonadWorld dd ms prg v o
+               updateVisible
+               pure gs
 
     doRender r = use g_rendererData >>= \rd → GameM $ lift $ do
         rd `runRenderer` r
@@ -354,7 +356,7 @@ processNormal _ Input.Get = do
                 -- withState type of function that does something as long as the State
                 -- is of the actual correct type, and does nothing if it isn't
                 changePlayer (withCharacter (pickUp (view o_state o)))
-                deleteFromCell v o
+                modifyCell v (deleteFromCell o)
     pure Normal
 processNormal dd Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
@@ -363,7 +365,7 @@ processNormal dd Input.UseHeld = do
             changeWorld $ setStatus "Nothing there."
         Just (v, o) → do
             -- TODO this should be much easier
-            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= fmap (fromJustNote "useHeld") . uncurry valueAt) <$> world
+            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "useHeld" . valueAt ix) $ cellAt pp)) <$> world
             case mho of
                 Nothing →
                     changeWorld $ setStatus "You aren't carrying anything in your hands."
@@ -403,7 +405,7 @@ processNormal _ Input.Wear = do
 processNormal _ Input.StoreIn = do
     -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "storeIn") . uncurry valueAt) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "storeIn" . valueAt ix) $ cellAt pp)) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     changeWorld $
         changePlayer $
@@ -422,7 +424,7 @@ processNormal _ Input.PullFrom = do
     increaseTurn
 
     -- TODO make this single-step choice (show containers and items as tree)
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "pullfrom") . uncurry valueAt) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "pullfrom" . valueAt ix) $ cellAt pp)) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
 
     let (Just (Clothes wi)) = slotWrapperItem sw
@@ -475,7 +477,7 @@ processNormal dd Input.Talk = do
         Just (v, o) → do
             runProgram dd v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
-    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= fmap (fromJustNote "invsheet") . uncurry valueAt) <$> world
+    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
     pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
@@ -677,7 +679,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 --withAimOrElse ∷ (V2 Int → [Object] → StateT Game C.Curses a) → StateT Game C.Curses a → StateT Game C.Curses a
 --withAimOrElse f e = fromMaybe e <=< runMaybeT $ do
 --    v  ← MaybeT (use g_aim)
---    os ← uses (g_world.w_map) (valuesAt v)
+--    os ← uses (g_world.w_map) (cellAt v)
 --    pure (f v os)
 --
 --
@@ -703,8 +705,8 @@ render Quit                       _ _ = pure ()
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
 completeTeam w = 
-    let p = flip evalWorld w $ playerPosition >>=
-                               fmap (fromJustNote "complTeam") . uncurry valueAt
+    let p = flip evalWorld w $ playerPosition >>= \(pp, ix) →
+                               fmap (fromJustNote "complTeam" . valueAt ix) (cellAt pp)
     in  [(\(Person chp) → chp) (p ^. o_state)]
     {-
     let t = flip evalWorld w $ team >>= 
@@ -719,7 +721,7 @@ completeTeam w =
 renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
 renderWorld w =
     let m = evalWorld currentMap w
-        d = views wm_data (fmap last) m
+        d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
         v = evalWorld visibility w
     in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
 

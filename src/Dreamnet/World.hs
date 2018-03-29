@@ -139,8 +139,8 @@ newWorld ∷ (Monoid v) ⇒ WorldMap (Object o) → Object o → World o v
 newWorld m p =
     let ppos       = views wm_spawns V.head m
         (pix, map) = flip runWorldMap m $ do
-                        addToCell ppos p
-                        subtract 1 . length <$> valuesAt ppos
+                        modifyCell ppos (addToCell p)
+                        subtract 1 . length <$> cellAt ppos
     in  World {
           _w_player = (ppos, pix)
         , _w_team   = M.empty
@@ -155,7 +155,7 @@ castVisibilityRay' o d = do
     filterM (fmap not . oob) (bla o d) >>= traverse (\p → (p,) <$> seeThrough p)
     --fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
     where
-        seeThrough x = and . fmap (view o_seeThrough) <$> valuesAt x
+        seeThrough x = and . fmap (view o_seeThrough) <$> cellAt x
 
 --------------------------------------------------------------------------------
 
@@ -167,9 +167,7 @@ newtype WorldM o v a = WorldM { runWorldM ∷ State (World o v) a }
 instance WorldMapReadAPI (Object o) (WorldM o v) where
     desc = uses w_map (evalWorldMap desc)
 
-    valuesAt v = uses w_map (evalWorldMap (valuesAt v))
-
-    valueAt v i = uses w_map (evalWorldMap (valueAt v i))
+    cellAt v = uses w_map (evalWorldMap (cellAt v))
 
     interestingObjects v r ff = uses w_map (evalWorldMap (interestingObjects v r ff))
 
@@ -182,14 +180,8 @@ instance WorldMapAPI (Object o) (WorldM o v) where
 
     replaceCell v l = w_map %= execWorldMap (replaceCell v l)
 
-    replaceInCell v ix x = w_map %= execWorldMap (replaceInCell v ix x)
-
-    addToCell v x = w_map %= execWorldMap (addToCell v x)
-
-    deleteFromCell v x = w_map %= execWorldMap (deleteFromCell v x)
-
-
     
+
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
 instance WorldReadAPI o Visibility (WorldM o Visibility) where
@@ -213,33 +205,33 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
     setStatus s = w_status .= s
 
     changeObject v fo = do
-        nc ← valuesAt v >>= traverse fo 
+        nc ← cellAt v >>= traverse fo 
         replaceCell v nc
 
     modifyObjectAt v ix f =
-        valueAt v ix >>=
-        traverse_ (f >=> replaceInCell v ix) -- traversal over Maybe
+        cellAt v >>=
+        traverse_ (f >=> \no → modifyCell v (replaceInCell ix no)) . valueAt ix -- traversal over Maybe
 
     movePlayer v = do
         (pp, ix) ← playerPosition
-        valueAt pp ix >>= \s → for_ s $ \o → do
-            tv ← valuesAt (pp + v)
+        cellAt pp >>= \c → for_ (valueAt ix c) $ \o → do
+            tv ← cellAt (pp + v)
             when (and (view o_passable <$> tv)) $ do -- TODO replace with height management
                 moveObject pp o (pp + v)
-                nix ← subtract 1 . length <$> valuesAt (pp + v)
+                nix ← subtract 1 . length <$> cellAt (pp + v)
                 w_player .= (pp + v, nix)
 
     changePlayer f = do
-        pp ← playerPosition
-        uncurry valueAt pp >>= \s → for_ s $ \o → do
-            replaceObject (fst pp) o (f o)
+        (pp, ix) ← playerPosition
+        cellAt pp >>= \c → for_ (valueAt ix c) $ \o → do
+            replaceObject pp o (f o)
 
     -- TODO crashes if np is out of map bounds!!!
     moveObject cp o np = do
-        objs ← valuesAt cp
-        when (o `elem` objs) $ do
-            addToCell np o
-            deleteFromCell cp o
+        -- TODO addToCell *only* if deleteFromCell is successful,
+        --      otherwise it'll just perform a copy!
+        modifyCell cp (deleteFromCell o)
+        modifyCell np (addToCell o)
  
     updateVisible = do
         t ← pure (:)
