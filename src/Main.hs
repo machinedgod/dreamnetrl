@@ -6,7 +6,7 @@ where
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Random   (MonadRandom, evalRandT, mkStdGen)
 
-import Dreamnet.TileMap   (loadTileMap)
+import Dreamnet.MapGenerator
 import Dreamnet.Dreamnet
 
 import Design.DesignAPI
@@ -15,9 +15,7 @@ import Design.GameCharacters
 
 defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
 defaultDesignData = do
---  m ← generateMap 50 30
-    m ← loadTileMap "res/bar"
-    --m ← loadTileMap "res/apartmentblock"
+    m ← generateMap 50 30
     pure $
         DesignData {
           _dd_characters  = characterDictionary characters
