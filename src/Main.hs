@@ -15,7 +15,7 @@ import Design.GameCharacters
 
 defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
 defaultDesignData = do
-    m ← generateMap 50 30
+    m ← generateMap
     pure $
         DesignData {
           _dd_characters  = characterDictionary characters

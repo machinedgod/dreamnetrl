@@ -1,8 +1,8 @@
 {-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 
 module Dreamnet.Utils
-( line
-, bla
+( --line
+  bla
 , circle
 , floodFillRange
 
@@ -24,6 +24,7 @@ import qualified Data.Set as S (Set, empty, singleton, fromList, toList, insert,
 
 --------------------------------------------------------------------------------
 
+-- TODO BUGGY!
 line ∷ V2 Int → V2 Int → [V2 Int]
 line v1 v2 = let v1f       = fmap fromIntegral v1 ∷ V2 Float
                  v2f       = fmap fromIntegral v2 ∷ V2 Float

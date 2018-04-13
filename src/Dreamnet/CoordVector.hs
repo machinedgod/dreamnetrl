@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 
 module Dreamnet.CoordVector
 ( Width
@@ -23,26 +23,27 @@ class CoordVector c where
     height ∷ c → Height
 
 
-linCoord' ∷ Int → V2 Int → Int
-linCoord' w (V2 x y) = y * w + x
+linCoord' ∷ Width → V2 Int → Int
+linCoord' (fromIntegral → w) (V2 x y) = y * w + x
 {-# INLINE linCoord' #-}
 
 
 linCoord ∷ (CoordVector c) ⇒ c → V2 Int → Int
-linCoord c = linCoord' (fromIntegral $ width c)
+linCoord c = linCoord' (width c)
 {-# INLINE linCoord #-}
 
 
 
-coordLin' ∷ Int → Int → V2 Int
-coordLin' w i = let x = i `mod` w
-                    y = i `div` w
-                in  V2 x y 
+coordLin' ∷ Width → Int → V2 Int
+coordLin' (fromIntegral → w) i =
+    let x = i `mod` w
+        y = i `div` w
+    in  V2 x y 
 {-# INLINE coordLin' #-}
 
 
 coordLin ∷ (CoordVector c) ⇒ c → Int → V2 Int
-coordLin c = coordLin' (fromIntegral $ width c)
+coordLin c = coordLin' (width c)
 {-# INLINE coordLin #-}
 
 
