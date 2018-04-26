@@ -155,6 +155,10 @@ instance AffineTrans (V2 Float) where
 
 --------------------------------------------------------------------------------
 
+data Winding = CW
+             | CCW
+
+
 newtype Shape = Shape { points ∷ [V2 Float] }
 
 
@@ -174,9 +178,9 @@ randomShape ∷ (MonadRandom r) ⇒ Word → r Shape
 randomShape = undefined
 
 
-ngonShape ∷ Word → Shape
-ngonShape (fromIntegral → n) =
-    let s = (2 * pi) / n
+ngonShape ∷ Winding → Word → Shape
+ngonShape w (fromIntegral → n) =
+    let s = (2 * (case w of; CCW → -pi; CW → pi)) / n
         p = V2 1.0 0.0
     in  Shape $ (\i → rotate (i * s) p) <$> [0..n - 1]
  
