@@ -12,7 +12,7 @@ where
 
 import Safe                      (succSafe, predSafe, at, fromJustNote)
 import Control.Lens              (makeLenses, use, uses, view, views, (.=),
-                                  assign, (+=), (%~), (^.), set)
+                                  (%=), assign, (+=), (%~), (^.), set)
 import Control.Monad             (void)
 import Control.Monad.Free        (Free)
 import Control.Monad.Reader      (MonadReader)
@@ -38,7 +38,8 @@ import Dreamnet.TileData
 import Dreamnet.CoordVector
 import Dreamnet.WorldMap
 import Dreamnet.ComputerModel
-import Dreamnet.Renderer
+import Dreamnet.Renderer hiding (moveCamera)
+import qualified Dreamnet.Renderer as R (moveCamera)
 import Dreamnet.Visibility
 import Dreamnet.Character
 import Dreamnet.ObjectMonad
@@ -155,6 +156,7 @@ choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added
 class GameAPI g where
     currentTurn     ∷ g Word
     increaseTurn    ∷ g ()
+    moveCamera      ∷ V2 Int → g ()
     nextEvent       ∷ C.Curses a → g a -- TODO type leak
     gameState       ∷ g GameState
     changeGameState ∷ (GameState → g GameState) → g GameState
@@ -179,6 +181,8 @@ instance GameAPI GameM where
     currentTurn = use g_turn
 
     increaseTurn = g_turn += 1
+
+    moveCamera v = g_rendererData %= R.moveCamera v
 
     nextEvent = GameM . lift
 
@@ -324,6 +328,9 @@ processNormal _ (Input.Move v) = do
         movePlayer v
         updateVisible
     increaseTurn
+    pure Normal
+processNormal _ (Input.MoveCamera v) = do
+    moveCamera v
     pure Normal
 processNormal _ Input.Wait = do
     changeWorld $ do

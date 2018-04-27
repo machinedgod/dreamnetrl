@@ -26,6 +26,7 @@ import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
 --------------------------------------------------------------------------------
 
 data WorldEvent = Move (V2 Int)
+                | MoveCamera (V2 Int)
                 | Examine
                 | Operate
                 | Talk
@@ -76,6 +77,14 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 'u')  = Just $ Move (V2  1 -1)
         worldEvent (C.EventCharacter 'b')  = Just $ Move (V2 -1  1)
         worldEvent (C.EventCharacter 'n')  = Just $ Move (V2  1  1)
+        worldEvent (C.EventCharacter 'H')  = Just $ MoveCamera (V2 -1  0)
+        worldEvent (C.EventCharacter 'J')  = Just $ MoveCamera (V2  0  1)
+        worldEvent (C.EventCharacter 'K')  = Just $ MoveCamera (V2  0 -1)
+        worldEvent (C.EventCharacter 'L')  = Just $ MoveCamera (V2  1  0)
+        worldEvent (C.EventCharacter 'Y')  = Just $ MoveCamera (V2 -1 -1)
+        worldEvent (C.EventCharacter 'U')  = Just $ MoveCamera (V2  1 -1)
+        worldEvent (C.EventCharacter 'B')  = Just $ MoveCamera (V2 -1  1)
+        worldEvent (C.EventCharacter 'N')  = Just $ MoveCamera (V2  1  1)
         worldEvent (C.EventCharacter 'e')  = Just   Examine
         worldEvent (C.EventCharacter 'o')  = Just   Operate
         worldEvent (C.EventCharacter 't')  = Just   Talk

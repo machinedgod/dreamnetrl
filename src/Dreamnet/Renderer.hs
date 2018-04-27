@@ -37,7 +37,7 @@ module Dreamnet.Renderer
 
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, view, views, (^.), (.~), (+~))
+import Control.Lens              (makeLenses, view, views, (^.), (.~), (%~))
 import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
@@ -168,8 +168,11 @@ setCamera ∷ V2 Word → RendererEnvironment → RendererEnvironment
 setCamera v = rd_camera.cm_position .~ v
 
 
-moveCamera ∷ V2 Word → RendererEnvironment → RendererEnvironment
-moveCamera v = rd_camera.cm_position +~ v
+moveCamera ∷ V2 Int → RendererEnvironment → RendererEnvironment
+moveCamera v = rd_camera.cm_position %~ clip v
+    where
+        clip ∷ V2 Int → V2 Word → V2 Word
+        clip v op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
 
 
 --------------------------------------------------------------------------------
@@ -307,10 +310,12 @@ drawMap chf matf w dat vis = do
     k ← view (rd_styles.s_visibilityKnown)
     c ← view rd_camera
 
-    let dat' = visibleChunk c w dat
-    let vis' = visibleChunk c w vis
+    let viewport = V2 (min (c^.cm_viewport._x) w) (min (c^.cm_viewport._y) (fromIntegral $ V.length dat `div` fromIntegral w))
+
+    let dat' = visibleChunk (c^.cm_position) viewport w dat
+    let vis' = visibleChunk (c^.cm_position) viewport w vis
     mats ← V.mapM (lookupMaterial . matf) dat'
-    pure $ V.imapM_ (drawTile (c ^. cm_viewport._x) u k) $ V.zip3 (chf <$> dat') mats vis'
+    pure $ V.imapM_ (drawTile (viewport^._x) u k) $ V.zip3 (chf <$> dat') mats vis'
     --mats ← V.mapM (lookupMaterial . matf) dat
     --pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
     where
@@ -324,12 +329,10 @@ drawMap chf matf w dat vis = do
                                          Known   → (c, k)
                                          Visible → (c, m)
 
-        visibleChunk ∷ Camera → Width → V.Vector a → V.Vector a
-        visibleChunk c (fromIntegral → w) v =
-            let cp@(V2 x' y') = c ^. cm_position
-                cv@(V2 w' h') = c ^. cm_viewport
-                oln v i       = V.drop (fromIntegral $ w * (y' + i)) v
-                ldata         = V.drop (fromIntegral $ w - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
+        visibleChunk ∷ V2 Word → V2 Word → Width → V.Vector a → V.Vector a
+        visibleChunk (V2 x' y') (V2 w' h') (fromIntegral → w) v =
+            let oln v i = V.drop (fromIntegral $ w * (y' + i)) v
+                ldata   = V.drop (fromIntegral $ w - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
             in  foldMap id $ ldata . oln v <$> [0..h']
 
 
