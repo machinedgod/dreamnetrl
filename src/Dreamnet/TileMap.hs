@@ -132,7 +132,6 @@ loadTileMap fp = do
     ts     ← readTileset fp
     lc     ← layerCount fp
     layers ← traverse (readLayer fp) [0..lc - 1]
-    --layer0 ← readLayer fp 0
     desc   ← liftIO $ readFile (makeFilename fp "desc")
     pos    ← readPositioned (makeFilename fp "positioned")
 

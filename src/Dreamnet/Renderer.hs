@@ -7,8 +7,12 @@
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
 module Dreamnet.Renderer
-( RendererEnvironment
+( Camera
+, RendererEnvironment
+, setCamera
+, moveCamera
 , newRenderEnvironment
+
 
 , RenderAction(RenderAction)
 , RenderAPI(..)
@@ -33,11 +37,11 @@ module Dreamnet.Renderer
 
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, view, views)
+import Control.Lens              (makeLenses, view, views, (^.), (.~), (+~))
 import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
-import Linear                    (V2(V2))
+import Linear                    (V2(V2), _x, _y)
 import Data.Semigroup            ((<>))
 import Data.Maybe                (fromMaybe, isJust, fromJust)
 import Data.Bifunctor            (second)
@@ -140,15 +144,33 @@ makeLenses ''Styles
 
 --------------------------------------------------------------------------------
 
+data Camera = Camera {
+      _cm_position ∷ V2 Word
+    , _cm_viewport ∷ V2 Word
+    }
+makeLenses ''Camera
+
+
 data RendererEnvironment = RendererEnvironment {
       _rd_styles     ∷ Styles
 
     , _rd_mainWindow ∷ C.Window
     , _rd_hudWindow  ∷ C.Window
     , _rd_uiWindow   ∷ C.Window
+
+    , _rd_camera     ∷ Camera
     }
 
 makeLenses ''RendererEnvironment
+
+
+setCamera ∷ V2 Word → RendererEnvironment → RendererEnvironment
+setCamera v = rd_camera.cm_position .~ v
+
+
+moveCamera ∷ V2 Word → RendererEnvironment → RendererEnvironment
+moveCamera v = rd_camera.cm_position +~ v
+
 
 --------------------------------------------------------------------------------
 
@@ -182,6 +204,8 @@ newRenderEnvironment = do
         , _rd_mainWindow = mainWin
         , _rd_hudWindow  = hudWin
         , _rd_uiWindow   = uiWin
+
+        , _rd_camera     = Camera (V2 0 0) (V2 (fromIntegral columns) (fromIntegral rows))
         }
     where
         createStyles mc
@@ -235,6 +259,7 @@ newRenderEnvironment = do
 
 --------------------------------------------------------------------------------
 
+-- TODO remove dependence on Curses and use them just as an implementation
 newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
                        deriving (Functor, Applicative, Monad)
 
@@ -280,18 +305,34 @@ drawMap ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ (a → Char) �
 drawMap chf matf w dat vis = do
     u ← view (rd_styles.s_visibilityUnknown)
     k ← view (rd_styles.s_visibilityKnown)
+    c ← view rd_camera
 
-    mats ← V.mapM (lookupMaterial . matf) dat
-    pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
+    let dat' = visibleChunk c w dat
+    let vis' = visibleChunk c w vis
+    mats ← V.mapM (lookupMaterial . matf) dat'
+    pure $ V.imapM_ (drawTile (c ^. cm_viewport._x) u k) $ V.zip3 (chf <$> dat') mats vis'
+    --mats ← V.mapM (lookupMaterial . matf) dat
+    --pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        drawTile ∷ [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
-        drawTile u k i (c, m, v) = uncurry (draw' $ coordLin' (fromIntegral w) i) $
+        drawTile ∷ Width → [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
+        drawTile w u k i (c, m, v) = uncurry (draw' $ coordLin' w i) $
+        --drawTile u k i (c, m, v) = uncurry (draw' $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
                                          Known   → (c, k)
                                          Visible → (c, m)
+
+        visibleChunk ∷ Camera → Width → V.Vector a → V.Vector a
+        visibleChunk c (fromIntegral → w) v =
+            let cp@(V2 x' y') = c ^. cm_position
+                cv@(V2 w' h') = c ^. cm_viewport
+                oln v i       = V.drop (fromIntegral $ w * (y' + i)) v
+                ldata         = V.drop (fromIntegral $ w - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
+            in  foldMap id $ ldata . oln v <$> [0..h']
+
+
 
 watch ∷ [String]
 watch = [ "    .-------------------------------.    "
