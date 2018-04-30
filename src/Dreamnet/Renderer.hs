@@ -169,10 +169,10 @@ setCamera v = rd_camera.cm_position .~ v
 
 
 moveCamera ∷ V2 Int → RendererEnvironment → RendererEnvironment
-moveCamera v = rd_camera.cm_position %~ clip v
+moveCamera v = rd_camera.cm_position %~ clip
     where
-        clip ∷ V2 Int → V2 Word → V2 Word
-        clip v op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
+        clip ∷ V2 Word → V2 Word
+        clip op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
 
 
 --------------------------------------------------------------------------------
@@ -316,14 +316,11 @@ drawMap chf matf w dat vis = do
     let vis' = visibleChunk (c^.cm_position) viewport w vis
     mats ← V.mapM (lookupMaterial . matf) dat'
     pure $ V.imapM_ (drawTile (viewport^._x) u k) $ V.zip3 (chf <$> dat') mats vis'
-    --mats ← V.mapM (lookupMaterial . matf) dat
-    --pure $ V.imapM_ (drawTile u k) $ V.zip3 (chf <$> dat) mats vis
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
         drawTile ∷ Width → [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
         drawTile w u k i (c, m, v) = uncurry (draw' $ coordLin' w i) $
-        --drawTile u k i (c, m, v) = uncurry (draw' $ coordLin' (fromIntegral w) i) $
                                      case v of
                                          Unknown → (' ', u)
                                          Known   → (c, k)

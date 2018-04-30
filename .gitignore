@@ -9,6 +9,7 @@ ctags
 *.hp
 *.prof
 *.ps
+*.dot
 *.swp
 **/*.set
 .stack-work

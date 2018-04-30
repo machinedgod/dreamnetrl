@@ -7,7 +7,9 @@
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, UndecidableInstances #-}
 
 module Dreamnet.World
-( Symbol(Symbol)
+( module Dreamnet.WorldMap
+
+, Symbol(Symbol)
 
 , Object(Object)
 , o_symbol

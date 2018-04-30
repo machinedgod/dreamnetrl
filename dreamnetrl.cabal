@@ -55,29 +55,29 @@ executable dreamnetrl
   extra-libraries:     tinfo
 
   -- Modules included in this executable, other than Main.
-  other-modules:       Dreamnet.Character
-                       Dreamnet.Utils
-                       Dreamnet.Input
-                       Dreamnet.Entity
-                       Dreamnet.WorldMap
-                       Dreamnet.TileData
-                       Dreamnet.Renderer
-                       Dreamnet.ChoiceData
-                       Dreamnet.ScrollData
-                       Dreamnet.Visibility
-                       Dreamnet.TileMap
-                       Dreamnet.Dreamnet
-                       Dreamnet.ComputerModel
-                       Dreamnet.World
-                       Dreamnet.Conversation
-                       Dreamnet.CoordVector
-                       Dreamnet.ObjectMonad
-                       Dreamnet.ConversationMonad
-                       Dreamnet.MapGenerator
-                       Design.DesignAPI
-                       Design.ObjectPrograms
+  other-modules:       Design.DesignAPI
                        Design.GameCharacters
                        Design.Items
+                       Design.ObjectPrograms
+                       Dreamnet.Character
+                       Dreamnet.ChoiceData
+                       Dreamnet.ComputerModel
+                       Dreamnet.Conversation
+                       Dreamnet.ConversationMonad
+                       Dreamnet.CoordVector
+                       Dreamnet.Dreamnet
+                       Dreamnet.Entity
+                       Dreamnet.Game
+                       Dreamnet.Input
+                       Dreamnet.MapGenerator
+                       Dreamnet.ObjectMonad
+                       Dreamnet.Renderer
+                       Dreamnet.ScrollData
+                       Dreamnet.TileMap
+                       Dreamnet.Utils
+                       Dreamnet.Visibility
+                       Dreamnet.World
+                       Dreamnet.WorldMap
   
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    

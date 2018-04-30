@@ -110,7 +110,7 @@ randomBlocksLayout = do
          ]
     where
         rndQuad ∷ (MonadRandom r) ⇒ r (V2 Word)
-        rndQuad = V2 <$> getRandomR (40, 80) <*> getRandomR (40, 80)
+        rndQuad = V2 <$> getRandomR (20, 30) <*> getRandomR (20, 30)
  
 --------------------------------------------------------------------------------
 

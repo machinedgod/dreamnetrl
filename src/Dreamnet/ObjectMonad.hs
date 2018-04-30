@@ -21,7 +21,6 @@ import Dreamnet.Character
 import Dreamnet.ConversationMonad
 import Dreamnet.ScrollData
 import Dreamnet.World
-import Dreamnet.WorldMap
 
 import Design.DesignAPI
 

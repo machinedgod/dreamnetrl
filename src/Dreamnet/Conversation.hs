@@ -11,7 +11,6 @@ module Dreamnet.Conversation
 
 
 import Safe            (at)
-import Data.Semigroup  ((<>))
 
 --------------------------------------------------------------------------------
 

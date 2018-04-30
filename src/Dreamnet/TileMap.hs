@@ -7,6 +7,11 @@ module Dreamnet.TileMap
 , t_char
 , t_data
 
+, ttype
+, readBoolProperty
+, readWordProperty
+, readStringProperty
+
 , TileLayer
 , l_data
 , newTileLayer
@@ -50,8 +55,24 @@ data Tile = Tile {
     , _t_data ∷ V.Vector String
     }
     deriving(Show)
-            
 makeLenses ''Tile
+
+
+ttype ∷ Tile → String
+ttype = fromMaybe (error "Tile type not set!") . (V.!? 0) . view t_data
+{-# INLINE ttype #-}
+
+
+readBoolProperty ∷ Int → Tile → Bool
+readBoolProperty i = maybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") (readNote "Failed to read Bool property ") . (V.!? i) . view t_data
+
+
+readWordProperty ∷ Int → Tile → Word
+readWordProperty i = maybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") (readNote "Failed to read Word property ") . (V.!? i) . view t_data
+
+
+readStringProperty ∷ Int → Tile → String
+readStringProperty i = fromMaybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") . (V.!? i) . view t_data
 
 --------------------------------------------------------------------------------
 

@@ -11,38 +11,28 @@ module Dreamnet.Dreamnet
 where
 
 import Safe                      (succSafe, predSafe, at, fromJustNote)
-import Control.Lens              (makeLenses, use, uses, view, views, (.=),
-                                  (%=), assign, (+=), (%~), (^.), set)
+import Control.Lens              (view, views, (%~), (^.), set)
 import Control.Monad             (void)
-import Control.Monad.Free        (Free)
 import Control.Monad.Reader      (MonadReader)
-import Control.Monad.State       (MonadState, StateT, lift, execStateT)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
-import Data.Foldable             (traverse_, find)
 import Data.Maybe                (fromMaybe)
-import Linear                    (V2(V2), _x, _y)
+import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
-import qualified Data.Vector as V    (fromList)
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
 import qualified Dreamnet.Input as Input
+import Dreamnet.Game
 import Dreamnet.ScrollData
 import Dreamnet.ChoiceData
-import Dreamnet.World
 import Dreamnet.Conversation
-import Dreamnet.TileMap
-import Dreamnet.TileData
 import Dreamnet.CoordVector
-import Dreamnet.WorldMap
 import Dreamnet.ComputerModel
 import Dreamnet.Renderer hiding (moveCamera)
-import qualified Dreamnet.Renderer as R (moveCamera)
 import Dreamnet.Visibility
 import Dreamnet.Character
-import Dreamnet.ObjectMonad
 
 import Design.DesignAPI
 import Design.ObjectPrograms
@@ -50,203 +40,9 @@ import Design.GameCharacters
 
 --------------------------------------------------------------------------------
 
--- TODO apply DeGoes principle here: extract everything with a neat api, that
--- then runs and produces WorldAPI state values
--- TODO explore the idea of moving all this data into appropriate Game States
---      that interact with each other and never having any 'overlord-level'
---      data
--- TODO try making World Objects keep ObjectPrograms in them, rather than states
---      then, somehow, programs can keep the state by themselves. Its a monad
---      after all.
-data Game = Game {
-      _g_turn         ∷ Word -- TODO move turn into World?
-    , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
-    , _g_gameState    ∷ GameState
-    , _g_rendererData ∷ RendererEnvironment
-    }
-
-makeLenses ''Game
-
-
-newGame ∷ DesignData → C.Curses Game
-newGame dd = newRenderEnvironment >>= \rdf →
-    pure Game {
-        _g_turn  = 0
-      , _g_world = newWorld
-                       (fromTileMap (view dd_startingMap dd) objectFromTile)
-                       (playerPerson ( "Carla" `characterForName` view dd_characters dd))
-      , _g_gameState    = Normal 
-      , _g_rendererData = rdf
-    }
-    where
-        -- 1) This *could* all be just a single thing. Object type really does not matter here.
-        -- 2) Actually, it does, because Object carries a specific state, later used by object programs
-        objectFromTile ∷ Tile → Object States
-        objectFromTile t@(ttype → "Base") =
-            let m  = "concrete"
-                p  = 1 `readBoolProperty` t
-                s  = 2 `readBoolProperty` t
-                h  = 0
-                st = Empty
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Door") =
-            let m  = "wood"
-                p  = 1 `readBoolProperty` t
-                s  = 1 `readBoolProperty` t
-                h  = 5
-                st = Door
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Stairs") =
-            let m  = "wood"
-                p  = 1 `readBoolProperty` t
-                s  = True
-                h  = 1
-                st = Prop "Stairs"
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Prop") =
-            let m  = 4 `readStringProperty` t
-                p  = 2 `readBoolProperty` t
-                s  = 3 `readBoolProperty` t
-                h  = 5 `readWordProperty` t
-                st = Prop (1 `readStringProperty` t)
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Person") = 
-            let m  = "blue"
-                p  = False
-                s  = True
-                h  = 3
-                st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
-            in  Object (Symbol '@') m p s h st
-        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
-            objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
-        objectFromTile t@(ttype → "Camera") =
-            let m  = "green light"
-                p  = True
-                s  = True
-                h  = 1
-                st = Camera (Faction $ 1 `readStringProperty` t) 0
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Computer") =
-            let m  = "metal"
-                p  = False
-                s  = True
-                h  = 1
-                st = Computer (ComputerData "" [])
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Item") = 
-            let m  = "blue plastic"
-                p  = True
-                s  = True
-                h  = 0
-                st = Prop (1 `readStringProperty` t)
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t =
-            error $ "Can't convert Tile type into Object: " <> show t
-        -- TODO Errrrrr, this should be done through the tileset???
-
-        playerPerson ∷ DreamnetCharacter → Object States
-        playerPerson = Object (Symbol '@') "metal" False True 3 . Person
-
---------------------------------------------------------------------------------
-
 choiceChs ∷ [Char]
 choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added to be able to back out
 
-
-class GameAPI g where
-    currentTurn     ∷ g Word
-    increaseTurn    ∷ g ()
-    moveCamera      ∷ V2 Int → g ()
-    nextEvent       ∷ C.Curses a → g a -- TODO type leak
-    gameState       ∷ g GameState
-    changeGameState ∷ (GameState → g GameState) → g GameState
-    world           ∷ g (World States Visibility)
-    changeWorld     ∷ WorldM States Visibility a → g a
-    -- TODO change to withTarget to make more functional
-    obtainTarget    ∷ g (Maybe (V2 Int, Object States))
-    -- TODO offer abort!
-    askChoice       ∷ [(Char, String, a)] → g a
-    runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
-    doRender        ∷ RendererF () → g ()
-    queryRenderer   ∷ RendererF a → g a
-
-
---------------------------------------------------------------------------------
-
-newtype GameM a = GameM { runGameM ∷ StateT Game C.Curses a }
-                deriving (Functor, Applicative, Monad, MonadState Game)
-            
-
-instance GameAPI GameM where
-    currentTurn = use g_turn
-
-    increaseTurn = g_turn += 1
-
-    moveCamera v = g_rendererData %= R.moveCamera v
-
-    nextEvent = GameM . lift
-
-    gameState = use g_gameState
-
-    changeGameState f = use g_gameState >>= f >>= \g → assign g_gameState g >> pure g
-
-    world = use g_world
-
-    changeWorld m =
-        uses g_world (runWorld m) >>= \(x, w') →
-            g_world .= w' >>
-                pure x
-
-    obtainTarget = do
-        ap ← uses g_world (evalWorld (fst <$> playerPosition))
-        doRender $ updateMain $ RenderAction $
-            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap $
-                [ "yku"
-                , "h.l"
-                , "bjn"
-                ]
-        t ← GameM (lift Input.nextTargetSelectionEvent)
-        uses g_world (evalWorld (fmap lastValue $ cellAt (ap + t))) >>=
-            \case
-                Nothing → pure Nothing
-                Just x  → pure (Just (ap + t, x))
-
-    askChoice lst = do
-        doRender $ updateUi $ RenderAction $ do
-            C.clear
-            C.resizeWindow (genericLength lst + 4) 30 -- TODO Enough to fit all
-            C.moveWindow 10 10 -- TODO Center
-            C.drawBorder (Just $ C.Glyph '│' [])
-                         (Just $ C.Glyph '│' [])
-                         (Just $ C.Glyph '─' [])
-                         (Just $ C.Glyph '─' [])
-                         (Just $ C.Glyph '╭' [])
-                         (Just $ C.Glyph '╮' [])
-                         (Just $ C.Glyph '╰' [])
-                         (Just $ C.Glyph '╯' [])
-            traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
-        t ← GameM (lift $ Input.nextAllowedCharEvent  (fst3 $ unzip3 lst))
-        pure $ trd3 $ fromJustNote "Picking up correct choice from askChoice" $ find ((== t) . fst3) lst 
-        where
-            fst3 (x, _, _) = x
-            trd3 (_, _, x) = x
-
-    runProgram dd v prg = do
-        ms ← queryRenderer mainSize
-        mo ← uses g_world (evalWorld (lastValue <$> cellAt v))
-        case mo of
-            Nothing → pure Normal
-            Just o  → changeWorld $ do
-               (_, gs) ← runObjectMonadWorld dd ms prg v o
-               updateVisible
-               pure gs
-
-    doRender r = use g_rendererData >>= \rd → GameM $ lift $ do
-        rd `runRenderer` r
-        C.render
-
-    queryRenderer q = use g_rendererData >>= \rd → GameM $ lift $ rd `runRenderer` q
-        
 --------------------------------------------------------------------------------
 
 launchDreamnet ∷ DesignData → IO ()
@@ -266,7 +62,7 @@ dreamnet dd = C.runCurses $ do
     C.defaultWindow >>= (`C.setKeypad` True)
     void $ C.setCursorMode C.CursorInvisible
     g ← newGame dd
-    void $ flip execStateT g $ runGameM $ do
+    void $ flip execGame g $ do
         changeWorld updateVisible
         gs ← gameState
         w  ← world
@@ -697,14 +493,14 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 
 render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
 render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (evalWorld status w) >>= updateHud
-render (Examination sd)           _ _ = updateUi $ drawInformation sd
-render (ComputerOperation _ _ cd) _ _ = updateUi $ drawComputer cd
+render (Examination sd)           _ _ = updateUi (clear >> drawInformation sd)
+render (ComputerOperation _ _ cd) _ _ = updateUi (clear >> drawComputer cd)
 render gs@(HudTeam _)             w t = renderHud gs (completeTeam w) t
 render HudMessages                w t = renderHud HudMessages (completeTeam w) t
 render gs@(HudWatch _ _)          w t = renderHud gs (completeTeam w) t
-render (ConversationFlow _ sd)    _ _ = updateUi $ drawInformation sd
-render (ConversationChoice _ cd)  _ _ = updateUi $ drawChoice cd
-render (InventoryUI  sd)          _ _ = updateUi $ drawInformation sd
+render (ConversationFlow _ sd)    _ _ = updateUi (clear >> drawInformation sd)
+render (ConversationChoice _ cd)  _ _ = updateUi (clear >> drawChoice cd)
+render (InventoryUI  sd)          _ _ = updateUi (clear >> drawInformation sd)
 render (SkillsUI  ch)             _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
 render (EquipmentUI  ch)          _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
 render Quit                       _ _ = pure ()
