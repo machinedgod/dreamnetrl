@@ -2,7 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Dreamnet.Input
+module Dreamnet.Engine.Input
 ( WorldEvent(..)
 , UIEvent(..)
 , InteractionEvent(..)

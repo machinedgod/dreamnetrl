@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Dreamnet.ChoiceData
+module Dreamnet.Engine.Rendering.ChoiceData
 ( ChoiceData
 , cd_options
 , cd_currentSelection
@@ -45,3 +45,4 @@ selectNext cd = let maxI = views cd_options (subtract 1 . V.length) cd
 
 selectPrevious ∷ ChoiceData → ChoiceData
 selectPrevious = cd_currentSelection %~ max 0 . subtract 1
+

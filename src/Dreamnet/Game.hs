@@ -3,8 +3,8 @@
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 
 module Dreamnet.Game
-( module Dreamnet.World
-, module Dreamnet.ObjectMonad
+( module Dreamnet.Engine.World
+, module Dreamnet.Engine.ObjectMonad
 
 , GameAPI(..)
 
@@ -35,34 +35,34 @@ import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
 
 import Design.DesignAPI
 import Design.GameCharacters
-import Dreamnet.World
-import Dreamnet.Visibility
-import Dreamnet.ObjectMonad
-import Dreamnet.Renderer
-import Dreamnet.TileMap
+import Dreamnet.Engine.World
+import Dreamnet.Engine.Visibility
+import Dreamnet.Engine.ObjectMonad
+import Dreamnet.Engine.Rendering.Renderer
 import Dreamnet.ComputerModel
 
-import qualified Dreamnet.Input    as Input
-import qualified Dreamnet.Renderer as R
+import qualified Dreamnet.Engine.Input              as Input
+import qualified Dreamnet.Engine.Rendering.Renderer as R
 
 --------------------------------------------------------------------------------
 
 class GameAPI g where
-    currentTurn     ∷ g Word
-    increaseTurn    ∷ g ()
-    moveCamera      ∷ V2 Int → g ()
-    nextEvent       ∷ C.Curses a → g a -- TODO type leak
-    gameState       ∷ g GameState
-    changeGameState ∷ (GameState → g GameState) → g GameState
-    world           ∷ g (World States Visibility)
-    changeWorld     ∷ WorldM States Visibility a → g a
+    currentTurn      ∷ g Word
+    increaseTurn     ∷ g ()
+    moveCamera       ∷ V2 Int → g ()
+    nextEvent        ∷ C.Curses a → g a -- TODO type leak
+    gameState        ∷ g GameState
+    changeGameState  ∷ (GameState → g GameState) → g GameState
+    world            ∷ g (World States Visibility)
+    changeWorld      ∷ WorldM States Visibility a → g a
     -- TODO change to withTarget to make more functional
-    obtainTarget    ∷ g (Maybe (V2 Int, Object States))
+    obtainTarget     ∷ g (Maybe (V2 Int, Object States))
     -- TODO offer abort!
-    askChoice       ∷ [(Char, String, a)] → g a
-    runProgram      ∷ DesignData → V2 Int → Free ObjectF () → g GameState
-    doRender        ∷ RendererF () → g ()
-    queryRenderer   ∷ RendererF a → g a
+    askChoice        ∷ [(Char, String, a)] → g a
+    runProgram       ∷ DesignData → V2 Int → Free ObjectF () → g GameState
+    doRender         ∷ RendererF a → g a
+    doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
+    queryRenderData  ∷ g RendererEnvironment
 
 --------------------------------------------------------------------------------
 
@@ -84,11 +84,13 @@ makeLenses ''Game
 
 
 newGame ∷ DesignData → C.Curses Game
-newGame dd = newRenderEnvironment >>= \rdf →
+newGame dd = do
+    rdf ← newRenderEnvironment
+    sm  ← loadTileMap (view dd_dev_startingMap dd)
     pure Game {
         _g_turn  = 0
       , _g_world = newWorld
-                       (fromTileMap (view dd_startingMap dd) objectFromTile)
+                       (fromTileMap sm  objectFromTile)
                        (playerPerson ( "Carla" `characterForName` view dd_characters dd))
       , _g_gameState    = Normal 
       , _g_rendererData = rdf
@@ -223,20 +225,24 @@ instance GameAPI GameM where
             trd3 (_, _, x) = x
 
     runProgram dd v prg = do
-        ms ← queryRenderer mainSize
         mo ← uses g_world (evalWorld (lastValue <$> cellAt v))
         case mo of
             Nothing → pure Normal
             Just o  → changeWorld $ do
-               (_, gs) ← runObjectMonadWorld dd ms prg v o
+               (_, gs) ← runObjectMonadWorld dd prg v o
                updateVisible
                pure gs
 
-    doRender r = use g_rendererData >>= \rd → GameM $ lift $ do
-        rd `runRenderer` r
-        C.render
+    doRender r = do
+        rd ← use g_rendererData
+        GameM $ lift $ do
+            x ← runRenderer rd  r
+            C.render
+            pure x
 
-    queryRenderer q = use g_rendererData >>= \rd → GameM $ lift $ rd `runRenderer` q
+    doRenderData f = g_rendererData %= f
+
+    queryRenderData = use g_rendererData
 
 
 runGame ∷ GameM a → Game → C.Curses (a, Game)

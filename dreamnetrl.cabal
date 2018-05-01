@@ -55,30 +55,28 @@ executable dreamnetrl
   extra-libraries:     tinfo
 
   -- Modules included in this executable, other than Main.
-  other-modules:       Design.DesignAPI
-                       Design.GameCharacters
-                       Design.Items
-                       Design.ObjectPrograms
-                       Dreamnet.Character
-                       Dreamnet.ChoiceData
-                       Dreamnet.ComputerModel
-                       Dreamnet.Conversation
-                       Dreamnet.ConversationMonad
-                       Dreamnet.CoordVector
-                       Dreamnet.Dreamnet
-                       Dreamnet.Entity
-                       Dreamnet.Game
-                       Dreamnet.Input
-                       Dreamnet.MapGenerator
-                       Dreamnet.ObjectMonad
-                       Dreamnet.Renderer
-                       Dreamnet.ScrollData
-                       Dreamnet.TileMap
-                       Dreamnet.Utils
-                       Dreamnet.Visibility
-                       Dreamnet.World
-                       Dreamnet.WorldMap
-  
+  other-modules:        Design.DesignAPI
+                        Design.GameCharacters
+                        Design.Items
+                        Design.ObjectPrograms
+                        Dreamnet.ComputerModel
+                        Dreamnet.Dreamnet
+                        Dreamnet.Engine.Character
+                        Dreamnet.Engine.Conversation
+                        Dreamnet.Engine.ConversationMonad
+                        Dreamnet.Engine.CoordVector
+                        Dreamnet.Engine.Input
+                        Dreamnet.Engine.Rendering.ChoiceData
+                        Dreamnet.Engine.Rendering.Renderer
+                        Dreamnet.Engine.Rendering.ScrollData
+                        Dreamnet.Engine.TileMap
+                        Dreamnet.Engine.Utils
+                        Dreamnet.Engine.Visibility
+                        Dreamnet.Engine.World
+                        Dreamnet.Engine.WorldMap
+                        Dreamnet.Engine.ObjectMonad
+                        Dreamnet.Game
+                        
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    
   

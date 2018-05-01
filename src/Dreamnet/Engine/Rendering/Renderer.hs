@@ -6,13 +6,26 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
-module Dreamnet.Renderer
-( Camera
+module Dreamnet.Engine.Rendering.Renderer
+( newScrollData
+, newScrollData'
+, scrollUp
+, scrollDown
+
+, newChoiceData
+, selectNext
+, selectPrevious
+, cd_currentSelection
+
+, Camera
 , RendererEnvironment
-, setCamera
+, rd_choiceData
+, setScroll
+, doScroll
+, setChoice
+, doChoice
 , moveCamera
 , newRenderEnvironment
-
 
 , RenderAction(RenderAction)
 , RenderAPI(..)
@@ -37,7 +50,7 @@ module Dreamnet.Renderer
 
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, view, views, (^.), (.~), (%~))
+import Control.Lens              (makeLenses, view, views, (^.), (%~), (.~))
 import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
@@ -55,15 +68,31 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.Utils       (lines')
-import Dreamnet.Character   
-import Dreamnet.CoordVector
-import Dreamnet.Visibility
-import Dreamnet.ScrollData
-import Dreamnet.ChoiceData
+import Dreamnet.Engine.Utils       (lines')
+import Dreamnet.Engine.Character   
+import Dreamnet.Engine.CoordVector
+import Dreamnet.Engine.Visibility
 import Dreamnet.ComputerModel
 
+import Dreamnet.Engine.Rendering.ScrollData
+import Dreamnet.Engine.Rendering.ChoiceData
+
 import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
+
+--------------------------------------------------------------------------------
+
+-- TODO remove dependence on Curses and use them just as an implementation
+newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
+                       deriving (Functor, Applicative, Monad)
+
+
+class RenderAPI r where
+    updateMain ∷ RenderAction () → r ()
+    updateHud  ∷ RenderAction () → r ()
+    updateUi   ∷ RenderAction () → r ()
+    screenSize ∷ r (Integer, Integer)
+    mainSize   ∷ r (Integer, Integer)
+    hudSize    ∷ r (Integer, Integer)
 
 --------------------------------------------------------------------------------
 
@@ -159,13 +188,27 @@ data RendererEnvironment = RendererEnvironment {
     , _rd_uiWindow   ∷ C.Window
 
     , _rd_camera     ∷ Camera
-    }
 
+    , _rd_choiceData ∷ ChoiceData
+    , _rd_scrollData ∷ ScrollData
+    }
 makeLenses ''RendererEnvironment
 
 
-setCamera ∷ V2 Word → RendererEnvironment → RendererEnvironment
-setCamera v = rd_camera.cm_position .~ v
+setScroll ∷ ScrollData → RendererEnvironment → RendererEnvironment 
+setScroll sd = rd_scrollData .~ sd
+
+
+doScroll ∷ (ScrollData → ScrollData) → RendererEnvironment → RendererEnvironment
+doScroll f = rd_scrollData %~ f
+
+
+setChoice ∷ ChoiceData → RendererEnvironment → RendererEnvironment 
+setChoice cd = rd_choiceData .~ cd
+
+
+doChoice ∷ (ChoiceData → ChoiceData) → RendererEnvironment → RendererEnvironment
+doChoice f = rd_choiceData %~ f
 
 
 moveCamera ∷ V2 Int → RendererEnvironment → RendererEnvironment
@@ -175,7 +218,6 @@ moveCamera v = rd_camera.cm_position %~ clip
         clip op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
 
 
---------------------------------------------------------------------------------
 
 mainSize' ∷ C.Curses (Integer, Integer)
 mainSize' = do
@@ -209,6 +251,9 @@ newRenderEnvironment = do
         , _rd_uiWindow   = uiWin
 
         , _rd_camera     = Camera (V2 0 0) (V2 (fromIntegral columns) (fromIntegral rows))
+
+        , _rd_choiceData = newChoiceData  (V2 0 0) (V2 10 10) []
+        , _rd_scrollData = newScrollData' (V2 0 0) (V2 10 10) Nothing []
         }
     where
         createStyles mc
@@ -261,20 +306,6 @@ newRenderEnvironment = do
                    }
 
 --------------------------------------------------------------------------------
-
--- TODO remove dependence on Curses and use them just as an implementation
-newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
-                       deriving (Functor, Applicative, Monad)
-
-
-class RenderAPI r where
-    updateMain ∷ RenderAction () → r ()
-    updateHud  ∷ RenderAction () → r ()
-    updateUi   ∷ RenderAction () → r ()
-    screenSize ∷ r (Integer, Integer)
-    mainSize   ∷ r (Integer, Integer)
-    hudSize    ∷ r (Integer, Integer)
-    
 
 -- TODO double buffering
 newtype RendererF a = RendererF { runRendererF ∷ ReaderT RendererEnvironment C.Curses a }
@@ -710,12 +741,13 @@ equipmentDoll =
     ]
 
 
-drawInformation ∷ ScrollData → RenderAction ()
-drawInformation sd =
+drawInformation ∷ (MonadReader RendererEnvironment r) ⇒ r (RenderAction ())
+drawInformation = do
+    sd ← view rd_scrollData
     let (V2 x y)     = view sd_position sd
         (V2 w h)     = view sd_size sd
         mt           = view sd_title sd
-    in  RenderAction $ do
+    pure $ RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
         C.drawBorder (Just $ C.Glyph '│' [])
@@ -746,11 +778,12 @@ drawInformation sd =
                 draw (trimmedLen + 3) 1 '│'
 
 
-drawChoice ∷ ChoiceData → RenderAction ()
-drawChoice cd =
+drawChoice ∷ (MonadReader RendererEnvironment r) ⇒ r (RenderAction ())
+drawChoice = do
+    cd ← view rd_choiceData
     let (V2 x y)     = view cd_position cd
         (V2 w h)     = view cd_size cd
-    in  RenderAction $ do
+    pure $ RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
         C.drawBorder (Just $ C.Glyph '╷' [])

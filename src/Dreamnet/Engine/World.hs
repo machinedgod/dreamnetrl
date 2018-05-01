@@ -6,8 +6,8 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, UndecidableInstances #-}
 
-module Dreamnet.World
-( module Dreamnet.WorldMap
+module Dreamnet.Engine.World
+( module Dreamnet.Engine.WorldMap
 
 , Symbol(Symbol)
 
@@ -49,10 +49,9 @@ import qualified Data.Map    as M  (Map, empty, keys, lookup)
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, replicate, head)
 
-import Dreamnet.Utils
-import Dreamnet.CoordVector
-import Dreamnet.WorldMap
-import Dreamnet.Visibility
+import Dreamnet.Engine.Utils
+import Dreamnet.Engine.WorldMap
+import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 

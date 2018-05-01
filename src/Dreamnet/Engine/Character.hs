@@ -8,7 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeInType #-}
 
-module Dreamnet.Character
+module Dreamnet.Engine.Character
 ( Orientation(..)
 , SlotType(..)
 , Slot(Slot)

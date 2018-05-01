@@ -1,11 +1,22 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Design.Items
+( module Dreamnet.Engine.Character
+
+, laserjet
+, laserjetClip
+, fragmentGrenade
+, backpack
+, clipBelt
+, headband
+, armourPiece
+, boot
+)
 where
 
 import Data.Semigroup       ((<>))
 
-import Dreamnet.Character   (SlotType(..))
+import Dreamnet.Engine.Character   (SlotType(..))
 
 import Design.DesignAPI
 

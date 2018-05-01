@@ -1,6 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 
-module Dreamnet.Utils
+module Dreamnet.Engine.Utils
 ( --line
   bla
 , circle

@@ -8,12 +8,17 @@
 
 
 module Dreamnet.Dreamnet
-where
+( defaultDesignData
+, launchDreamnet
+) where
 
-import Safe                      (succSafe, predSafe, at, fromJustNote)
+import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
 import Control.Lens              (view, views, (%~), (^.), set)
 import Control.Monad             (void)
 import Control.Monad.Reader      (MonadReader)
+import Control.Monad.Random      (MonadRandom)
+import Control.Monad.IO.Class    (MonadIO)
+import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
 import Data.Maybe                (fromMaybe)
@@ -23,16 +28,15 @@ import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
-import qualified Dreamnet.Input as Input
 import Dreamnet.Game
-import Dreamnet.ScrollData
-import Dreamnet.ChoiceData
-import Dreamnet.Conversation
-import Dreamnet.CoordVector
+
+import Dreamnet.Engine.Conversation
 import Dreamnet.ComputerModel
-import Dreamnet.Renderer hiding (moveCamera)
-import Dreamnet.Visibility
-import Dreamnet.Character
+import Dreamnet.Engine.Visibility
+import Dreamnet.Engine.Character
+import Dreamnet.Engine.Rendering.Renderer hiding (moveCamera)
+
+import qualified Dreamnet.Engine.Input as Input
 
 import Design.DesignAPI
 import Design.ObjectPrograms
@@ -44,6 +48,16 @@ choiceChs ∷ [Char]
 choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added to be able to back out
 
 --------------------------------------------------------------------------------
+
+defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
+defaultDesignData = do
+    pure $
+        DesignData {
+          _dd_characters  = characterDictionary characters
+        , _dd_dev_startingMap = "./res/bar"
+        --, _dd_dev_startingMap = "./res/apartmentblock"
+        }
+
 
 launchDreamnet ∷ DesignData → IO ()
 launchDreamnet = Dyre.wrapMain Dyre.defaultParams {
@@ -87,13 +101,12 @@ loopTheLoop dd = do
         gameStateFlow ∷ GameState → g GameState
         gameStateFlow Quit                        = pure Quit
         gameStateFlow Normal                      = nextEvent Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow (Examination et)            = nextEvent Input.nextUiEvent          >>= processExamination et
+        gameStateFlow (Examination s)             = nextEvent Input.nextUiEvent          >>= processExamination s
         gameStateFlow (HudTeam i)                 = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
         gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
         gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
-        gameStateFlow (ConversationFlow cn sd)    = nextEvent Input.nextUiEvent          >>= processConversationFlow cn sd
-        gameStateFlow (ConversationChoice cn cd)  = nextEvent Input.nextUiEvent          >>= processConversationChoice cn cd
-        gameStateFlow (InventoryUI sd)            = nextEvent Input.nextUiEvent          >>= processInventoryUI sd
+        gameStateFlow (Conversation cn)           = nextEvent Input.nextUiEvent          >>= processConversation cn
+        gameStateFlow (InventoryUI is)            = nextEvent Input.nextUiEvent          >>= processInventoryUI is
         gameStateFlow (SkillsUI  ch)              = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
         gameStateFlow (EquipmentUI ch)            = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
         gameStateFlow (ComputerOperation v ix cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation v ix cd
@@ -256,7 +269,8 @@ processNormal dd Input.Examine = do
             if onHerself
                 then do
                     examineText ← evalWorld desc <$> world
-                    pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
+                    pure $ Examination examineText
+                    --pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
                     runProgram dd v (programForState (view o_state o) Examine)
         Nothing → do
@@ -281,16 +295,19 @@ processNormal dd Input.Talk = do
             runProgram dd v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
-    pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
+    pure $ InventoryUI itemList
+    --pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
 
-processExamination ∷ (GameAPI g, Monad g) ⇒ ScrollData → Input.UIEvent → g GameState
-processExamination sd Input.MoveUp =
-    pure $ Examination (scrollUp sd)
-processExamination sd Input.MoveDown =
-    pure $ Examination (scrollDown sd)
+processExamination ∷ (GameAPI g, Monad g) ⇒ String → Input.UIEvent → g GameState
+processExamination s Input.MoveUp = do
+    doRenderData (doScroll scrollUp)
+    pure $ Examination s
+processExamination s Input.MoveDown = do
+    doRenderData (doScroll scrollDown)
+    pure $ Examination s
 processExamination _ _ =
     pure Normal
 
@@ -355,35 +372,92 @@ processHudWatch _ _ Input.Back =
     pure Normal
 
 
-processConversationFlow ∷ (GameAPI g, Monad g) ⇒ ConversationNode → ScrollData → Input.UIEvent → g GameState
-processConversationFlow cn sd Input.MoveUp =
-    pure $ ConversationFlow cn (scrollUp sd)
-processConversationFlow cn sd Input.MoveDown =
-    pure $ ConversationFlow cn (scrollDown sd)
-processConversationFlow cn _ Input.SelectChoice =
-    queryRenderer mainSize >>= \ms →
-        pure $ createConversationState ms (advance cn)
-processConversationFlow cn sd _ =
-    pure $ ConversationFlow cn sd
+processConversation ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
+processConversation cn@(TalkNode _ _ _ _) e =
+    processConversationFlow cn e
+processConversation cn@(ChoiceNode _ _) e =
+    processConversationChoice cn e
+processConversation cn@(DescriptionNode _ _) e = 
+    processConversationFlow cn e
+processConversation End _ =
+    pure Normal
 
 
-processConversationChoice ∷ (GameAPI g, Monad g) ⇒ ConversationNode → ChoiceData → Input.UIEvent → g GameState
-processConversationChoice cn cd Input.MoveUp =
-    pure $ ConversationChoice cn (selectPrevious cd)
-processConversationChoice cn cd Input.MoveDown =
-    pure $ ConversationChoice cn (selectNext cd)
-processConversationChoice cn cd Input.SelectChoice = do
-    queryRenderer mainSize >>= \ms →
-        pure $ createConversationState ms (pick cn $ fromIntegral $ view cd_currentSelection cd)
-processConversationChoice cn cd _ =
-    pure $ ConversationChoice cn cd
+processConversationFlow ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
+processConversationFlow cn Input.MoveUp = do
+    doRenderData (doScroll scrollUp)
+    pure $ Conversation cn
+processConversationFlow cn Input.MoveDown = do
+    doRenderData (doScroll scrollDown)
+    pure $ Conversation cn
+processConversationFlow cn Input.SelectChoice = do
+    let cn' = advance cn
+    conversationUpdateUi cn'
+    pure $ Conversation cn'
+processConversationFlow cn _ =
+    pure $ Conversation cn
 
 
-processInventoryUI ∷ (GameAPI g, Monad g) ⇒ ScrollData → Input.UIEvent → g GameState
-processInventoryUI sd Input.MoveUp =
-    pure $ InventoryUI (scrollUp sd)
-processInventoryUI sd Input.MoveDown =
-    pure $ InventoryUI (scrollDown sd)
+processConversationChoice ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
+processConversationChoice cn Input.MoveUp = do
+    doRenderData (doChoice selectPrevious)
+    pure $ Conversation cn
+processConversationChoice cn Input.MoveDown = do
+    doRenderData (doChoice selectNext)
+    pure $ Conversation cn
+processConversationChoice cn Input.SelectChoice = do
+    cs ← fmap (view (rd_choiceData.cd_currentSelection)) queryRenderData 
+    let cn' = pick cn (fromIntegral cs)
+    conversationUpdateUi cn'
+    pure $ Conversation cn'
+processConversationChoice cn _ =
+    pure $ Conversation cn
+
+
+conversationUpdateUi ∷ (GameAPI g, Monad g) ⇒ ConversationNode → g ()
+conversationUpdateUi (ChoiceNode os _) = do
+    (p, s) ← (,) <$> positionFor 0 <*> conversationSize
+    doRenderData (setChoice (newChoiceData p s os))
+conversationUpdateUi (TalkNode t i nms _) = do
+    (p, s) ← (,) <$> positionFor i <*> conversationSize
+    doRenderData (setScroll (newScrollData p s (nms `atMay` fromIntegral i) t))
+conversationUpdateUi (DescriptionNode txt _) = do
+    (p, s) ← (,) <$> positionFor 8 <*> conversationSize
+    doRenderData (setScroll (newScrollData p s Nothing txt))
+conversationUpdateUi _ =
+    pure ()
+
+
+positionFor ∷ (GameAPI g, Functor g) ⇒ Word → g (V2 Integer)
+positionFor (fromIntegral → i) = doRender $
+    (\s → fromMaybe (positions s `at` 0) $ (`atMay` i) $ positions s) <$> mainSize
+    where
+        positions ∷ (Integer, Integer) → [V2 Integer]
+        positions (bimap (`div` 3) (`div` 3) → (w, h)) =
+            [ V2 0       (h * 2)
+            , V2 (w * 2) 0
+            , V2 0       0
+            , V2 (w * 2) (h * 2)
+
+            , V2 (w * 2) h
+            , V2 0       h
+            , V2 w       (h * 2)
+            , V2 w       0
+
+            , V2 w       h
+            ]
+
+conversationSize ∷ (GameAPI g, Functor g) ⇒ g (V2 Integer)
+conversationSize = doRender (fmap (`div` 3) . uncurry V2 <$> mainSize)
+
+
+processInventoryUI ∷ (GameAPI g, Monad g) ⇒ [String] → Input.UIEvent → g GameState
+processInventoryUI lst Input.MoveUp = do
+    doRenderData (doScroll scrollUp)
+    pure $ InventoryUI lst
+processInventoryUI lst Input.MoveDown = do
+    doRenderData (doScroll scrollDown)
+    pure $ InventoryUI lst
 processInventoryUI _ _ =
     pure Normal
 
@@ -492,18 +566,18 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 --------------------------------------------------------------------------------
 
 render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
-render Normal                     w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (evalWorld status w) >>= updateHud
-render (Examination sd)           _ _ = updateUi (clear >> drawInformation sd)
-render (ComputerOperation _ _ cd) _ _ = updateUi (clear >> drawComputer cd)
-render gs@(HudTeam _)             w t = renderHud gs (completeTeam w) t
-render HudMessages                w t = renderHud HudMessages (completeTeam w) t
-render gs@(HudWatch _ _)          w t = renderHud gs (completeTeam w) t
-render (ConversationFlow _ sd)    _ _ = updateUi (clear >> drawInformation sd)
-render (ConversationChoice _ cd)  _ _ = updateUi (clear >> drawChoice cd)
-render (InventoryUI  sd)          _ _ = updateUi (clear >> drawInformation sd)
-render (SkillsUI  ch)             _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
-render (EquipmentUI  ch)          _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
-render Quit                       _ _ = pure ()
+render Normal                          w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (evalWorld status w) >>= updateHud
+render (Examination _)                 _ _ = updateUi clear >> drawInformation >>= updateUi
+render (ComputerOperation _ _ cd)      _ _ = updateUi (clear >> drawComputer cd)
+render gs@(HudTeam _)                  w t = renderHud gs (completeTeam w) t
+render HudMessages                     w t = renderHud HudMessages (completeTeam w) t
+render gs@(HudWatch _ _)               w t = renderHud gs (completeTeam w) t
+render (Conversation (ChoiceNode _ _)) _ _ = updateUi clear >> drawChoice >>= updateUi
+render (Conversation _)                _ _ = updateUi clear >> drawInformation >>= updateUi
+render (InventoryUI _)                 _ _ = updateUi clear >> drawInformation >>= updateUi
+render (SkillsUI  ch)                  _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
+render (EquipmentUI  ch)               _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
+render Quit                            _ _ = pure ()
 
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]

@@ -1,6 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 
-module Dreamnet.CoordVector
+module Dreamnet.Engine.CoordVector
 ( Width
 , Height
 , CoordVector(..)

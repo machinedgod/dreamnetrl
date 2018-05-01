@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Dreamnet.ConversationMonad
+module Dreamnet.Engine.ConversationMonad
 ( ConversationF
 , runConversationF_temp
 ) where
@@ -13,7 +13,7 @@ import Control.Monad.Free  (Free(Pure, Free))
 import Data.Bool           (bool)
 import Data.Monoid         ((<>))
 
-import Dreamnet.Conversation
+import Dreamnet.Engine.Conversation
 
 --------------------------------------------------------------------------------
 

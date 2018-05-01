@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dreamnet.ScrollData
+module Dreamnet.Engine.Rendering.ScrollData
 ( ScrollData
 , sd_position
 , sd_size
@@ -27,7 +27,7 @@ import Data.List    (intercalate, genericTake)
 
 import qualified Data.Vector as V (Vector, fromList)
 
-import Dreamnet.Utils (lines')
+import Dreamnet.Engine.Utils (lines')
 
 --------------------------------------------------------------------------------
 
@@ -40,7 +40,6 @@ data ScrollData = ScrollData {
     , _sd_size      ∷ V2 Integer
     }
     deriving (Eq, Show)
-
 makeLenses ''ScrollData
 
 

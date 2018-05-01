@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-module Dreamnet.MapGenerator
+module Dreamnet.Engine.MapGenerator
 where
 
 
@@ -21,9 +21,9 @@ import qualified Data.Vector as V (fromList, toList, imap, (!?))
 import qualified Data.Map    as M ((!), unions)
 
 
-import Dreamnet.Utils        (bla)
-import Dreamnet.CoordVector
-import Dreamnet.TileMap
+import Dreamnet.Engine.Utils        (bla)
+import Dreamnet.Engine.CoordVector
+import Dreamnet.Engine.TileMap
 
 --------------------------------------------------------------------------------
 

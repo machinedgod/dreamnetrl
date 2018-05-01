@@ -1,6 +1,6 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
-module Dreamnet.Visibility
+module Dreamnet.Engine.Visibility
 ( Visibility(..)
 ) where
 

@@ -2,8 +2,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Dreamnet.TileMap
-( Tile(Tile)
+module Dreamnet.Engine.TileMap
+( module Dreamnet.Engine.CoordVector
+
+, Tile(Tile)
 , t_char
 , t_data
 
@@ -46,7 +48,7 @@ import qualified Data.Vector          as V
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Csv             as CSV
 
-import Dreamnet.CoordVector
+import Dreamnet.Engine.CoordVector
 
 --------------------------------------------------------------------------------
 

@@ -26,8 +26,8 @@ import Data.Semigroup       ((<>))
 
 import qualified Data.Map as M (Map, fromList, lookup)
 
-import Dreamnet.Conversation
-import Dreamnet.Character
+import Dreamnet.Engine.Conversation
+import Dreamnet.Engine.Character
 
 import Design.DesignAPI
 import Design.Items

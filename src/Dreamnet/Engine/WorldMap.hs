@@ -6,8 +6,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
 
-module Dreamnet.WorldMap
-( Range
+module Dreamnet.Engine.WorldMap
+( module Dreamnet.Engine.TileMap
+
+, Range
 , Cell
 , valueAt
 , lastValue
@@ -49,9 +51,8 @@ import qualified Data.Vector.Mutable as MV (write, read)
 import qualified Data.Map            as M  (lookup)
 
 
-import Dreamnet.CoordVector
-import Dreamnet.Utils
-import Dreamnet.TileMap
+import Dreamnet.Engine.Utils
+import Dreamnet.Engine.TileMap
 
 --------------------------------------------------------------------------------
 

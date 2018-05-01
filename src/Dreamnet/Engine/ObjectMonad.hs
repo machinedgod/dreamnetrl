@@ -5,7 +5,7 @@
 -- | Object Monad defines objects as composition of design primitives,
 --   which are then in turn interpreted through WorldAPI language
 
-module Dreamnet.ObjectMonad
+module Dreamnet.Engine.ObjectMonad
 ( ObjectF
 , runObjectMonadWorld
 )
@@ -14,13 +14,12 @@ where
 
 import Control.Lens       (view, (.~))
 import Control.Monad.Free (Free(Free, Pure))
-import Linear             (V2(V2))
+import Linear             (V2)
 
 import Dreamnet.ComputerModel
-import Dreamnet.Character
-import Dreamnet.ConversationMonad
-import Dreamnet.ScrollData
-import Dreamnet.World
+import Dreamnet.Engine.Character
+import Dreamnet.Engine.ConversationMonad
+import Dreamnet.Engine.World
 
 import Design.DesignAPI
 
@@ -85,81 +84,82 @@ instance ObjectAPI (Free ObjectF) where
 
 --------------------------------------------------------------------------------
 
-runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → (Integer, Integer) → Free ObjectF a → V2 Int → Object States → w (a, GameState)
-runObjectMonadWorld dd ss op v o = runWithGameState dd Normal ss (v, o) op
+runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → Free ObjectF a → V2 Int → Object States → w (a, GameState)
+runObjectMonadWorld dd op v o = runWithGameState dd Normal (v, o) op
 
 
-runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → GameState → (Integer, Integer) → (V2 Int, Object States) → Free ObjectF a → w (a, GameState)
-runWithGameState dd gs ss (cv, o) (Free (GetDesignData fn)) = do
-    runWithGameState dd gs ss (cv, o) (fn dd)
+runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ DesignData → GameState → (V2 Int, Object States) → Free ObjectF a → w (a, GameState)
+runWithGameState dd gs (cv, o) (Free (GetDesignData fn)) = do
+    runWithGameState dd gs (cv, o) (fn dd)
 
-runWithGameState dd gs ss (cv, o) (Free (Move v n)) = do
+runWithGameState dd gs (cv, o) (Free (Move v n)) = do
     moveObject cv o v
-    runWithGameState dd gs ss (v, o) n
+    runWithGameState dd gs (v, o) n
 
-runWithGameState dd gs ss (cv, o) (Free (Position fv)) = do
-    runWithGameState dd gs ss (cv, o) (fv cv)
+runWithGameState dd gs (cv, o) (Free (Position fv)) = do
+    runWithGameState dd gs (cv, o) (fv cv)
 
-runWithGameState dd _ ss (cv, o) (Free (ShowInfoWindow txt n)) = do
-    runWithGameState dd (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) ss (cv, o) n
+runWithGameState dd _ (cv, o) (Free (ShowInfoWindow txt n)) = do
+    runWithGameState dd (Examination txt) (cv, o) n
+    --runWithGameState dd (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) ss (cv, o) n
 
-runWithGameState dd _ ss (cv, o) (Free (ShowComputerWindow cd n)) = do
-    runWithGameState dd (ComputerOperation cv 1 cd) ss (cv, o) n -- TODO use *ACTUAL* IX
+runWithGameState dd _ (cv, o) (Free (ShowComputerWindow cd n)) = do
+    runWithGameState dd (ComputerOperation cv 1 cd) (cv, o) n -- TODO use *ACTUAL* IX
 
-runWithGameState dd _ ss (cv, o) (Free (StartConversation ch n)) = do
+runWithGameState dd _ (cv, o) (Free (StartConversation ch n)) = do
     let cnodes = runConversationF_temp ["Carla", "Whoeverelse"] (view ch_conversation ch)
-    runWithGameState dd (createConversationState ss cnodes) ss (cv, o) n
+    runWithGameState dd (Conversation cnodes) (cv, o) n
 
-runWithGameState dd gs ss (cv, o) (Free (Passable fn)) = do
-    runWithGameState dd gs ss (cv, o) (fn $ view o_passable o)
+runWithGameState dd gs (cv, o) (Free (Passable fn)) = do
+    runWithGameState dd gs (cv, o) (fn $ view o_passable o)
 
-runWithGameState dd gs ss (cv, o) (Free (SetPassable cl n)) = do
+runWithGameState dd gs (cv, o) (Free (SetPassable cl n)) = do
     let no = o_passable .~ cl $ o
     replaceObject cv o no
-    runWithGameState dd gs ss (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState dd gs ss (cv, o) (Free (SeeThrough fn)) = do
-    runWithGameState dd gs ss (cv, o) (fn $ view o_seeThrough o)
+runWithGameState dd gs (cv, o) (Free (SeeThrough fn)) = do
+    runWithGameState dd gs (cv, o) (fn $ view o_seeThrough o)
 
-runWithGameState dd gs ss (cv, o) (Free (SetSeeThrough st n)) = do
+runWithGameState dd gs (cv, o) (Free (SetSeeThrough st n)) = do
     let no = o_seeThrough .~ st $ o
     replaceObject cv o no
-    runWithGameState dd gs ss (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState dd gs ss (cv, o) (Free (CanSee v fs)) = do
+runWithGameState dd gs (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
-    runWithGameState dd gs ss (cv, o) (fs seesV)
+    runWithGameState dd gs (cv, o) (fs seesV)
 
-runWithGameState dd gs ss (cv, o) (Free (ChangeSymbol c n)) = do
+runWithGameState dd gs (cv, o) (Free (ChangeSymbol c n)) = do
     let no = o_symbol .~ c $ o
     replaceObject cv o no
-    runWithGameState dd gs ss (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState dd gs ss (cv, o) (Free (ChangeMat m n)) = do
+runWithGameState dd gs (cv, o) (Free (ChangeMat m n)) = do
     let no = o_material .~ m $ o
     replaceObject cv o no
-    runWithGameState dd gs ss (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState dd gs ss (cv, o) (Free (Message m n)) = do
+runWithGameState dd gs (cv, o) (Free (Message m n)) = do
     setStatus m
-    runWithGameState dd gs ss (cv, o) n
+    runWithGameState dd gs (cv, o) n
 
-runWithGameState dd gs ss (cv, o) (Free (Put v n)) = do
+runWithGameState dd gs (cv, o) (Free (Put v n)) = do
     let no = o_state .~ v $ o
     replaceObject cv o no
-    runWithGameState dd gs ss (cv, no) n
+    runWithGameState dd gs (cv, no) n
 
-runWithGameState dd gs ss (cv, o) (Free (Get fn)) = do
-    runWithGameState dd gs ss (cv, o) (fn . view o_state $ o)
+runWithGameState dd gs (cv, o) (Free (Get fn)) = do
+    runWithGameState dd gs (cv, o) (fn . view o_state $ o)
 
-runWithGameState dd gs ss (cv, o) (Free (ScanRange r f fn)) = do
+runWithGameState dd gs (cv, o) (Free (ScanRange r f fn)) = do
     points ← interestingObjects cv r f
     values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
-    runWithGameState dd gs ss (cv, o) (fn (zip points values))
+    runWithGameState dd gs (cv, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
 
-runWithGameState _ gs _ _ (Pure x) =
+runWithGameState _ gs _ (Pure x) =
     pure (x, gs)
 

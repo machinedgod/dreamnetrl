@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dreamnet.Conversation
+module Dreamnet.Engine.Conversation
 ( ConversationAPI(..)
 
 , ConversationNode(..)
@@ -35,22 +35,6 @@ data ConversationNode = TalkNode   String Word [String] ConversationNode
                       | DescriptionNode String ConversationNode
                       | End
                       deriving (Show)
-
-
--- TODO I wonder if this equality will bite me in the ass later on?
-instance Eq ConversationNode where
-    (TalkNode _ _ _ _)    == (TalkNode _ _ _ _)    = True
-    (ChoiceNode _ _)      == (ChoiceNode _ _)      = True
-    (DescriptionNode _ _) == (DescriptionNode _ _) = True
-    End                   == End                   = True
-    _                     == _                     = False
-
-
---instance Show ConversationNode where
---    show (TalkNode t _ _ _)    = "TalkNode " <> t
---    show (ChoiceNode cs _)     = "ChoiceNode " <> show cs
---    show (DescriptionNode s _) = "DescriptionNode " <> show s
---    show End                   = "End"
 
 
 instance Monoid ConversationNode where

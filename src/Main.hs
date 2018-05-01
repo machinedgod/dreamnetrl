@@ -3,26 +3,8 @@
 module Main
 where
 
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Random   (MonadRandom, evalRandT, mkStdGen)
-
-import Dreamnet.TileMap
-import Dreamnet.MapGenerator
+import Control.Monad.Random  (evalRandT, mkStdGen)
 import Dreamnet.Dreamnet
-
-import Design.DesignAPI
-import Design.GameCharacters
-
-
-defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
-defaultDesignData = do
-    m ← loadTileMap "./res/apartmentblock"
-    --m ← generateMap
-    pure $
-        DesignData {
-          _dd_characters  = characterDictionary characters
-        , _dd_startingMap = m
-        }
 
 
 main ∷ IO ()

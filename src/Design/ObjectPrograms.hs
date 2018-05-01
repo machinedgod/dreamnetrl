@@ -7,8 +7,8 @@ import Control.Lens     (view, views)
 import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
-import Dreamnet.World     (Symbol(Symbol), o_symbol, o_state)
-import Dreamnet.Character (ch_name, ch_faction, ch_description)
+import Dreamnet.Engine.World     (Symbol(Symbol), o_symbol, o_state)
+import Dreamnet.Engine.Character (ch_name, ch_faction, ch_description)
 
 import Design.DesignAPI
 import Design.GameCharacters (characterForName)
