@@ -14,38 +14,8 @@ import Data.Semigroup     ((<>))
 import qualified Data.Map as M (Map)
 
 import Dreamnet.Engine.Character            (SlotType(..), Character, ch_name)
-import Dreamnet.Engine.Conversation         (ConversationNode(..))
-import Dreamnet.Engine.ConversationMonad    (ConversationF)
-import Dreamnet.Engine.World                (Symbol, Object)
+import Dreamnet.Engine.ConversationMonad    (ConversationF, ConversationNode(..))
 import Dreamnet.ComputerModel               (ComputerData)
-
---------------------------------------------------------------------------------
--- Object API and objects
-
--- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
-class ObjectAPI o where
-    designData         ∷ o DesignData
-    position           ∷ o (V2 Int)
-    move               ∷ V2 Int → o ()
-    showInfoWindow     ∷ String → o ()
-    showComputerWindow ∷ ComputerData → o ()
-    startConversation  ∷ DreamnetCharacter → o ()
-    passable           ∷ o Bool
-    setPassable        ∷ Bool → o () -- Creates a state, creates and object. NO!
-    seeThrough         ∷ o Bool
-    setSeeThrough      ∷ Bool → o ()
-    canSee             ∷ V2 Int → o Bool
-    changeSymbol       ∷ Symbol → o ()
-    changeMat          ∷ String → o ()
-    message            ∷ String → o ()
-    put                ∷ States → o ()
-    get                ∷ o States
-    scanRange          ∷ Word → (Object States → Bool) → o [(V2 Int, Object States)]
-    -- Keep adding primitives until you can describe all Map Objects as programs
-
-
-modify ∷ (ObjectAPI o, Monad o) ⇒ (States → States) → o ()
-modify f = get >>= put . f 
 
 --------------------------------------------------------------------------------
 

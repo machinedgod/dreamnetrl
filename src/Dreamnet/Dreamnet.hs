@@ -30,15 +30,15 @@ import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
 
 import Dreamnet.Game
 
-import Dreamnet.Engine.Conversation
+import Dreamnet.Engine.ConversationMonad
 import Dreamnet.ComputerModel
 import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Rendering.Renderer hiding (moveCamera)
-
 import qualified Dreamnet.Engine.Input as Input
 
 import Design.DesignAPI
+
 import Design.ObjectPrograms
 import Design.GameCharacters
 
@@ -174,7 +174,7 @@ processNormal _ Input.Get = do
                 changePlayer (withCharacter (pickUp (view o_state o)))
                 modifyCell v (deleteFromCell o)
     pure Normal
-processNormal dd Input.UseHeld = do
+processNormal _ Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
     obtainTarget >>= \case
         Nothing →
@@ -188,8 +188,8 @@ processNormal dd Input.UseHeld = do
                 Just ho → do
                     hv  ← evalWorld (fst <$> playerPosition) <$> world
                     let so = view o_state o
-                    _ ← runProgram dd hv (programForState ho (OperateOn so))
-                    _ ← runProgram dd v  (programForState so (OperateWith ho))
+                    _ ← runProgram hv (programForState ho (OperateOn so))
+                    _ ← runProgram v  (programForState so (OperateWith ho))
                     --changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
                     pure ()
     pure Normal
@@ -261,7 +261,7 @@ processNormal _ Input.PullFrom = do
                         (\(Just (Clothes wi)) → Just (Clothes (wi { _wi_storedItems = filter ((/=) item) (_wi_storedItems wi) })))
                       $ ch
     pure Normal
-processNormal dd Input.Examine = do
+processNormal _ Input.Examine = do
     increaseTurn
     obtainTarget >>= \case
         Just (v, o)  → do
@@ -272,11 +272,11 @@ processNormal dd Input.Examine = do
                     pure $ Examination examineText
                     --pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
-                    runProgram dd v (programForState (view o_state o) Examine)
+                    runProgram v (programForState (view o_state o) Examine)
         Nothing → do
             changeWorld $ setStatus "There's nothing there."
             pure Normal
-processNormal dd Input.Operate = do
+processNormal _ Input.Operate = do
     -- TODO as much as operation program wants!
     increaseTurn
     obtainTarget >>= \case
@@ -284,15 +284,15 @@ processNormal dd Input.Operate = do
             changeWorld $ setStatus "There's nothing here."
             pure Normal
         Just (v, o) →
-            runProgram dd v (programForState (view o_state o) Operate)
-processNormal dd Input.Talk = do
+            runProgram v (programForState (view o_state o) Operate)
+processNormal _ Input.Talk = do
     increaseTurn
     obtainTarget >>= \case
         Nothing → do
             changeWorld $ setStatus "Trying to talk to someone, but there's no one there."
             pure Normal
         Just (v, o) → do
-            runProgram dd v (programForState (view o_state o) Talk)
+            runProgram v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
     pure $ InventoryUI itemList
@@ -518,6 +518,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
         makeItemList (SlotWrapper (Slot (Just (Clothes wi)))) = _wi_name wi : (("- "<>) . show <$> _wi_storedItems wi)
         makeItemList _                                        = []
 
+
 --pickAChoice ∷ GameState → Input.UIEvent → StateT Game C.Curses Word
 --pickAChoice gs Input.MoveUp = do
 --    g_choiceWindow %= selectPrevious
@@ -531,6 +532,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 --    uses g_choiceWindow commit
 --pickAChoice gs _ = do
 --    lift (Input.nextEvent gs) >>= pickAChoice gs
+
 
 -- TODO reuse code for aiming weapons
 --switchAim ∷ Maybe (Object → Bool) → StateT Game C.Curses ()

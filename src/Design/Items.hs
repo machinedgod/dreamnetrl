@@ -17,8 +17,8 @@ where
 import Data.Semigroup       ((<>))
 
 import Dreamnet.Engine.Character   (SlotType(..))
-
 import Design.DesignAPI
+
 
 --------------------------------------------------------------------------------
 -- Weapons: ranged + clips

@@ -72,12 +72,12 @@ import Dreamnet.Engine.Utils       (lines')
 import Dreamnet.Engine.Character   
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Visibility
-import Dreamnet.ComputerModel
 
 import Dreamnet.Engine.Rendering.ScrollData
 import Dreamnet.Engine.Rendering.ChoiceData
 
-import Design.DesignAPI     (States, GameState(..), DreamnetCharacter)
+import Dreamnet.ComputerModel
+import Design.DesignAPI     (GameState(..), DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 
@@ -685,7 +685,7 @@ drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
         drawString 20 43 (padC 17 $ views (ch_equipment.eq_rightFoot)  showItem ch)
         drawString 40 43 (padC 17 $ views (ch_equipment.eq_leftFoot)   showItem ch)
     where
-        showItem ∷ Slot o t States → String
+        showItem ∷ (Show s) ⇒ Slot o t s → String
         showItem = maybe "<EMPTY>" show . view s_item
 
 

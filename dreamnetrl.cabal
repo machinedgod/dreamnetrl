@@ -55,10 +55,10 @@ executable dreamnetrl
   extra-libraries:     tinfo
 
   -- Modules included in this executable, other than Main.
-  other-modules:        Design.DesignAPI
-                        Design.GameCharacters
+  other-modules:        Design.GameCharacters
                         Design.Items
                         Design.ObjectPrograms
+                        Design.DesignAPI
                         Dreamnet.ComputerModel
                         Dreamnet.Dreamnet
                         Dreamnet.Engine.Character
@@ -74,8 +74,8 @@ executable dreamnetrl
                         Dreamnet.Engine.Visibility
                         Dreamnet.Engine.World
                         Dreamnet.Engine.WorldMap
-                        Dreamnet.Engine.ObjectMonad
                         Dreamnet.Game
+                        Dreamnet.ObjectMonad
                         
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:    

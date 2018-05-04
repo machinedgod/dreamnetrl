@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Design.ObjectPrograms
 where
@@ -7,17 +8,16 @@ import Control.Lens     (view, views)
 import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
-import Dreamnet.Engine.World     (Symbol(Symbol), o_symbol, o_state)
+import Dreamnet.Engine.World     (Symbol(Symbol), o_symbol, o_state,
+                                  ObjectAPI(..), modifyState)
 import Dreamnet.Engine.Character (ch_name, ch_faction, ch_description)
-
 import Design.DesignAPI
-import Design.GameCharacters (characterForName)
 
 --------------------------------------------------------------------------------
 
 -- TODO So, I get all States data here. Maybe this is the place to feed it
 --      into programs?
-programForState ∷ (ObjectAPI o, Monad o) ⇒ States → InteractionType → o ()
+programForState ∷ (ObjectAPI States o, Monad o) ⇒ States → InteractionType → o ()
 programForState (Prop _)      it = genericProp it
 programForState (Camera _ _)  it = camera it
 programForState (Person _)    it = person it
@@ -33,7 +33,7 @@ programForState Empty         _  = pure ()
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
-door ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+door ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
 door Examine =
     passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
 door Operate = do
@@ -47,7 +47,7 @@ door _ =
 
 
 
-lock ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+lock ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
 lock Examine =
     message "Its a lock allright"
 lock Operate =
@@ -63,11 +63,12 @@ lock _ =
 
 
 
-computer ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+computer ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 computer Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
 computer Operate =
-    get >>= \(Computer cd) → showComputerWindow cd
+    get >>= \(Computer _) → message "Should be showing computer window now, but how?"
+    --get >>= \(Computer cd) → showComputerWindow cd
 computer Talk =
     message "*khm* \"LOGIN - CARLA\"..."
 computer _ =
@@ -75,26 +76,27 @@ computer _ =
 
 
 
-person ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+person ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 person Examine =
     get >>= \(Person ch) → showInfoWindow (view ch_description ch)
 person Operate =
     get >>= \(Person ch) → message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look."
 person Talk =
-    get >>= \(Person ch) → startConversation ch
+    get >>= \(Person ch) → message $ "Here, I should be starting a conversation with " <> view ch_name ch <> ", but how to encode that?"
+    --get >>= \(Person ch) → startConversation ch
 person _ =
     pure ()
 
 
 
-camera ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+camera ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 camera Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
 camera Operate = do
     os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
-    traverse isFoe viso >>= (\v → modify (\(Camera f _) → Camera f (fromIntegral v))) . length . filter id
+    traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length . filter id
     get >>= message . ("Camera alarm level: " <>) . (\(Camera l _) → show l)
     where
         isFoe o = (views o_state (\(Person ch) → view ch_faction ch) o /=) . (\(Camera f _) → f) <$> get
@@ -103,30 +105,30 @@ camera _ =
 
 
 
-mirror ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
-mirror Examine =
-    designData >>= showInfoWindow . view ch_description . characterForName "Carla" . view dd_characters
-mirror Talk =
-    designData >>= startConversation . characterForName "Carla" . view dd_characters
+mirror ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
+--mirror Examine =
+--    designData >>= showInfoWindow . view ch_description . characterForName "Carla" . view dd_characters
+--mirror Talk =
+--    designData >>= startConversation . characterForName "Carla" . view dd_characters
 mirror _ =
     pure ()
 
 
-genericProp ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericProp ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 genericProp Examine =
     get >>= message . ("A " <>) . (\(Prop n) → n)
 genericProp _ =
     pure ()
 
 
-genericClothes ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 genericClothes Examine =
     get >>= message . ("A " <>) . (\(Clothes wi) → view wi_name wi)
 genericClothes _ =
     pure ()
 
 
-genericWeapon ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 genericWeapon Examine =
     get >>= message . ("Nice weapon, a " <>) . (\(Weapon wpi) → view wpi_name wpi)
 genericWeapon Operate =
@@ -141,7 +143,7 @@ genericWeapon _ =
     pure ()
 
 
-genericAmmo ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 genericAmmo Examine =
     get >>= message . ("Nice ammo, a " <>) . (\(Ammo ami) → view ami_name ami)
 genericAmmo Operate =
@@ -155,7 +157,7 @@ genericAmmo _ =
     
 
 
-genericThrowable ∷ (ObjectAPI o, Monad o) ⇒ InteractionType → o ()
+genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
 genericThrowable Examine =
     get >>= message . ("Nice throwable, a " <>) . (\(Ammo ami) → view ami_name ami)
 genericThrowable Operate =

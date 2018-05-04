@@ -19,6 +19,9 @@ module Dreamnet.Engine.World
 , o_height
 , o_state
 
+, ObjectAPI(..)
+, modifyState
+
 , WorldReadAPI(..)
 
 , WorldAPI(..)
@@ -88,6 +91,34 @@ instance Applicative Object where
 instance Monad Object where
     (Object _ _ _ _ _ x)  >>= f = f x
 
+
+--------------------------------------------------------------------------------
+-- Object API and objects
+
+-- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
+class ObjectAPI a o | o → a where
+    position           ∷ o (V2 Int)
+    move               ∷ V2 Int → o ()
+    showInfoWindow     ∷ String → o ()
+    showCustomUi       ∷ o ()
+    --startConversation  ∷ DreamnetCharacter → o ()
+    passable           ∷ o Bool
+    setPassable        ∷ Bool → o () -- Creates a state, creates and object. NO!
+    seeThrough         ∷ o Bool
+    setSeeThrough      ∷ Bool → o ()
+    canSee             ∷ V2 Int → o Bool
+    changeSymbol       ∷ Symbol → o ()
+    changeMat          ∷ String → o ()
+    message            ∷ String → o ()
+    put                ∷ a → o ()
+    get                ∷ o a
+    scanRange          ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
+    -- Keep adding primitives until you can describe all Map Objects as programs
+
+
+modifyState ∷ (ObjectAPI a o, Monad o) ⇒ (a → a) → o ()
+modifyState f = get >>= put . f 
+
 --------------------------------------------------------------------------------
 
 --class WorldReadAPI o v w | w → o, w → v where
@@ -153,10 +184,10 @@ newWorld m p =
 
 castVisibilityRay' ∷ (Monad wm, WorldMapReadAPI (Object o) wm) ⇒ V2 Int → V2 Int → wm [(V2 Int, Bool)]
 castVisibilityRay' o d = do
-    filterM (fmap not . oob) (bla o d) >>= traverse (\p → (p,) <$> seeThrough p)
-    --fmap ((,) <$> id <*> seeThrough) $ filter (not . outOfBounds m) $ line o d
+    filterM (fmap not . oob) (bla o d) >>= traverse (\p → (p,) <$> isSeeThrough p)
+    --fmap ((,) <$> id <*> isSeeThrough) $ filter (not . outOfBounds m) $ line o d
     where
-        seeThrough x = and . fmap (view o_seeThrough) <$> cellAt x
+        isSeeThrough x = and . fmap (view o_seeThrough) <$> cellAt x
 
 --------------------------------------------------------------------------------
 

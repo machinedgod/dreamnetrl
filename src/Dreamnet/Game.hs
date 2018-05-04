@@ -4,8 +4,7 @@
 
 module Dreamnet.Game
 ( module Dreamnet.Engine.World
-, module Dreamnet.Engine.ObjectMonad
-
+, module Dreamnet.ObjectMonad
 , GameAPI(..)
 
 , Game
@@ -18,11 +17,10 @@ module Dreamnet.Game
 ) where
 
 import Safe                (fromJustNote)
-
 import Control.Lens        (makeLenses, view, use, uses, assign, (+=), (%=),
                             (.=))
-import Control.Monad.Free  (Free)
 import Control.Monad.Trans (lift)
+import Control.Monad.Free  (Free)
 import Control.Monad.State (MonadState, StateT, runStateT, evalStateT, execStateT)
 import Data.Monoid         ((<>))
 import Data.List           (genericLength, find)
@@ -33,36 +31,19 @@ import qualified Data.Vector as V (fromList)
 import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
                                    drawBorder, Glyph(Glyph), render)
 
-import Design.DesignAPI
-import Design.GameCharacters
+
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
-import Dreamnet.Engine.ObjectMonad
 import Dreamnet.Engine.Rendering.Renderer
+import qualified Dreamnet.Engine.Rendering.Renderer as R
+import qualified Dreamnet.Engine.Input              as Input
+
+import Dreamnet.ObjectMonad
 import Dreamnet.ComputerModel
 
-import qualified Dreamnet.Engine.Input              as Input
-import qualified Dreamnet.Engine.Rendering.Renderer as R
+import Design.DesignAPI
+import Design.GameCharacters
 
---------------------------------------------------------------------------------
-
-class GameAPI g where
-    currentTurn      ∷ g Word
-    increaseTurn     ∷ g ()
-    moveCamera       ∷ V2 Int → g ()
-    nextEvent        ∷ C.Curses a → g a -- TODO type leak
-    gameState        ∷ g GameState
-    changeGameState  ∷ (GameState → g GameState) → g GameState
-    world            ∷ g (World States Visibility)
-    changeWorld      ∷ WorldM States Visibility a → g a
-    -- TODO change to withTarget to make more functional
-    obtainTarget     ∷ g (Maybe (V2 Int, Object States))
-    -- TODO offer abort!
-    askChoice        ∷ [(Char, String, a)] → g a
-    runProgram       ∷ DesignData → V2 Int → Free ObjectF () → g GameState
-    doRender         ∷ RendererF a → g a
-    doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
-    queryRenderData  ∷ g RendererEnvironment
 
 --------------------------------------------------------------------------------
 
@@ -164,6 +145,27 @@ newGame dd = do
         playerPerson ∷ DreamnetCharacter → Object States
         playerPerson = Object (Symbol '@') "metal" False True 3 . Person
 
+
+--------------------------------------------------------------------------------
+
+class GameAPI g where
+    currentTurn      ∷ g Word
+    increaseTurn     ∷ g ()
+    moveCamera       ∷ V2 Int → g ()
+    nextEvent        ∷ C.Curses a → g a -- TODO type leak
+    gameState        ∷ g GameState
+    changeGameState  ∷ (GameState → g GameState) → g GameState
+    world            ∷ g (World States Visibility)
+    changeWorld      ∷ WorldM States Visibility a → g a
+    -- TODO change to withTarget to make more functional
+    obtainTarget     ∷ g (Maybe (V2 Int, Object States))
+    -- TODO offer abort!
+    askChoice        ∷ [(Char, String, a)] → g a
+    runProgram       ∷ V2 Int → Free (ObjectF States) () → g GameState
+    doRender         ∷ RendererF a → g a
+    doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
+    queryRenderData  ∷ g RendererEnvironment
+
 --------------------------------------------------------------------------------
 
 newtype GameM a = GameM { runGameM ∷ StateT Game C.Curses a }
@@ -224,12 +226,12 @@ instance GameAPI GameM where
             fst3 (x, _, _) = x
             trd3 (_, _, x) = x
 
-    runProgram dd v prg = do
-        mo ← uses g_world (evalWorld (lastValue <$> cellAt v))
+    runProgram v prg = do
+        mo ← uses g_world (evalWorld (lastValue <$> cellAt v)) -- TODO not really correct
         case mo of
             Nothing → pure Normal
             Just o  → changeWorld $ do
-               (_, gs) ← runObjectMonadWorld dd prg v o
+               (_, gs) ← runObjectMonadWorld prg v o
                updateVisible
                pure gs
 
