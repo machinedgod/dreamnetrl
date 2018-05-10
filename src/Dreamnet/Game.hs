@@ -157,7 +157,7 @@ class GameAPI g where
     gameState        ∷ g GameState
     changeGameState  ∷ (GameState → g GameState) → g GameState
     world            ∷ g (World States Visibility)
-    changeWorld      ∷ WorldM States Visibility a → g a
+    doWorld          ∷ WorldM States Visibility a → g a
     -- TODO change to withTarget to make more functional
     obtainTarget     ∷ g (Maybe (V2 Int, Object States))
     -- TODO offer abort!
@@ -188,7 +188,7 @@ instance GameAPI GameM where
 
     world = use g_world
 
-    changeWorld m =
+    doWorld m =
         uses g_world (runWorld m) >>= \(x, w') →
             g_world .= w' >>
                 pure x
@@ -231,7 +231,7 @@ instance GameAPI GameM where
         mo ← uses g_world (evalWorld (lastValue <$> cellAt v)) -- TODO not really correct
         case mo of
             Nothing → pure Normal
-            Just o  → changeWorld $ do
+            Just o  → doWorld $ do
                (_, gs) ← runObjectMonadWorld prg v o
                updateVisible
                pure gs

@@ -121,9 +121,9 @@ instance ObjectAPI s (Free (ObjectF s)) where
 
     message m = Free $ Message m (Pure ())
 
-    put v = Free $ Put v (Pure ())
+    --put v = Free $ Put v (Pure ())
 
-    get = Free $ Get Pure
+    --get = Free $ Get Pure
 
     scanRange r f = Free $ ScanRange r f Pure
 

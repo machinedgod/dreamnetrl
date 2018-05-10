@@ -78,7 +78,7 @@ dreamnet dd = C.runCurses $ do
     void $ C.setCursorMode C.CursorInvisible
     g ← newGame dd
     void $ flip execGame g $ do
-        changeWorld updateVisible
+        doWorld updateVisible
         gs ← gameState
         w  ← world
         t  ← currentTurn
@@ -89,7 +89,7 @@ dreamnet dd = C.runCurses $ do
 
 loopTheLoop ∷ ∀ g. (GameAPI g, Monad g) ⇒ DesignData → g ()
 loopTheLoop dd = do
-    changeWorld (setStatus "")
+    doWorld (setStatus "")
     gs ← changeGameState gameStateFlow
     case gs of
         Quit → pure ()
@@ -134,7 +134,7 @@ processNormal _ Input.Quit = do
 processNormal _ Input.SwitchToHud = do
     pure $ HudTeam 0
 processNormal _ (Input.Move v) = do
-    changeWorld $ do
+    doWorld $ do
         movePlayer v
         updateVisible
     increaseTurn
@@ -143,27 +143,27 @@ processNormal _ (Input.MoveCamera v) = do
     moveCamera v
     pure Normal
 processNormal _ Input.Wait = do
-    changeWorld $ do
+    doWorld $ do
         setStatus "Waiting..."
         updateVisible
     --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
     increaseTurn
     pure Normal
 processNormal _ Input.HigherStance = do
-    changeWorld $
+    doWorld $
         changePlayer (withCharacter (ch_stance %~ predSafe))
     pure Normal
 processNormal _ Input.LowerStance = do
-    changeWorld $
+    doWorld $
         changePlayer (withCharacter (ch_stance %~ succSafe))
     pure Normal
 processNormal _ Input.Get = do
     increaseTurn
     obtainTarget >>= \case
         Nothing →
-            changeWorld $ setStatus "There's nothing here."
+            doWorld $ setStatus "There's nothing here."
         Just (v, o) →
-            changeWorld $ do
+            doWorld $ do
                 -- Fugly
                 -- One way around:
                 -- o_state contains some kind of a 'pointer'
@@ -179,19 +179,25 @@ processNormal _ Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
     obtainTarget >>= \case
         Nothing →
-            changeWorld $ setStatus "Nothing there."
+            doWorld $ setStatus "Nothing there."
         Just (v, o) → do
             -- TODO this should be much easier
-            mho ← fromCharacter (slotWrapperItem . primaryHandSlot) Nothing . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "useHeld" . valueAt ix) $ cellAt pp)) <$> world
+             
+            mho ← doWorld $ do
+                (pp, ix) ← playerPosition 
+                cellobj ← fromJustNote "useHeld" . valueAt ix <$> cellAt pp
+                pure $ fromCharacter (slotWrapperItem . primaryHandSlot) Nothing cellobj
             case mho of
                 Nothing →
-                    changeWorld $ setStatus "You aren't carrying anything in your hands."
+                    doWorld $ setStatus "You aren't carrying anything in your hands."
                 Just ho → do
-                    hv  ← evalWorld (fst <$> playerPosition) <$> world
+                    pp ← doWorld (fst <$> playerPosition)
                     let so = view o_state o
-                    _ ← runProgram hv (programForState ho (OperateOn so))
-                    _ ← runProgram v  (programForState so (OperateWith ho))
-                    --changeWorld $ setStatus $ "Operated " <> show ho <> " on " <> show so
+
+                    (Person ch) ← doWorld playerObject
+                    
+                    runProgram pp (programForState ch ho (OperateOn so))
+                    runProgram v  (programForState ch so (OperateWith ho))
                     pure ()
     pure Normal
 processNormal _ Input.Wear = do
@@ -211,7 +217,7 @@ processNormal _ Input.Wear = do
         , ('f', "Left foot",   ((Just LeftSide),  Foot))
         , ('F', "Right foot",  ((Just RightSide), Foot))
         ]
-    changeWorld $
+    doWorld $
         changePlayer $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
@@ -224,7 +230,7 @@ processNormal _ Input.StoreIn = do
     increaseTurn
     containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "storeIn" . valueAt ix) $ cellAt pp)) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
-    changeWorld $
+    doWorld $
         changePlayer $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
@@ -249,7 +255,7 @@ processNormal _ Input.PullFrom = do
 
     item ← askChoice (zip3 choiceChs (show <$> itemList) itemList)
 
-    changeWorld $
+    doWorld $
         changePlayer $
             withCharacter $
                 \ch → modifySlotContent
@@ -273,27 +279,30 @@ processNormal _ Input.Examine = do
                     pure $ Examination examineText
                     --pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
                 else
-                    runProgram v (programForState (view o_state o) Examine)
+                    doWorld playerObject >>=
+                        \(Person ch) → runProgram v (programForState ch (view o_state o) Examine)
         Nothing → do
-            changeWorld $ setStatus "There's nothing there."
+            doWorld $ setStatus "There's nothing there."
             pure Normal
 processNormal _ Input.Operate = do
     -- TODO as much as operation program wants!
     increaseTurn
     obtainTarget >>= \case
         Nothing → do
-            changeWorld $ setStatus "There's nothing here."
+            doWorld $ setStatus "There's nothing here."
             pure Normal
         Just (v, o) →
-            runProgram v (programForState (view o_state o) Operate)
+            doWorld playerObject >>=
+                \(Person ch) → runProgram v (programForState ch (view o_state o) Operate)
 processNormal _ Input.Talk = do
     increaseTurn
     obtainTarget >>= \case
         Nothing → do
-            changeWorld $ setStatus "Trying to talk to someone, but there's no one there."
+            doWorld $ setStatus "Trying to talk to someone, but there's no one there."
             pure Normal
         Just (v, o) → do
-            runProgram v (programForState (view o_state o) Talk)
+            doWorld playerObject >>=
+                \(Person ch) →  runProgram v (programForState ch (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
     doRenderData (setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList))
@@ -367,7 +376,7 @@ processHudWatch t b Input.MoveLeft =
 processHudWatch t b Input.MoveRight =
     pure $ HudWatch t ((b + 1) `mod` 3)
 processHudWatch t b Input.SelectChoice = do
-    changeWorld $ setStatus ("Pushing button: " <> show b)
+    doWorld $ setStatus ("Pushing button: " <> show b)
     pure $ HudWatch t b
 processHudWatch _ _ Input.Back =
     pure Normal
@@ -427,6 +436,20 @@ conversationUpdateUi (DescriptionNode txt _) = do
     doRenderData (setScroll (newScrollData p s Nothing txt))
 conversationUpdateUi _ =
     pure ()
+
+
+programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType → o ()
+programForState _  (Prop n)        it = genericProp n it
+programForState _  (Camera f l)    it = camera f l it
+programForState _  (Person ch)     it = person ch it
+programForState _  (Computer cd)   it = computer cd it
+programForState _  Door            it = door it
+programForState ch Mirror         it = mirror ch it
+programForState _  (Clothes wi)    it = genericClothes wi it
+programForState _  (Weapon wpi)    it = genericWeapon wpi it
+programForState _  (Ammo ami)      it = genericAmmo ami it
+programForState _  (Throwable twi) it = genericThrowable twi it
+programForState _  Empty           _  = pure ()
 
 
 positionFor ∷ (GameAPI g, Functor g) ⇒ Word → g (V2 Integer)
@@ -497,7 +520,7 @@ processComputerOperation v ix cd (Input.PassThrough '\b') = do
 processComputerOperation v ix cd (Input.PassThrough c) = do
     pure $ ComputerOperation v ix (snd $ runComputer (typeIn c) cd)
 processComputerOperation v ix cd Input.BackOut = do
-    changeWorld $
+    doWorld $
         modifyObjectAt v ix (pure . set o_state (Computer cd))
     pure Normal
 

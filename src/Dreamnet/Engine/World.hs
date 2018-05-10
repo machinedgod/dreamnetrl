@@ -20,7 +20,6 @@ module Dreamnet.Engine.World
 , o_state
 
 , ObjectAPI(..)
-, modifyState
 
 , WorldReadAPI(..)
 
@@ -38,6 +37,7 @@ module Dreamnet.Engine.World
 
 
 import Prelude hiding (interact, rem, map)
+import Safe           (fromJustNote)
 
 import Control.Lens               (makeLenses, (%=), (.=), use, uses, view,
                                    views)
@@ -110,22 +110,22 @@ class ObjectAPI a o | o → a where
     changeSymbol       ∷ Symbol → o ()
     changeMat          ∷ String → o ()
     message            ∷ String → o ()
-    put                ∷ a → o ()
-    get                ∷ o a
+    --put                ∷ a → o ()
+    --get                ∷ o a
     scanRange          ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
     -- Keep adding primitives until you can describe all Map Objects as programs
 
-
-modifyState ∷ (ObjectAPI a o, Monad o) ⇒ (a → a) → o ()
-modifyState f = get >>= put . f 
-
 --------------------------------------------------------------------------------
+
+-- TODO should probably move out all mentions of player or team out of here
+-- into the Game data
 
 --class WorldReadAPI o v w | w → o, w → v where
 class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
     currentMap         ∷ w (WorldMap (Object o)) -- TODO not liking this
     visibility         ∷ w (V.Vector v) -- TODO or this
     playerPosition     ∷ w (V2 Int, Int)
+    playerObject       ∷ w o
     team               ∷ w [String]
     teamMemberPosition ∷ String → w (Maybe (V2 Int, Int))
     castVisibilityRay  ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
@@ -222,6 +222,10 @@ instance WorldReadAPI o Visibility (WorldM o Visibility) where
     visibility = use w_vis
 
     playerPosition = use w_player
+
+    playerObject = do
+        mpl ← playerPosition >>= \(pp, ix) → cellAt pp >>= pure . valueAt ix
+        pure $ view o_state $ fromJustNote "Error retrieving player data, bad code!" mpl
 
     team = uses w_team M.keys
 

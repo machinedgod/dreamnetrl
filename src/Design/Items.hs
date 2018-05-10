@@ -11,8 +11,7 @@ module Design.Items
 , headband
 , armourPiece
 , boot
-)
-where
+) where
 
 import Data.Semigroup       ((<>))
 

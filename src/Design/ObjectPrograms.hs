@@ -9,26 +9,18 @@ import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
 import Dreamnet.Engine.World     (Symbol(Symbol), o_symbol, o_state,
-                                  ObjectAPI(..), modifyState)
+                                  ObjectAPI(..))
 import Dreamnet.Engine.Character (ch_name, ch_faction, ch_description)
+import Design.ComputerModel
 import Design.DesignAPI
 
 --------------------------------------------------------------------------------
 
--- TODO So, I get all States data here. Maybe this is the place to feed it
---      into programs?
-programForState ∷ (ObjectAPI States o, Monad o) ⇒ States → InteractionType → o ()
-programForState (Prop _)      it = genericProp it
-programForState (Camera _ _)  it = camera it
-programForState (Person _)    it = person it
-programForState (Computer _)  it = computer it
-programForState Door          it = door it
-programForState Mirror        it = mirror it
-programForState (Clothes _)   it = genericClothes it
-programForState (Weapon _)    it = genericWeapon it
-programForState (Ammo _)      it = genericAmmo it
-programForState (Throwable _) it = genericThrowable it
-programForState Empty         _  = pure ()
+data InteractionType = Examine
+                     | Operate
+                     | Talk
+                     | OperateOn   States
+                     | OperateWith States
 
 --------------------------------------------------------------------------------
 
@@ -63,110 +55,111 @@ lock _ =
 
 
 
-computer ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-computer Examine =
+computer ∷ (ObjectAPI States o, Monad o) ⇒ ComputerData → InteractionType → o ()
+computer _ Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
-computer Operate =
-    get >>= \(Computer _) → message "Should be showing computer window now, but how?"
-    --get >>= \(Computer cd) → showComputerWindow cd
-computer Talk =
+computer _ Operate =
+    message "Should be showing computer window now, but how?"
+    --showComputerWindow cd
+computer _ Talk =
     message "*khm* \"LOGIN - CARLA\"..."
-computer _ =
+computer _ _ =
     pure ()
 
 
 
-person ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-person Examine =
-    get >>= \(Person ch) → showInfoWindow (view ch_description ch)
-person Operate =
-    get >>= \(Person ch) → message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look."
-person Talk =
-    get >>= \(Person ch) → message $ "Here, I should be starting a conversation with " <> view ch_name ch <> ", but how to encode that?"
-    --get >>= \(Person ch) → startConversation ch
-person _ =
+person ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
+person ch Examine =
+    showInfoWindow (view ch_description ch)
+person ch Operate =
+    message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look."
+person ch Talk =
+    message $ "Here, I should be starting a conversation with " <> view ch_name ch <> ", but how to encode that?"
+    --startConversation ch
+person _ _ =
     pure ()
 
 
 
-camera ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-camera Examine =
+-- TODO mixes general Object knowledge with States knowledge. This is an issue!
+camera ∷ (ObjectAPI States o, Monad o) ⇒ Faction → Word → InteractionType → o ()
+camera _ _ Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
-camera Operate = do
+camera f l Operate = do
     os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
-    traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length . filter id
-    get >>= message . ("Camera alarm level: " <>) . (\(Camera l _) → show l)
+    -- traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length -- . filter id
+    message $ "Camera alarm level: " <> show l
     where
-        isFoe o = (views o_state (\(Person ch) → view ch_faction ch) o /=) . (\(Camera f _) → f) <$> get
-camera _ = 
+        isFoe o = f /= views o_state (\(Person ch) → view ch_faction ch) o
+camera _ _ _ = 
     pure ()
 
 
 
-mirror ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
---mirror Examine =
---    designData >>= showInfoWindow . view ch_description . characterForName "Carla" . view dd_characters
---mirror Talk =
---    designData >>= startConversation . characterForName "Carla" . view dd_characters
-mirror _ =
+mirror ∷ (ObjectAPI a o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
+mirror ch Examine =
+    showInfoWindow (view ch_description ch)
+mirror ch Talk =
+    message $ view ch_name ch <> " is about to start conversation with the mirror (technically, its talking to themselves), somehow..."
+mirror _ _ =
     pure ()
 
 
-genericProp ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-genericProp Examine =
-    get >>= message . ("A " <>) . (\(Prop n) → n)
-genericProp _ =
+genericProp ∷ (ObjectAPI States o, Monad o) ⇒ String → InteractionType → o ()
+genericProp n Examine =
+    message $ "A " <> n
+genericProp _ _ =
     pure ()
 
 
-genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-genericClothes Examine =
-    get >>= message . ("A " <>) . (\(Clothes wi) → view wi_name wi)
-genericClothes _ =
+genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ WearableItem i → InteractionType → o ()
+genericClothes wi Examine =
+    message $ "A " <> view wi_name wi
+genericClothes _ _ =
     pure ()
 
 
-genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-genericWeapon Examine =
-    get >>= message . ("Nice weapon, a " <>) . (\(Weapon wpi) → view wpi_name wpi)
-genericWeapon Operate =
+genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType → o ()
+genericWeapon wpi Examine =
+    message $ "Nice weapon, a " <> view wpi_name wpi
+genericWeapon _ Operate =
     message "This weapon doesn't seem to have any configs or settings."
-genericWeapon Talk =
+genericWeapon _ Talk =
     message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
-genericWeapon (OperateOn s) =
+genericWeapon _ (OperateOn s) =
     message $ "Boom boom! " <> show s <> " is dead!"
-genericWeapon (OperateWith (Ammo ami)) =
-    message $ "You reload the gun with ammo clip: " <> view ami_name ami
-genericWeapon _ =
+genericWeapon wpi (OperateWith (Ammo ami)) =
+    message $ "You reload the " <> view wpi_name wpi <> " with ammo clip: " <> view ami_name ami
+genericWeapon _ _ =
     pure ()
 
 
-genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-genericAmmo Examine =
-    get >>= message . ("Nice ammo, a " <>) . (\(Ammo ami) → view ami_name ami)
-genericAmmo Operate =
-    get >>= message . ("You change configuration of this " <>)  . (\(Ammo ami) → view ami_name ami)
-genericAmmo (OperateOn s) =
-    message $ "You reload the " <> show s
-genericAmmo (OperateWith (Weapon wpi)) =
+genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ AmmoItem → InteractionType → o ()
+genericAmmo ami Examine =
+    message $ "Nice ammo, a " <> view ami_name ami
+genericAmmo ami Operate =
+    message $ "You change configuration of this " <> view ami_name ami
+genericAmmo _ (OperateOn (Weapon wpi)) =
+    message $ "You reload the " <> view wpi_name wpi
+genericAmmo _ (OperateWith (Weapon wpi)) =
     message $ "While you find its really difficult and time consuming, somehow you manage to insert the clip into " <> view wpi_name wpi <> " by ramming it over the clip."
-genericAmmo _ =
+genericAmmo _ _ =
     pure ()
     
 
 
-genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType → o ()
-genericThrowable Examine =
-    get >>= message . ("Nice throwable, a " <>) . (\(Ammo ami) → view ami_name ami)
-genericThrowable Operate =
-    message "The thing is now armed, gulp."
-genericThrowable (OperateOn (Person ch)) =
-    message $ "You try to show your grenade up " <> view ch_name ch <> "'s ass."
-genericThrowable (OperateWith s) =
-    message $ "You try and hit the grenade with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
-genericThrowable _ =
+genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType → o ()
+genericThrowable twi Examine =
+    message $ "Nice throwable, a " <> view twi_name twi
+genericThrowable twi Operate =
+    message $ "The " <> view twi_name twi <> " is now armed, gulp."
+genericThrowable twi (OperateOn (Person ch)) =
+    message $ "You try to show your " <> view twi_name twi <> " up " <> view ch_name ch <> "'s ass."
+genericThrowable twi (OperateWith s) =
+    message $ "You try and hit the " <> view twi_name twi <> " with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
+genericThrowable _ _ =
     pure ()
 
 

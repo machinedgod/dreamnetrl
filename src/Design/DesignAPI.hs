@@ -86,18 +86,13 @@ data ThrownWeaponItem = ThrownWeaponItem {
 
 --------------------------------------------------------------------------------
 
-data InteractionType = Examine
-                     | Operate
-                     | Talk
-                     | OperateOn   States
-                     | OperateWith States
-
-
 newtype Faction = Faction String
                 deriving (Eq, Show)
 
 
 -- TODO Not happy with this development!
+-- NOTE this *could* be a record of lists instead, eg.
+-- cameras :: [(Faction, Word)], props :: [String], etc
 data States = Prop      String
             | Camera    Faction Word
             | Person    DreamnetCharacter
@@ -162,3 +157,4 @@ makeLenses ''DesignData
 makeLenses ''WearableItem
 makeLenses ''WeaponItem
 makeLenses ''AmmoItem
+makeLenses ''ThrownWeaponItem
