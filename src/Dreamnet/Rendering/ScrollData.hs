@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dreamnet.Engine.Rendering.ScrollData
+module Dreamnet.Rendering.ScrollData
 ( ScrollData
 , sd_position
 , sd_size

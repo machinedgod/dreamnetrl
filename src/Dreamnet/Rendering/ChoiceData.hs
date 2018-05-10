@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Dreamnet.Engine.Rendering.ChoiceData
+module Dreamnet.Rendering.ChoiceData
 ( ChoiceData
 , cd_options
 , cd_currentSelection

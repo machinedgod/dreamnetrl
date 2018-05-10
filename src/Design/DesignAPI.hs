@@ -15,7 +15,8 @@ import qualified Data.Map as M (Map)
 
 import Dreamnet.Engine.Character            (SlotType(..), Character, ch_name)
 import Dreamnet.Engine.ConversationMonad    (ConversationF, ConversationNode(..))
-import Dreamnet.ComputerModel               (ComputerData)
+
+import Design.ComputerModel
 
 --------------------------------------------------------------------------------
 
@@ -110,6 +111,7 @@ data States = Prop      String
             | Empty
             deriving (Eq)
 
+
 instance Show States where
     show (Prop s)        = "A " <> s
     show (Camera _ _)    = "A camera."
@@ -141,7 +143,8 @@ data GameState = Quit
                | HudMessages
                | HudWatch           Int Int
                | Conversation       ConversationNode
-               | InventoryUI        [String]
+               | InventoryUI
+               -- | InventoryUI        [String]
                | SkillsUI           DreamnetCharacter
                | EquipmentUI        DreamnetCharacter
 

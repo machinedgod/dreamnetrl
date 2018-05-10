@@ -34,15 +34,16 @@ import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
-import Dreamnet.Engine.Rendering.Renderer
-import qualified Dreamnet.Engine.Rendering.Renderer as R
 import qualified Dreamnet.Engine.Input              as Input
 
+import Dreamnet.Rendering.Renderer
+import qualified Dreamnet.Rendering.Renderer as R
+
 import Dreamnet.ObjectMonad
-import Dreamnet.ComputerModel
 
 import Design.DesignAPI
 import Design.GameCharacters
+import Design.ComputerModel
 
 
 --------------------------------------------------------------------------------

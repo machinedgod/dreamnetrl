@@ -4,7 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- | APIs for building and using computers
-module Dreamnet.ComputerModel
+module Design.ComputerModel
 ( ComputerAPI(..)
 
 , ComputerData(ComputerData)

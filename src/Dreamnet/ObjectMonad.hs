@@ -16,7 +16,7 @@ module Dreamnet.ObjectMonad
 where
 
 
-import Control.Lens        (view, (.~))
+import Control.Lens        (view, (.~)) --_1, _2, use, (.=))
 import Control.Monad.Free  (Free(Free, Pure))
 import Control.Monad.State (MonadState, State, runState)
 import Linear              (V2)
@@ -29,6 +29,41 @@ import Design.DesignAPI
 
 newtype ObjectM s a = ObjectM { runObjectM ∷ State (V2 Int, Object s) a }
                     deriving (Functor, Applicative, Monad, MonadState (V2 Int, Object s))
+
+
+--instance ObjectAPI States (ObjectM States) where
+--    position = use _1
+--
+--    move v = _1 .= v
+--
+--    showInfoWindow s = Free $ ShowInfoWindow s (Pure ())
+--
+--    showCustomUi = Free $ ShowCustomUi (Pure ())
+--
+--    -- startConversation ch = Free $ StartConversation ch (Pure ())
+--
+--    passable = Free $ Passable Pure
+--
+--    setPassable c = Free $ SetPassable c (Pure ())
+--
+--    seeThrough = Free $ SeeThrough Pure
+--
+--    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
+--
+--    canSee v = Free $ CanSee v Pure
+--
+--    changeSymbol s = Free $ ChangeSymbol s (Pure ())
+--
+--    changeMat s = Free $ ChangeMat s (Pure ())
+--
+--    message m = Free $ Message m (Pure ())
+--
+--    put v = Free $ Put v (Pure ())
+--
+--    get = Free $ Get Pure
+--
+--    scanRange r f = Free $ ScanRange r f Pure
+    
 
 
 runObject ∷ (Monad w, WorldAPI States v w) ⇒ ObjectM States a → V2 Int → Object States → w (a, GameState)

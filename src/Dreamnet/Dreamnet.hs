@@ -31,15 +31,16 @@ import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
 import Dreamnet.Game
 
 import Dreamnet.Engine.ConversationMonad
-import Dreamnet.ComputerModel
 import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
-import Dreamnet.Engine.Rendering.Renderer hiding (moveCamera)
 import qualified Dreamnet.Engine.Input as Input
+
+import Dreamnet.Rendering.Renderer hiding (moveCamera)
 
 import Design.DesignAPI
 
 import Design.ObjectPrograms
+import Design.ComputerModel
 import Design.GameCharacters
 
 --------------------------------------------------------------------------------
@@ -106,7 +107,7 @@ loopTheLoop dd = do
         gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
         gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
         gameStateFlow (Conversation cn)           = nextEvent Input.nextUiEvent          >>= processConversation cn
-        gameStateFlow (InventoryUI is)            = nextEvent Input.nextUiEvent          >>= processInventoryUI is
+        gameStateFlow InventoryUI                 = nextEvent Input.nextUiEvent          >>= processInventoryUI
         gameStateFlow (SkillsUI  ch)              = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
         gameStateFlow (EquipmentUI ch)            = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
         gameStateFlow (ComputerOperation v ix cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation v ix cd
@@ -295,8 +296,8 @@ processNormal _ Input.Talk = do
             runProgram v (programForState (view o_state o) Talk)
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
-    pure $ InventoryUI itemList
-    --pure $ InventoryUI (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
+    doRenderData (setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList))
+    pure InventoryUI
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
@@ -451,14 +452,14 @@ conversationSize ∷ (GameAPI g, Functor g) ⇒ g (V2 Integer)
 conversationSize = doRender (fmap (`div` 3) . uncurry V2 <$> mainSize)
 
 
-processInventoryUI ∷ (GameAPI g, Monad g) ⇒ [String] → Input.UIEvent → g GameState
-processInventoryUI lst Input.MoveUp = do
+processInventoryUI ∷ (GameAPI g, Monad g) ⇒ Input.UIEvent → g GameState
+processInventoryUI Input.MoveUp = do
     doRenderData (doScroll scrollUp)
-    pure $ InventoryUI lst
-processInventoryUI lst Input.MoveDown = do
+    pure InventoryUI
+processInventoryUI Input.MoveDown = do
     doRenderData (doScroll scrollDown)
-    pure $ InventoryUI lst
-processInventoryUI _ _ =
+    pure InventoryUI
+processInventoryUI _ =
     pure Normal
 
 
@@ -576,7 +577,7 @@ render HudMessages                     w t = renderHud HudMessages (completeTeam
 render gs@(HudWatch _ _)               w t = renderHud gs (completeTeam w) t
 render (Conversation (ChoiceNode _ _)) _ _ = updateUi clear >> drawChoice >>= updateUi
 render (Conversation _)                _ _ = updateUi clear >> drawInformation >>= updateUi
-render (InventoryUI _)                 _ _ = updateUi clear >> drawInformation >>= updateUi
+render InventoryUI                     _ _ = updateUi clear >> drawInformation >>= updateUi
 render (SkillsUI  ch)                  _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
 render (EquipmentUI  ch)               _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
 render Quit                            _ _ = pure ()

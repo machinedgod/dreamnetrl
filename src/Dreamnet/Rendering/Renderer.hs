@@ -6,7 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
-module Dreamnet.Engine.Rendering.Renderer
+module Dreamnet.Rendering.Renderer
 ( newScrollData
 , newScrollData'
 , scrollUp
@@ -73,10 +73,10 @@ import Dreamnet.Engine.Character
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Visibility
 
-import Dreamnet.Engine.Rendering.ScrollData
-import Dreamnet.Engine.Rendering.ChoiceData
+import Dreamnet.Rendering.ScrollData
+import Dreamnet.Rendering.ChoiceData
 
-import Dreamnet.ComputerModel
+import Design.ComputerModel
 import Design.DesignAPI     (GameState(..), DreamnetCharacter)
 
 --------------------------------------------------------------------------------
