@@ -73,7 +73,7 @@ newGame dd = do
         _g_turn  = 0
       , _g_world = newWorld
                        (fromTileMap sm  objectFromTile)
-                       (playerPerson ( "Carla" `characterForName` view dd_characters dd))
+                       (playerPerson ("Carla" `characterForName` view dd_characters dd))
       , _g_gameState    = Normal 
       , _g_rendererData = rdf
     }
@@ -93,7 +93,7 @@ newGame dd = do
                 p  = 1 `readBoolProperty` t
                 s  = 1 `readBoolProperty` t
                 h  = 5
-                st = Door
+                st = Prop "Door"
             in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Stairs") =
             let m  = "wood"

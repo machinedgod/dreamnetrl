@@ -97,8 +97,6 @@ data States = Prop      String
             | Camera    Faction Word
             | Person    DreamnetCharacter
             | Computer  ComputerData
-            | Door
-            | Mirror
             | Clothes   (WearableItem States)
             | Weapon    WeaponItem
             | Ammo      AmmoItem
@@ -112,8 +110,6 @@ instance Show States where
     show (Camera _ _)    = "A camera."
     show (Person ch)     = view ch_name ch
     show (Computer _)    = "A computer"
-    show Door            = "An generic, common object that switches collidable state when activated."
-    show Mirror          = "You're so pretty!"
     show (Clothes wi)    = _wi_name wi
     show (Weapon wpi)    = _wpi_name wpi
     show (Ammo ami)      = _ami_name ami
@@ -132,7 +128,7 @@ type DreamnetCharacter = Character States (Free ConversationF ()) Faction
 
 data GameState = Quit
                | Normal
-               | Examination        String
+               | Examination
                | ComputerOperation  (V2 Int) Int ComputerData
                | HudTeam            Int
                | HudMessages

@@ -16,6 +16,7 @@ import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
 import Control.Lens              (view, views, (%~), (^.), set)
 import Control.Monad             (void)
 import Control.Monad.Reader      (MonadReader)
+import Control.Monad.State       (execState, modify)
 import Control.Monad.Random      (MonadRandom)
 import Control.Monad.IO.Class    (MonadIO)
 import Data.Bifunctor            (bimap)
@@ -55,8 +56,8 @@ defaultDesignData = do
     pure $
         DesignData {
           _dd_characters  = characterDictionary characters
-        , _dd_dev_startingMap = "./res/bar"
-        --, _dd_dev_startingMap = "./res/apartmentblock"
+        --, _dd_dev_startingMap = "./res/bar"
+        , _dd_dev_startingMap = "./res/apartmentblock"
         }
 
 
@@ -102,7 +103,7 @@ loopTheLoop dd = do
         gameStateFlow ∷ GameState → g GameState
         gameStateFlow Quit                        = pure Quit
         gameStateFlow Normal                      = nextEvent Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow (Examination s)             = nextEvent Input.nextUiEvent          >>= processExamination s
+        gameStateFlow Examination                 = nextEvent Input.nextUiEvent          >>= processExamination
         gameStateFlow (HudTeam i)                 = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
         gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
         gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
@@ -196,8 +197,9 @@ processNormal _ Input.UseHeld = do
 
                     (Person ch) ← doWorld playerObject
                     
-                    runProgram pp (programForState ch ho (OperateOn so))
-                    runProgram v  (programForState ch so (OperateWith ho))
+                    -- TODO which of the game states should take precedence?
+                    _ ← runProgram pp (programForState ch ho (OperateOn so))
+                    _ ← runProgram v  (programForState ch so (OperateWith ho))
                     pure ()
     pure Normal
 processNormal _ Input.Wear = do
@@ -222,21 +224,25 @@ processNormal _ Input.Wear = do
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
-                       Just i  → modifySlotContent (Just RightSide) Hand (const Nothing)
-                                 . modifySlotContent side slot (const (Just i)) $ ch
+                       Just i  → flip execState ch $ do
+                            modify (modifySlotContent (Just RightSide) Hand (const Nothing))
+                            modify (modifySlotContent side slot (const (Just i)))
     pure Normal
 processNormal _ Input.StoreIn = do
     -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "storeIn" . valueAt ix) $ cellAt pp)) <$> world
+    containerList ← doWorld $ do
+        (pp, ix) ← playerPosition
+        cellAt pp >>= pure . fromCharacter equippedContainers [] . fromJustNote "storeIn" . valueAt ix
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     doWorld $
         changePlayer $
             withCharacter $
                 \ch → case slotWrapperItem (primaryHandSlot ch) of
                        Nothing → ch
-                       Just i  → modifySlotContent (Just RightSide) Hand (const Nothing)
-                                 . modifySlotContent (slotWrapperOrientation sw) (slotWrapperType sw) (appendToContainer i) $ ch
+                       Just i  → flip execState ch $ do
+                            modify (modifySlotContent (Just RightSide) Hand (const Nothing))
+                            modify (modifySlotContent (slotWrapperOrientation sw) (slotWrapperType sw) (appendToContainer i))
     pure Normal
     where
         appendToContainer ∷ States → Maybe States → Maybe States
@@ -250,23 +256,21 @@ processNormal _ Input.PullFrom = do
     containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "pullfrom" . valueAt ix) $ cellAt pp)) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
 
-    let (Just (Clothes wi)) = slotWrapperItem sw
-        itemList            = view wi_storedItems wi
-
+    let itemList = (\(Just (Clothes wi)) → view wi_storedItems wi) (slotWrapperItem sw)
     item ← askChoice (zip3 choiceChs (show <$> itemList) itemList)
 
     doWorld $
         changePlayer $
             withCharacter $
-                \ch → modifySlotContent
-                        (slotWrapperOrientation (primaryHandSlot ch))
-                        (slotWrapperType (primaryHandSlot ch))
-                        (const (Just item))
-                      . modifySlotContent
-                        (slotWrapperOrientation sw)
-                        (slotWrapperType sw)
-                        (\(Just (Clothes wi)) → Just (Clothes (wi { _wi_storedItems = filter ((/=) item) (_wi_storedItems wi) })))
-                      $ ch
+                \ch → flip execState ch $ do
+                    modify (modifySlotContent
+                            (slotWrapperOrientation (primaryHandSlot ch))
+                            (slotWrapperType (primaryHandSlot ch))
+                            (const (Just item)))
+                    modify (modifySlotContent
+                            (slotWrapperOrientation sw)
+                            (slotWrapperType sw)
+                            (\(Just (Clothes wi)) → Just $ Clothes $ wi_storedItems %~ filter ((/=) item) $ wi))
     pure Normal
 processNormal _ Input.Examine = do
     increaseTurn
@@ -274,10 +278,10 @@ processNormal _ Input.Examine = do
         Just (v, o)  → do
             onHerself ← (==v) . evalWorld (fst <$> playerPosition) <$> world
             if onHerself
-                then do
-                    examineText ← evalWorld desc <$> world
-                    pure $ Examination examineText
-                    --pure $ Examination (newScrollData (V2 2 1) (V2 60 20) Nothing examineText)
+                then
+                    doWorld desc >>= \d →
+                        doRenderData (setScroll (newScrollData (V2 2 1) (V2 60 20) Nothing d)) >>
+                            pure Examination
                 else
                     doWorld playerObject >>=
                         \(Person ch) → runProgram v (programForState ch (view o_state o) Examine)
@@ -311,14 +315,14 @@ processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
 
-processExamination ∷ (GameAPI g, Monad g) ⇒ String → Input.UIEvent → g GameState
-processExamination s Input.MoveUp = do
+processExamination ∷ (GameAPI g, Monad g) ⇒ Input.UIEvent → g GameState
+processExamination Input.MoveUp = do
     doRenderData (doScroll scrollUp)
-    pure $ Examination s
-processExamination s Input.MoveDown = do
+    pure Examination
+processExamination Input.MoveDown = do
     doRenderData (doScroll scrollDown)
-    pure $ Examination s
-processExamination _ _ =
+    pure Examination
+processExamination _ =
     pure Normal
 
 
@@ -439,12 +443,12 @@ conversationUpdateUi _ =
 
 
 programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType → o ()
+programForState _  (Prop "Door")   it = door it
+programForState ch (Prop "Mirror") it = mirror ch it
 programForState _  (Prop n)        it = genericProp n it
 programForState _  (Camera f l)    it = camera f l it
 programForState _  (Person ch)     it = person ch it
 programForState _  (Computer cd)   it = computer cd it
-programForState _  Door            it = door it
-programForState ch Mirror         it = mirror ch it
 programForState _  (Clothes wi)    it = genericClothes wi it
 programForState _  (Weapon wpi)    it = genericWeapon wpi it
 programForState _  (Ammo ami)      it = genericAmmo ami it
@@ -592,18 +596,54 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 --------------------------------------------------------------------------------
 
 render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
-render Normal                          w t = renderWorld w *> renderHud Normal (completeTeam w) t *> drawStatus Normal (evalWorld status w) >>= updateHud
-render (Examination _)                 _ _ = updateUi clear >> drawInformation >>= updateUi
-render (ComputerOperation _ _ cd)      _ _ = updateUi (clear >> drawComputer cd)
-render gs@(HudTeam _)                  w t = renderHud gs (completeTeam w) t
-render HudMessages                     w t = renderHud HudMessages (completeTeam w) t
-render gs@(HudWatch _ _)               w t = renderHud gs (completeTeam w) t
-render (Conversation (ChoiceNode _ _)) _ _ = updateUi clear >> drawChoice >>= updateUi
-render (Conversation _)                _ _ = updateUi clear >> drawInformation >>= updateUi
-render InventoryUI                     _ _ = updateUi clear >> drawInformation >>= updateUi
-render (SkillsUI  ch)                  _ _ = updateUi clear >> drawCharacterSheet ch >>= updateUi
-render (EquipmentUI  ch)               _ _ = updateUi clear >> drawEquipmentDoll ch >>= updateUi
-render Quit                            _ _ = pure ()
+render Normal w t = do
+    renderWorld w
+    drawTeamHud (completeTeam w) Nothing >>= updateHud
+    drawStatus False (evalWorld status w) >>= updateHud
+    drawWatch False t >>= updateHud
+    where
+        renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
+        renderWorld w =
+            let m = evalWorld currentMap w
+                d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
+                v = evalWorld visibility w
+            in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
+render Examination _ _ = do
+    updateUi clear 
+    drawInformation >>= updateUi
+render (ComputerOperation _ _ cd) _ _ =
+    updateUi $ do
+        clear
+        drawComputer cd
+render (HudTeam i) w t = do
+    drawTeamHud (completeTeam w) (Just i) >>= updateHud
+    drawStatus False (evalWorld status w) >>= updateHud
+    drawWatch False t >>= updateHud
+render HudMessages w t = do
+    drawTeamHud (completeTeam w) Nothing >>= updateHud
+    drawStatus True (evalWorld status w) >>= updateHud
+    drawWatch False t >>= updateHud
+render (HudWatch _ _) w t = do
+    drawTeamHud (completeTeam w) Nothing >>= updateHud
+    drawStatus False (evalWorld status w) >>= updateHud
+    drawWatch True t >>= updateHud
+render (Conversation (ChoiceNode _ _)) _ _ = do
+    updateUi clear
+    drawChoice >>= updateUi
+render (Conversation _) _ _ = do
+    updateUi clear
+    drawInformation >>= updateUi
+render InventoryUI _ _ = do
+    updateUi clear 
+    drawInformation >>= updateUi
+render (SkillsUI ch) _ _ = do
+    updateUi clear 
+    drawCharacterSheet ch >>= updateUi
+render (EquipmentUI ch) _ _ = do
+    updateUi clear 
+    drawEquipmentDoll ch >>= updateUi
+render Quit _ _ =
+    pure ()
 
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
@@ -620,15 +660,4 @@ completeTeam w =
     in  (\(Person chp) → chp) (p ^. o_state) : ((\(Person tm) → tm) . view o_state <$> t)
     -}
 
-
-renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
-renderWorld w =
-    let m = evalWorld currentMap w
-        d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
-        v = evalWorld visibility w
-    in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
-
-
-renderHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r ()
-renderHud gs tm t = drawHud gs tm t >>= updateHud
 

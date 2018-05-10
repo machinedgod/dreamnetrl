@@ -24,6 +24,66 @@ data InteractionType = Examine
 
 --------------------------------------------------------------------------------
 
+genericProp ∷ (ObjectAPI States o, Monad o) ⇒ String → InteractionType → o ()
+genericProp n Examine =
+    message $ "A " <> n
+genericProp _ _ =
+    pure ()
+
+
+
+genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ WearableItem i → InteractionType → o ()
+genericClothes wi Examine =
+    message $ "A " <> view wi_name wi
+genericClothes _ _ =
+    pure ()
+
+
+
+genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType → o ()
+genericWeapon wpi Examine =
+    message $ "Nice weapon, a " <> view wpi_name wpi
+genericWeapon _ Operate =
+    message "This weapon doesn't seem to have any configs or settings."
+genericWeapon _ Talk =
+    message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
+genericWeapon _ (OperateOn s) =
+    message $ "Boom boom! " <> show s <> " is dead!"
+genericWeapon wpi (OperateWith (Ammo ami)) =
+    message $ "You reload the " <> view wpi_name wpi <> " with ammo clip: " <> view ami_name ami
+genericWeapon _ _ =
+    pure ()
+
+
+
+genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ AmmoItem → InteractionType → o ()
+genericAmmo ami Examine =
+    message $ "Nice ammo, a " <> view ami_name ami
+genericAmmo ami Operate =
+    message $ "You change configuration of this " <> view ami_name ami
+genericAmmo _ (OperateOn (Weapon wpi)) =
+    message $ "You reload the " <> view wpi_name wpi
+genericAmmo _ (OperateWith (Weapon wpi)) =
+    message $ "While you find its really difficult and time consuming, somehow you manage to insert the clip into " <> view wpi_name wpi <> " by ramming it over the clip."
+genericAmmo _ _ =
+    pure ()
+    
+
+
+genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType → o ()
+genericThrowable twi Examine =
+    message $ "Nice throwable, a " <> view twi_name twi
+genericThrowable twi Operate =
+    message $ "The " <> view twi_name twi <> " is now armed, gulp."
+genericThrowable twi (OperateOn (Person ch)) =
+    message $ "You try to show your " <> view twi_name twi <> " up " <> view ch_name ch <> "'s ass."
+genericThrowable twi (OperateWith s) =
+    message $ "You try and hit the " <> view twi_name twi <> " with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
+genericThrowable _ _ =
+    pure ()
+
+--------------------------------------------------------------------------------
+
 -- | Toggles collision and character on interaction
 door ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
 door Examine =
@@ -70,7 +130,7 @@ computer _ _ =
 
 person ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
 person ch Examine =
-    showInfoWindow (view ch_description ch)
+    message $ view ch_description ch
 person ch Operate =
     message $ "Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look."
 person ch Talk =
@@ -100,66 +160,10 @@ camera _ _ _ =
 
 mirror ∷ (ObjectAPI a o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
 mirror ch Examine =
-    showInfoWindow (view ch_description ch)
+    message $ view ch_description ch
 mirror ch Talk =
     message $ view ch_name ch <> " is about to start conversation with the mirror (technically, its talking to themselves), somehow..."
 mirror _ _ =
-    pure ()
-
-
-genericProp ∷ (ObjectAPI States o, Monad o) ⇒ String → InteractionType → o ()
-genericProp n Examine =
-    message $ "A " <> n
-genericProp _ _ =
-    pure ()
-
-
-genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ WearableItem i → InteractionType → o ()
-genericClothes wi Examine =
-    message $ "A " <> view wi_name wi
-genericClothes _ _ =
-    pure ()
-
-
-genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType → o ()
-genericWeapon wpi Examine =
-    message $ "Nice weapon, a " <> view wpi_name wpi
-genericWeapon _ Operate =
-    message "This weapon doesn't seem to have any configs or settings."
-genericWeapon _ Talk =
-    message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
-genericWeapon _ (OperateOn s) =
-    message $ "Boom boom! " <> show s <> " is dead!"
-genericWeapon wpi (OperateWith (Ammo ami)) =
-    message $ "You reload the " <> view wpi_name wpi <> " with ammo clip: " <> view ami_name ami
-genericWeapon _ _ =
-    pure ()
-
-
-genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ AmmoItem → InteractionType → o ()
-genericAmmo ami Examine =
-    message $ "Nice ammo, a " <> view ami_name ami
-genericAmmo ami Operate =
-    message $ "You change configuration of this " <> view ami_name ami
-genericAmmo _ (OperateOn (Weapon wpi)) =
-    message $ "You reload the " <> view wpi_name wpi
-genericAmmo _ (OperateWith (Weapon wpi)) =
-    message $ "While you find its really difficult and time consuming, somehow you manage to insert the clip into " <> view wpi_name wpi <> " by ramming it over the clip."
-genericAmmo _ _ =
-    pure ()
-    
-
-
-genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType → o ()
-genericThrowable twi Examine =
-    message $ "Nice throwable, a " <> view twi_name twi
-genericThrowable twi Operate =
-    message $ "The " <> view twi_name twi <> " is now armed, gulp."
-genericThrowable twi (OperateOn (Person ch)) =
-    message $ "You try to show your " <> view twi_name twi <> " up " <> view ch_name ch <> "'s ass."
-genericThrowable twi (OperateWith s) =
-    message $ "You try and hit the " <> view twi_name twi <> " with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
-genericThrowable _ _ =
     pure ()
 
 

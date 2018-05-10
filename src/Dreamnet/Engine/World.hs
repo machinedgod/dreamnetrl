@@ -99,9 +99,6 @@ instance Monad Object where
 class ObjectAPI a o | o → a where
     position           ∷ o (V2 Int)
     move               ∷ V2 Int → o ()
-    showInfoWindow     ∷ String → o ()
-    showCustomUi       ∷ o ()
-    --startConversation  ∷ DreamnetCharacter → o ()
     passable           ∷ o Bool
     setPassable        ∷ Bool → o () -- Creates a state, creates and object. NO!
     seeThrough         ∷ o Bool
@@ -110,8 +107,6 @@ class ObjectAPI a o | o → a where
     changeSymbol       ∷ Symbol → o ()
     changeMat          ∷ String → o ()
     message            ∷ String → o ()
-    --put                ∷ a → o ()
-    --get                ∷ o a
     scanRange          ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
     -- Keep adding primitives until you can describe all Map Objects as programs
 

@@ -36,12 +36,6 @@ newtype ObjectM s a = ObjectM { runObjectM ∷ State (V2 Int, Object s) a }
 --
 --    move v = _1 .= v
 --
---    showInfoWindow s = Free $ ShowInfoWindow s (Pure ())
---
---    showCustomUi = Free $ ShowCustomUi (Pure ())
---
---    -- startConversation ch = Free $ StartConversation ch (Pure ())
---
 --    passable = Free $ Passable Pure
 --
 --    setPassable c = Free $ SetPassable c (Pure ())
@@ -77,9 +71,6 @@ runObject prg v o =
 --      implemented simply through WorldAPI.
 data ObjectF s a = Move (V2 Int) a
                  | Position (V2 Int → a)
-                 | ShowInfoWindow String a
-                 | ShowCustomUi a
-                 -- | StartConversation DreamnetCharacter a
                  | Passable (Bool → a)
                  | SetPassable Bool a
                  | SeeThrough (Bool → a)
@@ -88,8 +79,6 @@ data ObjectF s a = Move (V2 Int) a
                  | ChangeSymbol Symbol a
                  | ChangeMat String a
                  | Message String a
-                 | Put s a
-                 | Get (s → a)
                  | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
                  deriving(Functor) -- TODO Derive binary can't work with functions
 
@@ -98,12 +87,6 @@ instance ObjectAPI s (Free (ObjectF s)) where
     position = Free $ Position Pure
 
     move v = Free $ Move v (Pure ())
-
-    showInfoWindow s = Free $ ShowInfoWindow s (Pure ())
-
-    showCustomUi = Free $ ShowCustomUi (Pure ())
-
-    -- startConversation ch = Free $ StartConversation ch (Pure ())
 
     passable = Free $ Passable Pure
 
@@ -121,10 +104,6 @@ instance ObjectAPI s (Free (ObjectF s)) where
 
     message m = Free $ Message m (Pure ())
 
-    --put v = Free $ Put v (Pure ())
-
-    --get = Free $ Get Pure
-
     scanRange r f = Free $ ScanRange r f Pure
 
 --------------------------------------------------------------------------------
@@ -140,19 +119,6 @@ runWithGameState gs (cv, o) (Free (Move v n)) = do
 
 runWithGameState gs (cv, o) (Free (Position fv)) = do
     runWithGameState gs (cv, o) (fv cv)
-
-runWithGameState _ (cv, o) (Free (ShowInfoWindow txt n)) = do
-    runWithGameState (Examination txt) (cv, o) n
-    --runWithGameState (Examination (newScrollData (V2 1 1) (V2 60 30) Nothing txt)) ss (cv, o) n
-
--- TODO actually implement this, via some handler or something?
-runWithGameState gs (cv, o) (Free (ShowCustomUi n)) = do
-    --runWithGameState (ComputerOperation cv 1 cd) (cv, o) n -- TODO use *ACTUAL* IX
-    runWithGameState gs (cv, o) n
-
---runWithGameState _ (cv, o) (Free (StartConversation ch n)) = do
---    let cnodes = runConversationF_temp ["Carla", "Whoeverelse"] (view ch_conversation ch)
---    runWithGameState (Conversation cnodes) (cv, o) n
 
 runWithGameState gs (cv, o) (Free (Passable fn)) = do
     runWithGameState gs (cv, o) (fn $ view o_passable o)
@@ -187,14 +153,6 @@ runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
 runWithGameState gs (cv, o) (Free (Message m n)) = do
     setStatus m
     runWithGameState gs (cv, o) n
-
-runWithGameState gs (cv, o) (Free (Put v n)) = do
-    let no = o_state .~ v $ o
-    replaceObject cv o no
-    runWithGameState gs (cv, no) n
-
-runWithGameState gs (cv, o) (Free (Get fn)) = do
-    runWithGameState gs (cv, o) (fn . view o_state $ o)
 
 runWithGameState gs (cv, o) (Free (ScanRange r f fn)) = do
     points ← interestingObjects cv r f

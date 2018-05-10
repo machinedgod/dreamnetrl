@@ -39,8 +39,9 @@ module Dreamnet.Rendering.Renderer
 
 , clear
 , drawMap
-, drawHud
+, drawTeamHud
 , drawStatus
+, drawWatch
 , drawCharacterSheet
 , drawEquipmentDoll
 , drawInformation
@@ -77,7 +78,7 @@ import Dreamnet.Rendering.ScrollData
 import Dreamnet.Rendering.ChoiceData
 
 import Design.ComputerModel
-import Design.DesignAPI     (GameState(..), DreamnetCharacter)
+import Design.DesignAPI     (DreamnetCharacter)
 
 --------------------------------------------------------------------------------
 
@@ -404,39 +405,27 @@ teamBoxesLength ∷ (Num n) ⇒ n
 teamBoxesLength = genericLength . head $ teamBoxes
 
 
-drawHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → [DreamnetCharacter] → Word → r (RenderAction ())
-drawHud gs team turns = do
+drawTeamHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ [DreamnetCharacter] → Maybe Int → r (RenderAction ())
+drawTeamHud team mayix = do
     white ← view (rd_styles.s_colorWhite)
     green ← view (rd_styles.s_colorGreen)
     pure $ RenderAction $ do
         C.setColor white
-        ox ← subtract watchLength . snd <$> C.windowSize
 
         drawBorders
         drawList 0 1 teamBoxes
 
         forM_ (zip [0.. ] (take 6 team)) $ \(ix, ch) → do
-            setDataColor ix white green
+            C.setColor $ case mayix of
+                Just i → if ix == i
+                            then green
+                            else white
+                Nothing → white
             drawData
                 (fromIntegral (ix `mod` 3) * 17 + 1)
                 (fromIntegral (ix `div` 3) *  5 + 2)
                 ch
-
-        C.setColor white
-        drawList ox 0 watch
-
-        C.setColor $ case gs of
-            (HudWatch _ _) → green
-            _              → white
-        drawTime (fromSeconds turns)
     where
-        setDataColor ∷ Int → C.ColorID → C.ColorID → C.Update ()
-        setDataColor i none hud = C.setColor $ case gs of
-            (HudTeam i') → if i == i'
-                             then hud
-                             else none
-            _ → none
-
         drawData ∷ Integer → Integer → DreamnetCharacter → C.Update ()
         drawData ox oy ch = do
             drawList ox oy [ "                "
@@ -477,6 +466,33 @@ drawHud gs team turns = do
         --shorten ∷ Word → String → String
         --shorten l = (++".") . take (l-1)
 
+        stanceChar ∷ Stance → Char
+        stanceChar Upright = '^'
+        stanceChar Crouch  = '~'
+        stanceChar Prone   = '_'
+
+
+        drawBorders ∷ C.Update ()
+        drawBorders = do
+            len ← subtract watchLength . snd <$> C.windowSize
+            drawString 0 2 $ genericReplicate len '-'
+            drawString 0 10 $ genericReplicate len '-'
+
+
+drawWatch ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ Bool → Word → r (RenderAction ())
+drawWatch sel turns = do
+    white ← view (rd_styles.s_colorWhite)
+    green ← view (rd_styles.s_colorGreen)
+    pure $ RenderAction $ do
+        C.setColor white
+        C.windowSize >>= \ox → drawList (subtract watchLength . snd $ ox) 0 watch
+
+    
+        C.setColor $ if sel
+                        then green
+                        else white
+        drawTime (fromSeconds turns)
+    where
         drawTime ∷ WatchData → C.Update ()
         drawTime wd = do
             ox ← subtract watchLength . snd <$> C.windowSize
@@ -500,21 +516,9 @@ drawHud gs team turns = do
                ," "
                ]
 
-        stanceChar ∷ Stance → Char
-        stanceChar Upright = '^'
-        stanceChar Crouch  = '~'
-        stanceChar Prone   = '_'
 
-
-        drawBorders ∷ C.Update ()
-        drawBorders = do
-            len ← subtract watchLength . snd <$> C.windowSize
-            drawString 0 2 $ genericReplicate len '-'
-            drawString 0 10 $ genericReplicate len '-'
-
-
-drawStatus ∷ (MonadReader RendererEnvironment r, RenderAPI r) ⇒ GameState → String → r (RenderAction ())
-drawStatus gs msg = do
+drawStatus ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ Bool → String → r (RenderAction ())
+drawStatus sel msg = do
     green ← view (rd_styles.s_colorGreen)
     white ← view (rd_styles.s_colorWhite)
     pure $ RenderAction $ do
@@ -522,9 +526,9 @@ drawStatus gs msg = do
             padding     = 4
         len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
 
-        C.setColor $ case gs of
-            HudMessages → green
-            _           → white
+        C.setColor $ if sel
+                        then green
+                        else white
 
         draw (fromIntegral start + len `div` 2) 3 '▲'
         draw (fromIntegral start + len `div` 2) 9 '▼' 
