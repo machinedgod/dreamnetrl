@@ -129,6 +129,11 @@ withCharacter f = o_state %~ stateMod
         stateMod x           = x
 
 
+whenCharacter ∷ (DreamnetCharacter → g a) → g a → States → g a
+whenCharacter f _ (Person ch) = f ch
+whenCharacter _ d _           = d
+
+
 processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
 processNormal _ Input.Quit = do
     pure Quit
@@ -178,30 +183,33 @@ processNormal _ Input.Get = do
     pure Normal
 processNormal _ Input.UseHeld = do
     increaseTurn -- TODO as much as the device wants!
-    obtainTarget >>= \case
-        Nothing →
-            doWorld $ setStatus "Nothing there."
-        Just (v, o) → do
-            -- TODO this should be much easier
-             
-            mho ← doWorld $ do
-                (pp, ix) ← playerPosition 
-                cellobj ← fromJustNote "useHeld" . valueAt ix <$> cellAt pp
-                pure $ fromCharacter (slotWrapperItem . primaryHandSlot) Nothing cellobj
-            case mho of
-                Nothing →
-                    doWorld $ setStatus "You aren't carrying anything in your hands."
-                Just ho → do
-                    pp ← doWorld (fst <$> playerPosition)
+    mho ← doWorld playerObject >>=
+            whenCharacter
+                (pure . slotWrapperItem . primaryHandSlot)
+                (pure Nothing)
+    case mho of
+        Nothing → do
+            doWorld $ setStatus "You aren't carrying anything in your hands."
+            pure Normal
+        Just ho →
+            -- TODO obtain target should happen inside Object Program, and then interpreter
+            --      can either show UI for the player, or use "brain"/Simulation to select
+            --      one for the NPC's
+            obtainTarget >>= \case
+                Nothing → do
+                    doWorld $ setStatus "Nothing there."
+                    pure Normal
+                Just (v, o) → do
                     let so = view o_state o
-
-                    (Person ch) ← doWorld playerObject
-                    
+                    pp ← doWorld (fst <$> playerPosition)
+                    doWorld playerObject >>=
+                        whenCharacter (\ch → do {
+                             void $ runProgram pp (programForState ch ho (OperateOn so));
+                             void $ runProgram v  (programForState ch so (OperateWith ho));
+                            })
+                            (pure ())
                     -- TODO which of the game states should take precedence?
-                    _ ← runProgram pp (programForState ch ho (OperateOn so))
-                    _ ← runProgram v  (programForState ch so (OperateWith ho))
-                    pure ()
-    pure Normal
+                    pure Normal
 processNormal _ Input.Wear = do
     -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
@@ -306,7 +314,26 @@ processNormal _ Input.Talk = do
             pure Normal
         Just (v, o) → do
             doWorld playerObject >>=
-                \(Person ch) →  runProgram v (programForState ch (view o_state o) Talk)
+                whenCharacter
+                    (\ch → void $ runProgram v (programForState ch (view o_state o) Talk))
+                    (pure ())
+            -- Can't use whenCharacter because I need to work for prop mirror too
+            case view o_state o of
+                (Person ch) →
+                    startConversation ch
+                (Prop "Mirror") →
+                    doWorld playerObject >>= whenCharacter startConversation (pure Normal)
+                _ → do
+                    doWorld $ setStatus "I can't talk to that."
+                    pure Normal
+    where
+        startConversation ch = do
+            pcName ← doWorld playerObject >>= whenCharacter
+                    (pure . view ch_name)
+                    (pure "Player character is not a Person! :-O")
+            pure $ Conversation (runConversationF_temp
+                    [ pcName , view ch_name ch ]
+                    (view ch_conversation ch))
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
     doRenderData (setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList))
@@ -442,7 +469,7 @@ conversationUpdateUi _ =
     pure ()
 
 
-programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType → o ()
+programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o ()
 programForState _  (Prop "Door")   it = door it
 programForState ch (Prop "Mirror") it = mirror ch it
 programForState _  (Prop n)        it = genericProp n it

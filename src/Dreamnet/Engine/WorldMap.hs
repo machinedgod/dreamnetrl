@@ -111,7 +111,6 @@ data WorldMap a = WorldMap {
     , _wm_desc    ∷ String
     , _wm_spawns  ∷ V.Vector (V2 Int) 
     }
-
 makeLenses ''WorldMap
 
 

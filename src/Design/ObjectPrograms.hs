@@ -9,22 +9,14 @@ import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 
 import Dreamnet.Engine.World     (Symbol(Symbol), o_symbol, o_state,
-                                  ObjectAPI(..))
+                                  InteractionType(..), ObjectAPI(..))
 import Dreamnet.Engine.Character (ch_name, ch_faction, ch_description)
 import Design.ComputerModel
 import Design.DesignAPI
 
 --------------------------------------------------------------------------------
 
-data InteractionType = Examine
-                     | Operate
-                     | Talk
-                     | OperateOn   States
-                     | OperateWith States
-
---------------------------------------------------------------------------------
-
-genericProp ∷ (ObjectAPI States o, Monad o) ⇒ String → InteractionType → o ()
+genericProp ∷ (ObjectAPI s o, Monad o) ⇒ String → InteractionType s → o ()
 genericProp n Examine =
     message $ "A " <> n
 genericProp _ _ =
@@ -32,7 +24,7 @@ genericProp _ _ =
 
 
 
-genericClothes ∷ (ObjectAPI States o, Monad o) ⇒ WearableItem i → InteractionType → o ()
+genericClothes ∷ (ObjectAPI s o, Monad o) ⇒ WearableItem i → InteractionType s → o ()
 genericClothes wi Examine =
     message $ "A " <> view wi_name wi
 genericClothes _ _ =
@@ -40,7 +32,7 @@ genericClothes _ _ =
 
 
 
-genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType → o ()
+genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType States → o ()
 genericWeapon wpi Examine =
     message $ "Nice weapon, a " <> view wpi_name wpi
 genericWeapon _ Operate =
@@ -56,7 +48,7 @@ genericWeapon _ _ =
 
 
 
-genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ AmmoItem → InteractionType → o ()
+genericAmmo ∷ (ObjectAPI States o, Monad o) ⇒ AmmoItem → InteractionType States → o ()
 genericAmmo ami Examine =
     message $ "Nice ammo, a " <> view ami_name ami
 genericAmmo ami Operate =
@@ -70,13 +62,13 @@ genericAmmo _ _ =
     
 
 
-genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType → o ()
+genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType States → o ()
 genericThrowable twi Examine =
     message $ "Nice throwable, a " <> view twi_name twi
 genericThrowable twi Operate =
     message $ "The " <> view twi_name twi <> " is now armed, gulp."
 genericThrowable twi (OperateOn (Person ch)) =
-    message $ "You try to show your " <> view twi_name twi <> " up " <> view ch_name ch <> "'s ass."
+    message $ "You try to shove your " <> view twi_name twi <> " up " <> view ch_name ch <> "'s ass."
 genericThrowable twi (OperateWith s) =
     message $ "You try and hit the " <> view twi_name twi <> " with " <> show s <> ". You can't possibly imagine this being a good idea, but you keep trying nevertheless."
 genericThrowable _ _ =
@@ -85,7 +77,7 @@ genericThrowable _ _ =
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
-door ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
+door ∷ (ObjectAPI s o, Monad o) ⇒ InteractionType s → o ()
 door Examine =
     passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
 door Operate = do
@@ -99,7 +91,7 @@ door _ =
 
 
 
-lock ∷ (ObjectAPI a o, Monad o) ⇒ InteractionType → o ()
+lock ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType States → o ()
 lock Examine =
     message "Its a lock allright"
 lock Operate =
@@ -115,7 +107,7 @@ lock _ =
 
 
 
-computer ∷ (ObjectAPI States o, Monad o) ⇒ ComputerData → InteractionType → o ()
+computer ∷ (ObjectAPI s o, Monad o) ⇒ ComputerData → InteractionType s → o ()
 computer _ Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
 computer _ Operate =
@@ -128,7 +120,7 @@ computer _ _ =
 
 
 
-person ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
+person ∷ (ObjectAPI s o, Monad o) ⇒ DreamnetCharacter → InteractionType s → o ()
 person ch Examine =
     message $ view ch_description ch
 person ch Operate =
@@ -142,23 +134,23 @@ person _ _ =
 
 
 -- TODO mixes general Object knowledge with States knowledge. This is an issue!
-camera ∷ (ObjectAPI States o, Monad o) ⇒ Faction → Word → InteractionType → o ()
+camera ∷ (ObjectAPI States o, Monad o) ⇒ Faction → Word → InteractionType s → o ()
 camera _ _ Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
-camera f l Operate = do
+camera f _ Operate = do
     os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
     viso ← traverse (canSee . fst) os >>=
                pure . fmap (snd . fst) . filter snd . zip os
     -- traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length -- . filter id
-    message $ "Camera alarm level: " <> show l
+    message $ "Camera alarm level: " <> show (length $ isFoe <$> viso)
     where
-        isFoe o = f /= views o_state (\(Person ch) → view ch_faction ch) o
+        isFoe o = f /= views o_state (\(Person ch) → view ch_faction ch) o -- TODO Fix this with maybe monad
 camera _ _ _ = 
     pure ()
 
 
 
-mirror ∷ (ObjectAPI a o, Monad o) ⇒ DreamnetCharacter → InteractionType → o ()
+mirror ∷ (ObjectAPI s o, Monad o) ⇒ DreamnetCharacter → InteractionType s → o ()
 mirror ch Examine =
     message $ view ch_description ch
 mirror ch Talk =

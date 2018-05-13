@@ -19,6 +19,7 @@ module Dreamnet.Engine.World
 , o_height
 , o_state
 
+, InteractionType(..)
 , ObjectAPI(..)
 
 , WorldReadAPI(..)
@@ -95,19 +96,30 @@ instance Monad Object where
 --------------------------------------------------------------------------------
 -- Object API and objects
 
+data InteractionType a = Examine
+                       | Operate
+                       | Talk
+                       | OperateOn   a
+                       | OperateWith a
+
 -- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
+-- Note2: WHy?
+-- Note3: Because, if it involves player actions, then those objects can't be
+--        ran by NPC's to move simulation forward, because NPC's might end up
+--        triggering UI windows and what not.
 class ObjectAPI a o | o → a where
-    position           ∷ o (V2 Int)
-    move               ∷ V2 Int → o ()
-    passable           ∷ o Bool
-    setPassable        ∷ Bool → o () -- Creates a state, creates and object. NO!
-    seeThrough         ∷ o Bool
-    setSeeThrough      ∷ Bool → o ()
-    canSee             ∷ V2 Int → o Bool
-    changeSymbol       ∷ Symbol → o ()
-    changeMat          ∷ String → o ()
-    message            ∷ String → o ()
-    scanRange          ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
+    position      ∷ o (V2 Int)
+    move          ∷ V2 Int → o ()
+    passable      ∷ o Bool
+    setPassable   ∷ Bool → o () -- Creates a state, creates and object. NO! ..... What?
+    seeThrough    ∷ o Bool
+    setSeeThrough ∷ Bool → o ()
+    canSee        ∷ V2 Int → o Bool
+    changeSymbol  ∷ Symbol → o ()
+    changeMat     ∷ String → o ()
+    message       ∷ String → o ()
+    scanRange     ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
+    --interact      ∷ InteractionType a → V2 Int → Int → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
 
 --------------------------------------------------------------------------------
@@ -115,7 +127,6 @@ class ObjectAPI a o | o → a where
 -- TODO should probably move out all mentions of player or team out of here
 -- into the Game data
 
---class WorldReadAPI o v w | w → o, w → v where
 class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
     currentMap         ∷ w (WorldMap (Object o)) -- TODO not liking this
     visibility         ∷ w (V.Vector v) -- TODO or this
@@ -127,7 +138,6 @@ class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v w
 
 
 -- TODO seriously refactor this into much better DSL
---class (WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
 class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
     status          ∷ w String
     setStatus       ∷ String → w ()

@@ -9,16 +9,11 @@
 module Dreamnet.ObjectMonad
 ( ObjectF
 , runObjectMonadWorld
-
-, ObjectM
-, runObject
-)
-where
+) where
 
 
-import Control.Lens        (view, (.~)) --_1, _2, use, (.=))
+import Control.Lens        (view, (.~))
 import Control.Monad.Free  (Free(Free, Pure))
-import Control.Monad.State (MonadState, State, runState)
 import Linear              (V2)
 
 import Dreamnet.Engine.World
@@ -27,50 +22,10 @@ import Design.DesignAPI
 
 --------------------------------------------------------------------------------
 
-newtype ObjectM s a = ObjectM { runObjectM ∷ State (V2 Int, Object s) a }
-                    deriving (Functor, Applicative, Monad, MonadState (V2 Int, Object s))
-
-
---instance ObjectAPI States (ObjectM States) where
---    position = use _1
---
---    move v = _1 .= v
---
---    passable = Free $ Passable Pure
---
---    setPassable c = Free $ SetPassable c (Pure ())
---
---    seeThrough = Free $ SeeThrough Pure
---
---    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
---
---    canSee v = Free $ CanSee v Pure
---
---    changeSymbol s = Free $ ChangeSymbol s (Pure ())
---
---    changeMat s = Free $ ChangeMat s (Pure ())
---
---    message m = Free $ Message m (Pure ())
---
---    put v = Free $ Put v (Pure ())
---
---    get = Free $ Get Pure
---
---    scanRange r f = Free $ ScanRange r f Pure
-    
-
-
-runObject ∷ (Monad w, WorldAPI States v w) ⇒ ObjectM States a → V2 Int → Object States → w (a, GameState)
-runObject prg v o =
-    let (x, (_, _)) = runState (runObjectM prg) (v, o)
-    in  pure (x, Normal)  -- TODO bad
-
---------------------------------------------------------------------------------
-
 -- TODO this object monad really doesn't have to exist. Everything could be
 --      implemented simply through WorldAPI.
-data ObjectF s a = Move (V2 Int) a
-                 | Position (V2 Int → a)
+data ObjectF s a = Position (V2 Int → a)
+                 | Move (V2 Int) a
                  | Passable (Bool → a)
                  | SetPassable Bool a
                  | SeeThrough (Bool → a)
@@ -80,6 +35,7 @@ data ObjectF s a = Move (V2 Int) a
                  | ChangeMat String a
                  | Message String a
                  | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
+                 -- | Interact (InteractionType s) (V2 Int) Int a
                  deriving(Functor) -- TODO Derive binary can't work with functions
 
 
@@ -106,6 +62,8 @@ instance ObjectAPI s (Free (ObjectF s)) where
 
     scanRange r f = Free $ ScanRange r f Pure
 
+    --interact i v ix = Free $ Interact i v ix (Pure ())
+
 --------------------------------------------------------------------------------
 
 runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ Free (ObjectF States) a → V2 Int → Object States → w (a, GameState)
@@ -113,12 +71,12 @@ runObjectMonadWorld op v o = runWithGameState Normal (v, o) op
 
 
 runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ GameState → (V2 Int, Object States) → Free (ObjectF States) a → w (a, GameState)
+runWithGameState gs (cv, o) (Free (Position fv)) = do
+    runWithGameState gs (cv, o) (fv cv)
+
 runWithGameState gs (cv, o) (Free (Move v n)) = do
     moveObject cv o v
     runWithGameState gs (v, o) n
-
-runWithGameState gs (cv, o) (Free (Position fv)) = do
-    runWithGameState gs (cv, o) (fv cv)
 
 runWithGameState gs (cv, o) (Free (Passable fn)) = do
     runWithGameState gs (cv, o) (fn $ view o_passable o)
@@ -161,6 +119,9 @@ runWithGameState gs (cv, o) (Free (ScanRange r f fn)) = do
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
+
+--runWithGameState gs (cv, o) (Free (Interact _ _ _ n)) = do
+--    runWithGameState gs (cv, o) n
 
 runWithGameState gs _ (Pure x) =
     pure (x, gs)

@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, LambdaCase, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Dreamnet.Game
 ( module Dreamnet.Engine.World
@@ -258,3 +259,4 @@ evalGame p = evalStateT (runGameM p)
 
 execGame ∷ GameM a → Game → C.Curses Game
 execGame p = execStateT (runGameM p)
+

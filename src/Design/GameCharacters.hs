@@ -226,7 +226,12 @@ carla = newCharacter
                 (Slot . pure . Clothes $ armourPiece Shin Kevlar) -- rshin
                 (Slot . pure . Clothes $ boot Kevlar) -- lfoot
                 (Slot . pure . Clothes $ boot Kevlar) -- rfoot
-        convo = talk 0 "Hi." -- TODO Carla talks to herself in the mirror and gets stat boost?
+        -- TODO Carla talks to herself in the mirror and gets stat boost?
+        convo = do
+            talk 0 "Hi."
+            reply "Hi."
+            reply "We'll get through this, will we?"
+            reply "We will. You *can* do this. You *CAN*! No one can tell you otherwise. Stop the doubt, brace yourself and just keep on pushing."
 
 
 hideo ∷ DreamnetCharacter
