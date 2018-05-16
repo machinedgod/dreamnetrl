@@ -128,8 +128,8 @@ type DreamnetCharacter = Character States (Free ConversationF ()) Faction
 
 data GameState = Quit
                | Normal
-               | Examination
-               | ComputerOperation  (V2 Int) Int ComputerData
+               | Examination        String
+               | ComputerOperation  (V2 Int, Int) ComputerData
                | HudTeam            Int
                | HudMessages
                | HudWatch           Int Int

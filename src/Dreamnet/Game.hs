@@ -163,7 +163,7 @@ class GameAPI g where
     obtainTarget     ∷ g (Maybe (V2 Int, Object States))
     -- TODO offer abort!
     askChoice        ∷ [(Char, String, a)] → g a
-    runProgram       ∷ V2 Int → Free (ObjectF States) () → g GameState
+    runProgram       ∷ V2 Int → Free (ObjectF States) GameState → g GameState
     doRender         ∷ RendererF a → g a
     doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
     queryRenderData  ∷ g RendererEnvironment
@@ -233,7 +233,7 @@ instance GameAPI GameM where
         case mo of
             Nothing → pure Normal
             Just o  → doWorld $ do
-               (_, gs) ← runObjectMonadWorld prg v o
+               gs ← runObjectMonadWorld (v, o) prg 
                updateVisible
                pure gs
 

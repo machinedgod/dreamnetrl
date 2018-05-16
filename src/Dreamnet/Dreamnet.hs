@@ -19,6 +19,7 @@ import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (execState, modify)
 import Control.Monad.Random      (MonadRandom)
 import Control.Monad.IO.Class    (MonadIO)
+import Data.Functor              (($>))
 import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
@@ -103,7 +104,7 @@ loopTheLoop dd = do
         gameStateFlow ∷ GameState → g GameState
         gameStateFlow Quit                        = pure Quit
         gameStateFlow Normal                      = nextEvent Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow Examination                 = nextEvent Input.nextUiEvent          >>= processExamination
+        gameStateFlow (Examination d)             = nextEvent Input.nextUiEvent          >>= processExamination d
         gameStateFlow (HudTeam i)                 = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
         gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
         gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
@@ -111,7 +112,7 @@ loopTheLoop dd = do
         gameStateFlow InventoryUI                 = nextEvent Input.nextUiEvent          >>= processInventoryUI
         gameStateFlow (SkillsUI  ch)              = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
         gameStateFlow (EquipmentUI ch)            = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
-        gameStateFlow (ComputerOperation v ix cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation v ix cd
+        gameStateFlow (ComputerOperation p cd)    = nextEvent Input.nextInteractionEvent >>= processComputerOperation p cd
 
 
 fromCharacter ∷ (DreamnetCharacter → a) → a → Object States → a
@@ -205,11 +206,10 @@ processNormal _ Input.UseHeld = do
                     doWorld playerObject >>=
                         whenCharacter (\ch → do {
                              void $ runProgram pp (programForState ch ho (OperateOn so));
-                             void $ runProgram v  (programForState ch so (OperateWith ho));
+                             runProgram v  (programForState ch so (OperateWith ho));
                             })
-                            (pure ())
+                            (pure Normal)
                     -- TODO which of the game states should take precedence?
-                    pure Normal
 processNormal _ Input.Wear = do
     -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
@@ -287,15 +287,21 @@ processNormal _ Input.Examine = do
             onHerself ← (==v) . evalWorld (fst <$> playerPosition) <$> world
             if onHerself
                 then
-                    doWorld desc >>= \d →
-                        doRenderData (setScroll (newScrollData (V2 2 1) (V2 60 20) Nothing d)) >>
-                            pure Examination
+                    doWorld desc >>= \d → examineUpdateUi d $> Examination d
                 else
                     doWorld playerObject >>=
-                        \(Person ch) → runProgram v (programForState ch (view o_state o) Examine)
-        Nothing → do
-            doWorld $ setStatus "There's nothing there."
-            pure Normal
+                        \(Person ch) → runProgram v (programForState ch (view o_state o) Examine) >>= \case
+                            gs@(Examination d) → do
+                                examineUpdateUi d
+                                pure gs
+                            gs@(Conversation n) → do
+                                conversationUpdateUi n
+                                pure gs
+                            gs →
+                                pure gs
+
+        Nothing →
+            doWorld (setStatus "There's nothing there.") $> Normal
 processNormal _ Input.Operate = do
     -- TODO as much as operation program wants!
     increaseTurn
@@ -315,25 +321,13 @@ processNormal _ Input.Talk = do
         Just (v, o) → do
             doWorld playerObject >>=
                 whenCharacter
-                    (\ch → void $ runProgram v (programForState ch (view o_state o) Talk))
-                    (pure ())
-            -- Can't use whenCharacter because I need to work for prop mirror too
-            case view o_state o of
-                (Person ch) →
-                    startConversation ch
-                (Prop "Mirror") →
-                    doWorld playerObject >>= whenCharacter startConversation (pure Normal)
-                _ → do
-                    doWorld $ setStatus "I can't talk to that."
-                    pure Normal
-    where
-        startConversation ch = do
-            pcName ← doWorld playerObject >>= whenCharacter
-                    (pure . view ch_name)
-                    (pure "Player character is not a Person! :-O")
-            pure $ Conversation (runConversationF_temp
-                    [ pcName , view ch_name ch ]
-                    (view ch_conversation ch))
+                    (\ch → runProgram v (programForState ch (view o_state o) Talk))
+                    (pure Normal) >>= \case
+                        c@(Conversation n) → do
+                            conversationUpdateUi n
+                            pure c
+                        g → do
+                            pure g
 processNormal _ Input.InventorySheet = do
     itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
     doRenderData (setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList))
@@ -342,14 +336,14 @@ processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
 
 
-processExamination ∷ (GameAPI g, Monad g) ⇒ Input.UIEvent → g GameState
-processExamination Input.MoveUp = do
+processExamination ∷ (GameAPI g, Monad g) ⇒ String → Input.UIEvent → g GameState
+processExamination d Input.MoveUp = do
     doRenderData (doScroll scrollUp)
-    pure Examination
-processExamination Input.MoveDown = do
+    pure $ Examination d
+processExamination d Input.MoveDown = do
     doRenderData (doScroll scrollDown)
-    pure Examination
-processExamination _ =
+    pure $ Examination d
+processExamination _ _ =
     pure Normal
 
 
@@ -469,7 +463,11 @@ conversationUpdateUi _ =
     pure ()
 
 
-programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o ()
+examineUpdateUi ∷ (GameAPI g) ⇒ String → g ()
+examineUpdateUi = doRenderData . setScroll . newScrollData (V2 2 1) (V2 60 20) Nothing
+
+
+programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o GameState
 programForState _  (Prop "Door")   it = door it
 programForState ch (Prop "Mirror") it = mirror ch it
 programForState _  (Prop n)        it = genericProp n it
@@ -480,7 +478,7 @@ programForState _  (Clothes wi)    it = genericClothes wi it
 programForState _  (Weapon wpi)    it = genericWeapon wpi it
 programForState _  (Ammo ami)      it = genericAmmo ami it
 programForState _  (Throwable twi) it = genericThrowable twi it
-programForState _  Empty           _  = pure ()
+programForState _  Empty           _  = pure Normal
 
 
 positionFor ∷ (GameAPI g, Functor g) ⇒ Word → g (V2 Integer)
@@ -543,14 +541,14 @@ processEquipmentUI ch _ =
 -- Note: if I make ability to set the flow function, rather than just gamestate
 -- (setting gamestate should probably be an specialization of setting the flow function)
 -- at Dreamnet:245 from ObjectAPI, this'll be it.
-processComputerOperation ∷ (GameAPI g, Monad g) ⇒ V2 Int → Int → ComputerData → Input.InteractionEvent → g GameState
-processComputerOperation v ix cd (Input.PassThrough '\n') = do
-    pure $ ComputerOperation v ix (snd $ runComputer commitInput cd)
-processComputerOperation v ix cd (Input.PassThrough '\b') = do
-    pure $ ComputerOperation v ix (snd $ runComputer backspace cd)
-processComputerOperation v ix cd (Input.PassThrough c) = do
-    pure $ ComputerOperation v ix (snd $ runComputer (typeIn c) cd)
-processComputerOperation v ix cd Input.BackOut = do
+processComputerOperation ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Int) → ComputerData → Input.InteractionEvent → g GameState
+processComputerOperation (v,ix) cd (Input.PassThrough '\n') = do
+    pure $ ComputerOperation (v,ix) (snd $ runComputer commitInput cd)
+processComputerOperation (v,ix) cd (Input.PassThrough '\b') = do
+    pure $ ComputerOperation (v,ix) (snd $ runComputer backspace cd)
+processComputerOperation (v,ix) cd (Input.PassThrough c) = do
+    pure $ ComputerOperation (v,ix) (snd $ runComputer (typeIn c) cd)
+processComputerOperation (v,ix) cd Input.BackOut = do
     doWorld $
         modifyObjectAt v ix (pure . set o_state (Computer cd))
     pure Normal
@@ -635,10 +633,10 @@ render Normal w t = do
                 d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
                 v = evalWorld visibility w
             in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
-render Examination _ _ = do
+render (Examination _) _ _ = do
     updateUi clear 
     drawInformation >>= updateUi
-render (ComputerOperation _ _ cd) _ _ =
+render (ComputerOperation _ cd) _ _ =
     updateUi $ do
         clear
         drawComputer cd
@@ -686,5 +684,4 @@ completeTeam w =
                                fmap fromJustNote . uncurry valueAt . unwrapWorldCoord
     in  (\(Person chp) → chp) (p ^. o_state) : ((\(Person tm) → tm) . view o_state <$> t)
     -}
-
 

@@ -66,63 +66,59 @@ instance ObjectAPI s (Free (ObjectF s)) where
 
 --------------------------------------------------------------------------------
 
-runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ Free (ObjectF States) a → V2 Int → Object States → w (a, GameState)
-runObjectMonadWorld op v o = runWithGameState Normal (v, o) op
+runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ (V2 Int, Object States) → Free (ObjectF States) GameState → w GameState
+runObjectMonadWorld (cv, o) (Free (Position fv)) = do
+    runObjectMonadWorld (cv, o) (fv cv)
 
-
-runWithGameState ∷ (Monad w, WorldAPI States v w) ⇒ GameState → (V2 Int, Object States) → Free (ObjectF States) a → w (a, GameState)
-runWithGameState gs (cv, o) (Free (Position fv)) = do
-    runWithGameState gs (cv, o) (fv cv)
-
-runWithGameState gs (cv, o) (Free (Move v n)) = do
+runObjectMonadWorld (cv, o) (Free (Move v n)) = do
     moveObject cv o v
-    runWithGameState gs (v, o) n
+    runObjectMonadWorld (v, o) n
 
-runWithGameState gs (cv, o) (Free (Passable fn)) = do
-    runWithGameState gs (cv, o) (fn $ view o_passable o)
+runObjectMonadWorld (cv, o) (Free (Passable fn)) = do
+    runObjectMonadWorld (cv, o) (fn $ view o_passable o)
 
-runWithGameState gs (cv, o) (Free (SetPassable cl n)) = do
+runObjectMonadWorld (cv, o) (Free (SetPassable cl n)) = do
     let no = o_passable .~ cl $ o
     replaceObject cv o no
-    runWithGameState gs (cv, no) n
+    runObjectMonadWorld (cv, no) n
 
-runWithGameState gs (cv, o) (Free (SeeThrough fn)) = do
-    runWithGameState gs (cv, o) (fn $ view o_seeThrough o)
+runObjectMonadWorld (cv, o) (Free (SeeThrough fn)) = do
+    runObjectMonadWorld (cv, o) (fn $ view o_seeThrough o)
 
-runWithGameState gs (cv, o) (Free (SetSeeThrough st n)) = do
+runObjectMonadWorld (cv, o) (Free (SetSeeThrough st n)) = do
     let no = o_seeThrough .~ st $ o
     replaceObject cv o no
-    runWithGameState gs (cv, no) n
+    runObjectMonadWorld (cv, no) n
 
-runWithGameState gs (cv, o) (Free (CanSee v fs)) = do
+runObjectMonadWorld (cv, o) (Free (CanSee v fs)) = do
     seesV ← and . fmap snd <$> castVisibilityRay cv v
-    runWithGameState gs (cv, o) (fs seesV)
+    runObjectMonadWorld (cv, o) (fs seesV)
 
-runWithGameState gs (cv, o) (Free (ChangeSymbol c n)) = do
+runObjectMonadWorld (cv, o) (Free (ChangeSymbol c n)) = do
     let no = o_symbol .~ c $ o
     replaceObject cv o no
-    runWithGameState gs (cv, no) n
+    runObjectMonadWorld (cv, no) n
 
-runWithGameState gs (cv, o) (Free (ChangeMat m n)) = do
+runObjectMonadWorld (cv, o) (Free (ChangeMat m n)) = do
     let no = o_material .~ m $ o
     replaceObject cv o no
-    runWithGameState gs (cv, no) n
+    runObjectMonadWorld (cv, no) n
 
-runWithGameState gs (cv, o) (Free (Message m n)) = do
+runObjectMonadWorld (cv, o) (Free (Message m n)) = do
     setStatus m
-    runWithGameState gs (cv, o) n
+    runObjectMonadWorld (cv, o) n
 
-runWithGameState gs (cv, o) (Free (ScanRange r f fn)) = do
+runObjectMonadWorld (cv, o) (Free (ScanRange r f fn)) = do
     points ← interestingObjects cv r f
     values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
-    runWithGameState gs (cv, o) (fn (zip points values))
+    runObjectMonadWorld (cv, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
 
---runWithGameState gs (cv, o) (Free (Interact _ _ _ n)) = do
---    runWithGameState gs (cv, o) n
+--runObjectMonadWorld (cv, o) (Free (Interact _ _ _ n)) = do
+--    runObjectMonadWorld (cv, o) n
 
-runWithGameState gs _ (Pure x) =
-    pure (x, gs)
+runObjectMonadWorld _ (Pure x) =
+    pure x
 
