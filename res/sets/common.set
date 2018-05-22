@@ -33,7 +33,7 @@ define(`REDSHIRT', `$1,Person,<RS>,ALLIANCE')dnl
 ╫,Base,False,False
 ╪,Base,False,False
 ╳,Spawn
-',Prop,Door,True
-+,Prop,Door,False
->,Prop,Stairs,True
-<,Prop,Stairs,False
+',Prop,Door,True,True,wood,0
++,Prop,Door,False,False,wood,4
+>,Prop,Stairs,True,True,metal,4
+<,Prop,Stairs,False,True,metal,4

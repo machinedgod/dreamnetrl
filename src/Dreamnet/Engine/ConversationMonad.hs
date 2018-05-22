@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Dreamnet.Engine.ConversationMonad
 ( ConversationF
@@ -24,8 +25,8 @@ import Dreamnet.Engine.Conversation
 -- TODO VINTAGE
 
 -- Note: NEVER slap equality on recursive data structures
-data ConversationNode = TalkNode   String Word [String] ConversationNode
-                      | ChoiceNode [String] [ConversationNode]
+data ConversationNode = TalkNode        String Word [String] ConversationNode
+                      | ChoiceNode      [String] [ConversationNode]
                       | DescriptionNode String ConversationNode
                       | End
                       deriving (Show)
@@ -54,24 +55,25 @@ advance End                   = End
 
 --------------------------------------------------------------------------------
 
-data ConversationF a = CName      Word (String → a)
-                     | CLastname  Word (String → a)
-                     | CNick      Word (String → a)
-                     | CTalk      Word String a
-                     | CContinue  String a
-                     | CReply     String a
-                     | CChoice    [String] (Int → a)
-                     | CChoice_   [(String, Free ConversationF ())] a -- TODO highly likely, this one can be implemented in terms of Choice
-                     | CDescribe  String a
-                     deriving (Functor)
+data ConversationF o a = CName         Word (String → a)
+                       | CLastname     Word (String → a)
+                       | CNick         Word (String → a)
+                       | CTalk         Word String a
+                       | CContinue     String a
+                       | CReply        String a
+                       | CChoice       [String] (Int → a)
+                       | CChoice_      [(String, Free (ConversationF o) ())] a -- TODO highly likely, this one can be implemented in terms of Choice
+                       | CDescribe     String a
+                       | CReceiveItem  Word o a
+                       deriving (Functor)
 
 
 -- So that we can debug-print characters
-instance Show (ConversationF a) where
+instance Show (ConversationF o a) where
     show _ = "[CONV]"
 
 
-instance ConversationAPI (Free ConversationF) where
+instance ConversationAPI o (Free (ConversationF o)) where
     name i = Free $ CName i Pure
 
     lastname i = Free $ CLastname i Pure
@@ -89,17 +91,19 @@ instance ConversationAPI (Free ConversationF) where
     choice_ opts = Free $ CChoice_ opts (Pure ())
 
     describe s = Free $ CDescribe s (Pure ())
+     
+    receiveItem i o = Free $ CReceiveItem i o (Pure ())
 
     (|=>) = (,)
 
 
-runConversationF_temp ∷ [String] → Free ConversationF a → ConversationNode
+runConversationF_temp ∷ [String] → Free (ConversationF o) a → ConversationNode
 runConversationF_temp names = runConversationF names 0 1 End
 
 
 -- TODO I should get away with ConversationNode alltogether and use free monads to render conversations
 --      in realtime, adjusting parameters as necessary
-runConversationF ∷ [String] → Word → Word → ConversationNode → Free ConversationF a → ConversationNode
+runConversationF ∷ [String] → Word → Word → ConversationNode → Free (ConversationF o) a → ConversationNode
 runConversationF ps curr prev cn (Free (CName i fn)) =
     runConversationF ps curr prev cn (fn $ at ps (fromIntegral i))
 
@@ -129,6 +133,9 @@ runConversationF ps curr prev cn (Free (CChoice_ opts n)) =
 runConversationF ps curr prev cn (Free (CDescribe s n)) =
     runConversationF ps curr prev (cn <> DescriptionNode s End) n
 
+runConversationF ps curr prev cn (Free (CReceiveItem _ _ n)) =
+    runConversationF ps curr prev cn n
+    
 runConversationF _ _ _ cn (Pure _) =
     cn
 

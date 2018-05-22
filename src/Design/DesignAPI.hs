@@ -49,6 +49,7 @@ data WearableItem i = WearableItem {
     , _wi_storedItems ∷ [i] -- TODO probably just use a slot, or slots! :-O?
     }
     deriving (Eq, Functor)
+makeLenses ''WearableItem
 
 
 instance Show (WearableItem i) where
@@ -57,7 +58,6 @@ instance Show (WearableItem i) where
 instance ItemTraits (WearableItem i) where
     isContainer = isJust . _wi_containerVolume
 
---------------------------------------------------------------------------------
 
 data AmmoType = LaserjetBattery
               deriving (Eq)
@@ -68,6 +68,7 @@ data WeaponItem = WeaponItem {
     , _wpi_ammoType ∷ AmmoType
     }
     deriving (Eq)
+makeLenses ''WeaponItem
 
 
 data AmmoItem = AmmoItem {
@@ -77,12 +78,21 @@ data AmmoItem = AmmoItem {
     , _ami_maxLoad     ∷ Word
     }
     deriving (Eq)
+makeLenses ''AmmoItem
 
 
 data ThrownWeaponItem = ThrownWeaponItem {
       _twi_name ∷ String
     }
     deriving (Eq)
+makeLenses ''ThrownWeaponItem
+
+
+data ConsumableItem = ConsumableItem {
+      _ci_name ∷ String
+    }
+    deriving(Eq)
+makeLenses ''ConsumableItem
 
 --------------------------------------------------------------------------------
 
@@ -93,14 +103,24 @@ newtype Faction = Faction String
 -- TODO Not happy with this development!
 -- NOTE this *could* be a record of lists instead, eg.
 -- cameras :: [(Faction, Word)], props :: [String], etc
-data States = Prop      String
-            | Camera    Faction Word
-            | Person    DreamnetCharacter
-            | Computer  ComputerData
-            | Clothes   (WearableItem States)
-            | Weapon    WeaponItem
-            | Ammo      AmmoItem
-            | Throwable ThrownWeaponItem
+-- Also, if I use a table of stats, then I could encode few different types
+-- of objects together?
+-- It could be that states support few general programs, that are then
+-- configurable via properties and switches. Then, when making a map, object Type
+-- would determine the program to run, and tile properties would be switches and
+-- additional parameters
+--
+-- So for example, Camera could utilize some generic 'perception' program that
+-- somehow signals some other object, that's set up with switches?
+data States = Prop       String
+            | Camera     Faction Word
+            | Person     DreamnetCharacter
+            | Computer   ComputerData
+            | Clothes    (WearableItem States)
+            | Weapon     WeaponItem
+            | Ammo       AmmoItem
+            | Throwable  ThrownWeaponItem
+            | Consumable ConsumableItem
             | Empty
             deriving (Eq)
 
@@ -110,10 +130,11 @@ instance Show States where
     show (Camera _ _)    = "A camera."
     show (Person ch)     = view ch_name ch
     show (Computer _)    = "A computer"
-    show (Clothes wi)    = _wi_name wi
-    show (Weapon wpi)    = _wpi_name wpi
-    show (Ammo ami)      = _ami_name ami
-    show (Throwable twi) = _twi_name twi
+    show (Clothes wi)    = view wi_name wi
+    show (Weapon wpi)    = view wpi_name wpi
+    show (Ammo ami)      = view ami_name ami
+    show (Throwable twi) = view twi_name twi
+    show (Consumable ci) = view ci_name ci
     show Empty           = "This, is, uh... nothing."
 
 
@@ -122,7 +143,7 @@ instance ItemTraits States where
     isContainer _            = False
 
 
-type DreamnetCharacter = Character States (Free ConversationF ()) Faction 
+type DreamnetCharacter = Character States (Free (ConversationF States) ()) Faction 
 
 --------------------------------------------------------------------------------
 
@@ -143,14 +164,8 @@ data GameState = Quit
 
 data DesignData = DesignData {
       _dd_characters      ∷ M.Map String DreamnetCharacter
-
+      -- TODO move item dictionaries here
     , _dd_dev_startingMap ∷ String
     }
 makeLenses ''DesignData
 
---------------------------------------------------------------------------------
--- TODO can't find shit if placed next to datas :-(
-makeLenses ''WearableItem
-makeLenses ''WeaponItem
-makeLenses ''AmmoItem
-makeLenses ''ThrownWeaponItem

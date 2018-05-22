@@ -24,11 +24,13 @@ import Control.Monad.Trans (lift)
 import Control.Monad.Free  (Free)
 import Control.Monad.State (MonadState, StateT, runStateT, evalStateT, execStateT)
 import Data.Monoid         ((<>))
+import Data.Maybe          (fromMaybe)
 import Data.List           (genericLength, find)
 import Data.Foldable       (traverse_)
 import Linear              (V2, _x, _y)
 
 import qualified Data.Vector as V (fromList)
+import qualified Data.Map    as M (lookup)
 import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
                                    drawBorder, Glyph(Glyph), render)
 
@@ -45,6 +47,7 @@ import Dreamnet.ObjectMonad
 import Design.DesignAPI
 import Design.GameCharacters
 import Design.ComputerModel
+import Design.Items
 
 
 --------------------------------------------------------------------------------
@@ -89,20 +92,6 @@ newGame dd = do
                 h  = 0
                 st = Empty
             in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Door") =
-            let m  = "wood"
-                p  = 1 `readBoolProperty` t
-                s  = 1 `readBoolProperty` t
-                h  = 5
-                st = Prop "Door"
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Stairs") =
-            let m  = "wood"
-                p  = 1 `readBoolProperty` t
-                s  = True
-                h  = 1
-                st = Prop "Stairs"
-            in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Prop") =
             let m  = 4 `readStringProperty` t
                 p  = 2 `readBoolProperty` t
@@ -117,7 +106,7 @@ newGame dd = do
                 h  = 3
                 st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
             in  Object (Symbol '@') m p s h st
-        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!) 
+        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!)
             objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
         objectFromTile t@(ttype → "Camera") =
             let m  = "green light"
@@ -133,12 +122,55 @@ newGame dd = do
                 h  = 1
                 st = Computer (ComputerData "" [])
             in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Item") = 
-            let m  = "blue plastic"
-                p  = True
-                s  = True
-                h  = 0
-                st = Prop (1 `readStringProperty` t)
+        objectFromTile t@(ttype → "Clothes") = 
+            let m   = "cloth"
+                p   = True
+                s   = True
+                h   = 0
+                cid = 1 `readStringProperty` t
+                st  = Clothes $
+                        fromMaybe (error $ "WearableItem " <> cid <> " isn't defined!") $
+                            M.lookup cid clothesDict
+            in  Object (Symbol $ view t_char t) m p s h st
+        objectFromTile t@(ttype → "Weapon") = 
+            let m   = "metal"
+                p   = True
+                s   = True
+                h   = 0
+                wid = 1 `readStringProperty` t
+                st  = Weapon $
+                        fromMaybe (error $ "WeaponItem " <> wid <> " isn't defined!") $
+                            M.lookup wid weaponsDict
+            in  Object (Symbol $ view t_char t) m p s h st
+        objectFromTile t@(ttype → "Ammo") = 
+            let m   = "metal"
+                p   = True
+                s   = True
+                h   = 0
+                aid = 1 `readStringProperty` t
+                st  = Ammo $
+                        fromMaybe (error $ "AmmoItem " <> aid <> " isn't defined!") $
+                            M.lookup aid ammoDict
+            in  Object (Symbol $ view t_char t) m p s h st
+        objectFromTile t@(ttype → "Throwable") = 
+            let m   = "metal"
+                p   = True
+                s   = True
+                h   = 0
+                tid = 1 `readStringProperty` t
+                st  = Throwable $
+                        fromMaybe (error $ "ThrowableItem " <> tid <> " isn't defined!") $
+                            M.lookup tid throwableDict
+            in  Object (Symbol $ view t_char t) m p s h st
+        objectFromTile t@(ttype → "Consumable") = 
+            let m   = "red"
+                p   = True
+                s   = True
+                h   = 0
+                tid = 1 `readStringProperty` t
+                st  = Consumable $
+                        fromMaybe (error $ "ConsumableItem " <> tid <> " isn't defined!") $
+                            M.lookup tid consumableDict
             in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t =
             error $ "Can't convert Tile type into Object: " <> show t
@@ -146,7 +178,6 @@ newGame dd = do
 
         playerPerson ∷ DreamnetCharacter → Object States
         playerPerson = Object (Symbol '@') "metal" False True 3 . Person
-
 
 --------------------------------------------------------------------------------
 

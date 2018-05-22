@@ -285,8 +285,10 @@ newRenderEnvironment = do
                         , ("green light"    , [ C.AttributeColor cGreen,  C.AttributeBold ])
                         , ("yellow light"   , [ C.AttributeColor cYellow, C.AttributeBold ])
                         , ("red light"      , [ C.AttributeColor cRed,    C.AttributeBold ])
+                        , ("cloth"          , [ C.AttributeColor cWhite,  C.AttributeDim ])
 
                         , ("blue"           , [ C.AttributeColor cBlue ])
+                        , ("red"            , [ C.AttributeColor cRed ])
                         ]
                    , _s_unknown   = [ C.AttributeColor cMagenta, C.AttributeBold, C.AttributeBlink ]
                    --, _s_playerAim = [ C.AttributeColor cGreen, C.AttributeBold]
@@ -352,17 +354,17 @@ drawMap chf matf w dat vis = do
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
         drawTile ∷ Width → [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
-        drawTile w u k i (c, m, v) = uncurry (draw' $ coordLin' w i) $
+        drawTile wh u k i (c, m, v) = uncurry (draw' $ coordLin' wh i) $
                                      case v of
                                          Unknown → (' ', u)
                                          Known   → (c, k)
                                          Visible → (c, m)
 
         visibleChunk ∷ V2 Word → V2 Word → Width → V.Vector a → V.Vector a
-        visibleChunk (V2 x' y') (V2 w' h') (fromIntegral → w) v =
-            let oln v i = V.drop (fromIntegral $ w * (y' + i)) v
-                ldata   = V.drop (fromIntegral $ w - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
-            in  foldMap id $ ldata . oln v <$> [0..h']
+        visibleChunk (V2 x' y') (V2 w' h') (fromIntegral → wh) v =
+            let oln i = V.drop (fromIntegral $ wh * (y' + i)) v
+                ldata = V.drop (fromIntegral $ wh - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
+            in  foldMap id $ ldata . oln <$> [0..h']
 
 
 

@@ -1,5 +1,6 @@
 all:
 	stack install --profile
+	make -C res
 
 clean:
 	stack clean

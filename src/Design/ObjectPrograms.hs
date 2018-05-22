@@ -77,6 +77,16 @@ genericThrowable twi (OperateWith s) =
 genericThrowable _ _ =
     pure Normal
 
+
+
+genericConsumable ∷ (ObjectAPI States o, Monad o) ⇒ ConsumableItem → DreamnetCharacter → InteractionType States → o GameState
+genericConsumable ci _ Examine =
+    message ("A " <> view ci_name ci) $> Normal
+genericConsumable ci ch Operate =
+    message (view ch_name ch <> " eats/drinks " <> view ci_name ci) $> Normal
+genericConsumable _ _ _ =
+    pure Normal
+
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction

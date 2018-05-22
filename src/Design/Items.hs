@@ -3,6 +3,12 @@
 module Design.Items
 ( module Dreamnet.Engine.Character
 
+, clothesDict
+, weaponsDict
+, ammoDict
+, throwableDict
+, consumableDict
+
 , laserjet
 , laserjetClip
 , fragmentGrenade
@@ -13,11 +19,39 @@ module Design.Items
 , boot
 ) where
 
-import Data.Semigroup       ((<>))
+import Control.Lens    (view)
+import Data.Semigroup  ((<>))
+
+import qualified Data.Map as M (Map, fromList)
 
 import Dreamnet.Engine.Character   (SlotType(..))
 import Design.DesignAPI
 
+
+--------------------------------------------------------------------------------
+-- Dictionaries
+clothesDict ∷ M.Map String (WearableItem States)
+clothesDict = M.fromList
+    [ asTuple (backpack [])
+    ]
+    where
+        asTuple = (,) <$> view wi_name <*> id
+
+weaponsDict ∷ M.Map String WeaponItem
+weaponsDict = M.fromList
+    []
+
+ammoDict ∷ M.Map String AmmoItem
+ammoDict = M.fromList
+    []
+
+throwableDict ∷ M.Map String ThrownWeaponItem
+throwableDict = M.fromList
+    []
+
+consumableDict ∷ M.Map String ConsumableItem
+consumableDict = M.fromList
+    []
 
 --------------------------------------------------------------------------------
 -- Weapons: ranged + clips

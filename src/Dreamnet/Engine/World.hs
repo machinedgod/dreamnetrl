@@ -49,7 +49,6 @@ import Data.Monoid                ((<>))
 import Data.Bool                  (bool)
 import Data.Foldable              (traverse_, for_)
 
-import qualified Data.Map    as M  (Map, empty, keys, lookup)
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, replicate, head)
 
@@ -124,20 +123,16 @@ class ObjectAPI a o | o → a where
 
 --------------------------------------------------------------------------------
 
--- TODO should probably move out all mentions of player or team out of here
--- into the Game data
-
 class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
     currentMap         ∷ w (WorldMap (Object o)) -- TODO not liking this
     visibility         ∷ w (V.Vector v) -- TODO or this
     playerPosition     ∷ w (V2 Int, Int)
     playerObject       ∷ w o
-    team               ∷ w [String]
-    teamMemberPosition ∷ String → w (Maybe (V2 Int, Int))
+    teamPositions      ∷ w [(V2 Int, Int)]
+    teamObjects        ∷ w [o]
     castVisibilityRay  ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
--- TODO seriously refactor this into much better DSL
 class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
     status          ∷ w String
     setStatus       ∷ String → w ()
@@ -145,6 +140,8 @@ class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → 
     modifyObjectAt  ∷ V2 Int → Int → (Object o → w (Object o)) → w ()
     movePlayer      ∷ V2 Int → w ()
     changePlayer    ∷ (Object o → Object o) → w ()
+    --joinParty       ∷ w ()
+    joinTeam        ∷ o → w ()
     moveObject      ∷ V2 Int → Object o → V2 Int → w ()
     -- TODO redo this, to be a function, and calculate on demand, not prefront
     updateVisible   ∷ w ()
@@ -164,7 +161,7 @@ replaceObject v oo no = changeObject v (\c → pure $ if c == oo
 --   c: character data
 data World o v = World {
       _w_player ∷ (V2 Int, Int)
-    , _w_team   ∷ M.Map String (V2 Int, Int)
+    , _w_team   ∷ [(V2 Int, Int)]
     , _w_map    ∷ WorldMap (Object o)
     , _w_vis    ∷ V.Vector v
     , _w_status ∷ String
@@ -180,7 +177,7 @@ newWorld m p =
                         subtract 1 . length <$> cellAt ppos
     in  World {
           _w_player = (ppos, pix)
-        , _w_team   = M.empty
+        , _w_team   = []
         , _w_map    = map
         , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
         , _w_status = ""
@@ -229,12 +226,14 @@ instance WorldReadAPI o Visibility (WorldM o Visibility) where
     playerPosition = use w_player
 
     playerObject = do
-        mpl ← playerPosition >>= \(pp, ix) → cellAt pp >>= pure . valueAt ix
+        mpl ← playerPosition >>= \tp → fmap (valueAt (snd tp)) (cellAt (fst tp))
         pure $ view o_state $ fromJustNote "Error retrieving player data, bad code!" mpl
 
-    team = uses w_team M.keys
+    teamPositions = use w_team
 
-    teamMemberPosition n = uses w_team (M.lookup n)
+    teamObjects = use w_team >>=
+        traverse (\tp → maybe
+            (error "Team member referenced, but does not exist in the map at that position!") (view o_state) . valueAt (snd tp) <$> cellAt (fst tp))
 
     castVisibilityRay o d = uses w_map (evalWorldMap (castVisibilityRay' o d))
 
@@ -267,6 +266,11 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
         cellAt pp >>= \c → for_ (valueAt ix c) $ \o → do
             replaceObject pp o (f o)
 
+    joinTeam _ = pure ()
+        --uses w_team (++[o])
+        
+        
+
     -- TODO crashes if np is out of map bounds!!!
     moveObject cp o np = do
         -- TODO addToCell *only* if deleteFromCell is successful,
@@ -277,7 +281,7 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
     updateVisible = do
         t ← pure (:)
             <*> (fst <$> playerPosition)
-            <*> (team >>= traverse (fmap (maybe (error "Team member without position!") fst) . teamMemberPosition))
+            <*> (fmap fst <$> teamPositions)
 
         linPoints ← uses w_map (\m → mconcat $ fmap (pointsForOne m) t)
         -- NOTE resolving 'x' causes lag

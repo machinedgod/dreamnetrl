@@ -1,8 +1,11 @@
-include(sets/items.set)dnl
-ITEM_(22,1,Chinese takeout leftovers)
-ITEM_(22,1,Ketchup)
-ITEM(22,1,Megacoke can,2)
-ITEM(22,1,Pizza slice,3)
-ITEM(22,1,Aurora pilsner,2)
-ITEM_(22,5,Wallet)
-ITEM_(17,5,Newspaper)
+22,1,Consumable,Chinese takeout leftovers)
+22,1,Consumable,Ketchup
+22,1,Consumable,Megacoke can
+22,1,Consumable,Megacoke can
+22,1,Consumable,Pizza slice
+22,1,Consumable,Pizza slice
+22,1,Consumable,Pizza slice
+22,1,Consumable,Aurora pilsner
+22,1,Consumable,Aurora pilsner
+22,5,Prop,Wallet,True,True,metal,0
+17,5,Prop,Newspaper,True,True,metal,0

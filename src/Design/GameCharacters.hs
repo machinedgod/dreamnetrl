@@ -162,7 +162,7 @@ generateDescription ∷ (MonadRandom r)
 generateDescription _ _ _ _ _ _ = pure "You never saw this person in your life."
 
 
-generateConvo ∷ (ConversationAPI c) ⇒ c () -- TODO I should be able to mix conversation monad with monad random!
+generateConvo ∷ (ConversationAPI o c) ⇒ c () -- TODO I should be able to mix conversation monad with monad random!
 generateConvo = talk 1 "Beat it, lizzie!"
 
 
@@ -301,7 +301,48 @@ delgado = newCharacter
             , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
             ]
         equ = Equipment em em em em em em em em em em em em em em
-        convo = talk 1 "Cal, lets wrap this up quickly and get the fuck out of here."
+        convo = do
+            describe "As you approach this pile of muscles and scars, your eyes perceive this tiniest twitch, as if the bones were re-settling in joints. You realize that he spotted you the moment you entered, even if his back were turned to you, this is his probably decades of training and even more decades of experience doing their work: his body preparing to jump and twist your neck at the slightest wrong move."
+            talk 0 "Hey.. hi... you're Sargeant Delgado, right?"
+            describe "He acts as if you don't exist, starring somewhere in the distance across the bar. He tips his beer and drinks of a silent gulp."
+            choice_ [ "Press on" |=> pressOn
+                    , "Back off" |=> pure ()
+                    ]
+        pressOn = do
+            talk 0 "Look, I have a run to do, and I need someone to watch my back. Word is, you're the best, so I want to do business."
+            reply "I work alone."
+            reply "Okay... okay... look, this is a two-person job. We split 50-50"
+            reply "80-20. What's the job?"
+            choice_ [ "Haggle"           |=> haggle
+                    , "Describe the job" |=> describeTheJob
+                    , "Seal the deal"    |=> sealTheDeal
+                    ]
+        haggle = do
+            talk 0 "I could go as far as 60-40, but that's it."
+            reply "80-20. Non negotiable. I don't run with lizards so consider this a special favor to you."
+            choice_ [ "Describe the job" |=> describeTheJob
+                    , "Seal the deal"    |=> sealTheDeal
+                    ]
+        describeTheJob = do
+            talk 0 "So, its basically in-and-out, industrial espionage type of thing. We go in, crack the safe, grab microdisk for the client and leave."
+            reply "And who is your client?"
+            reply "That's confidental and on a strict need-to-know basis."
+            choice_ [ "Haggle"           |=> haggle
+                    , "Seal the deal"    |=> sealTheDeal
+                    ]
+        sealTheDeal = do
+            talk 0 "So, you in?"
+            describe "He eyes you, as if he's weighing a giant decision in his head."
+            reply "I bring my own hardware. Subdermal or dental comm implant is a must. Do you have access to a hack?"
+            reply "Er, my contact is currently on vacation."
+            reply "Go to 5th and Randall, get behind the building, say Delgado sent you. His name is Tom Sawyer... Tom Saw-yer, get it?"
+            describe "He laughs heartily at this"
+            talk 1 "Anyway, bring Cs and your own stims."
+            describe "You see him scratching something on the napkin, then he hands it to you."
+            receiveItem 0 (Prop "Delgado's napkin")
+            talk 1 "Contact node. For when you're ready."
+            reply "Dude, thanks. We're in business!"
+            reply "Yea, yea, yea. Hack, node, job. Go."
 
 
 raj ∷ DreamnetCharacter

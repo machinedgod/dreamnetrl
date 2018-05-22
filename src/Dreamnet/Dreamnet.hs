@@ -14,16 +14,18 @@ module Dreamnet.Dreamnet
 
 import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
 import Control.Lens              (view, views, (%~), (^.), set)
-import Control.Monad             (void)
+import Control.Monad             (void, (>=>))
+import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (execState, modify)
 import Control.Monad.Random      (MonadRandom)
 import Control.Monad.IO.Class    (MonadIO)
+import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Data.Functor              (($>))
 import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
-import Data.Maybe                (fromMaybe)
+import Data.Maybe                (fromMaybe, fromJust)
 import Linear                    (V2(V2))
 
 import qualified UI.NCurses  as C
@@ -57,8 +59,9 @@ defaultDesignData = do
     pure $
         DesignData {
           _dd_characters  = characterDictionary characters
-        --, _dd_dev_startingMap = "./res/bar"
-        , _dd_dev_startingMap = "./res/apartmentblock"
+        , _dd_dev_startingMap = "./res/bar"
+        --, _dd_dev_startingMap = "./res/apartmentblock"
+        --, _dd_dev_startingMap = "./res/apartment0"
         }
 
 
@@ -135,11 +138,14 @@ whenCharacter f _ (Person ch) = f ch
 whenCharacter _ d _           = d
 
 
+maybeCharacter ∷ States → Maybe DreamnetCharacter
+maybeCharacter (Person ch) = Just ch
+maybeCharacter _           = Nothing
+
+
 processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
 processNormal _ Input.Quit = do
     pure Quit
-processNormal _ Input.SwitchToHud = do
-    pure $ HudTeam 0
 processNormal _ (Input.Move v) = do
     doWorld $ do
         movePlayer v
@@ -182,34 +188,6 @@ processNormal _ Input.Get = do
                 changePlayer (withCharacter (pickUp (view o_state o)))
                 modifyCell v (deleteFromCell o)
     pure Normal
-processNormal _ Input.UseHeld = do
-    increaseTurn -- TODO as much as the device wants!
-    mho ← doWorld playerObject >>=
-            whenCharacter
-                (pure . slotWrapperItem . primaryHandSlot)
-                (pure Nothing)
-    case mho of
-        Nothing → do
-            doWorld $ setStatus "You aren't carrying anything in your hands."
-            pure Normal
-        Just ho →
-            -- TODO obtain target should happen inside Object Program, and then interpreter
-            --      can either show UI for the player, or use "brain"/Simulation to select
-            --      one for the NPC's
-            obtainTarget >>= \case
-                Nothing → do
-                    doWorld $ setStatus "Nothing there."
-                    pure Normal
-                Just (v, o) → do
-                    let so = view o_state o
-                    pp ← doWorld (fst <$> playerPosition)
-                    doWorld playerObject >>=
-                        whenCharacter (\ch → do {
-                             void $ runProgram pp (programForState ch ho (OperateOn so));
-                             runProgram v  (programForState ch so (OperateWith ho));
-                            })
-                            (pure Normal)
-                    -- TODO which of the game states should take precedence?
 processNormal _ Input.Wear = do
     -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     increaseTurn
@@ -312,6 +290,45 @@ processNormal _ Input.Operate = do
         Just (v, o) →
             doWorld playerObject >>=
                 \(Person ch) → runProgram v (programForState ch (view o_state o) Operate)
+processNormal _ Input.OperateHeld = do
+    increaseTurn -- TODO as much as the device wants!
+    mres ← runMaybeT $ do
+        ho  ← lift (doWorld playerObject)
+                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
+        pp  ← lift $ doWorld (fst <$> playerPosition)
+        pch ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        lift $ runProgram pp (programForState pch ho Operate);
+    maybe
+        (doWorld (setStatus "You aren't carrying anything in your hands.") $> Normal)
+        pure
+        mres
+processNormal _ Input.OperateHeldOn = do
+    mho ← doWorld playerObject >>=
+            whenCharacter
+                (pure . slotWrapperItem . primaryHandSlot)
+                (pure Nothing)
+    case mho of
+        Nothing → do
+            doWorld $ setStatus "You aren't carrying anything in your hands."
+            pure Normal
+        Just ho →
+            -- TODO obtain target should happen inside Object Program, and then interpreter
+            --      can either show UI for the player, or use "brain"/Simulation to select
+            --      one for the NPC's
+            obtainTarget >>= \case
+                Nothing → do
+                    doWorld $ setStatus "Nothing there."
+                    pure Normal
+                Just (v, o) → do
+                    let so = view o_state o
+                    pp ← doWorld (fst <$> playerPosition)
+                    doWorld playerObject >>=
+                        whenCharacter (\ch → do {
+                             void $ runProgram pp (programForState ch ho (OperateOn so));
+                             runProgram v  (programForState ch so (OperateWith ho));
+                            })
+                            (pure Normal)
+                    -- TODO which of the game states should take precedence?
 processNormal _ Input.Talk = do
     increaseTurn
     obtainTarget >>= \case
@@ -334,6 +351,24 @@ processNormal _ Input.InventorySheet = do
     pure InventoryUI
 processNormal dd Input.CharacterSheet =
     pure $ SkillsUI (characterForName "Carla" (view dd_characters dd))
+processNormal _ Input.GiveCommand = do
+    teamChars ← doWorld (fmap (fromJust . maybeCharacter) <$> teamObjects)
+    if not (null teamChars)
+        then do
+            ch ← askChoice (zip3 choiceChs (view ch_name <$> teamChars) teamChars)
+            -- TODO upgrade to data
+            let actionList = [ "Move" 
+                             , "Operate"
+                             ]
+            ac ← askChoice (zip3 choiceChs (show <$> actionList) actionList)
+            doWorld $
+                setStatus ("Ordering " <> view ch_name ch <> " to " <> ac)
+        else
+            doWorld $
+                setStatus "You currently have no team."
+    pure Normal
+processNormal _ Input.SwitchToHud = do
+    pure $ HudTeam 0
 
 
 processExamination ∷ (GameAPI g, Monad g) ⇒ String → Input.UIEvent → g GameState
@@ -355,11 +390,11 @@ processHudTeam _ _ Input.TabPrevious =
 processHudTeam _ i Input.MoveUp =
     pure $ HudTeam (max 0 (i - 3))
 processHudTeam _ i Input.MoveDown =
-    HudTeam . min (i + 3) . genericLength . evalWorld team <$> world
+    doWorld (HudTeam . min (i + 3) . genericLength <$> teamPositions)
 processHudTeam _ i Input.MoveLeft =
     pure $ HudTeam (max 0 (i - 1))
 processHudTeam _ i Input.MoveRight =
-    HudTeam . min (i + 1) . genericLength . evalWorld team <$> world
+    doWorld (HudTeam . min (i + 1) . genericLength <$> teamPositions)
 processHudTeam _ i Input.SelectChoice = do
     tm ← completeTeam <$> world
     pure $ SkillsUI (at tm i)
@@ -468,17 +503,19 @@ examineUpdateUi = doRenderData . setScroll . newScrollData (V2 2 1) (V2 60 20) N
 
 
 programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o GameState
-programForState _  (Prop "Door")   it = door it
-programForState ch (Prop "Mirror") it = mirror ch it
-programForState _  (Prop n)        it = genericProp n it
-programForState _  (Camera f l)    it = camera f l it
-programForState _  (Person ch)     it = person ch it
-programForState _  (Computer cd)   it = computer cd it
-programForState _  (Clothes wi)    it = genericClothes wi it
-programForState _  (Weapon wpi)    it = genericWeapon wpi it
-programForState _  (Ammo ami)      it = genericAmmo ami it
-programForState _  (Throwable twi) it = genericThrowable twi it
-programForState _  Empty           _  = pure Normal
+programForState _  (Prop "Door")      it = door it
+programForState ch (Prop "Mirror")    it = mirror ch it
+programForState ch (Prop "Newspaper") it = mirror ch it
+programForState _  (Prop n)           it = genericProp n it
+programForState _  (Camera f l)       it = camera f l it
+programForState _  (Person ch)        it = person ch it
+programForState _  (Computer cd)      it = computer cd it
+programForState _  (Clothes wi)       it = genericClothes wi it
+programForState _  (Weapon wpi)       it = genericWeapon wpi it
+programForState _  (Ammo ami)         it = genericAmmo ami it
+programForState _  (Throwable twi)    it = genericThrowable twi it
+programForState ch (Consumable ci)    it = genericConsumable ci ch it
+programForState _  Empty              _  = pure Normal
 
 
 positionFor ∷ (GameAPI g, Functor g) ⇒ Word → g (V2 Integer)
@@ -622,13 +659,13 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 
 render ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ GameState → World States Visibility → Word → r ()
 render Normal w t = do
-    renderWorld w
+    renderWorld
     drawTeamHud (completeTeam w) Nothing >>= updateHud
     drawStatus False (evalWorld status w) >>= updateHud
     drawWatch False t >>= updateHud
     where
-        renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ World States Visibility → r ()
-        renderWorld w =
+        renderWorld ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ r ()
+        renderWorld =
             let m = evalWorld currentMap w
                 d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
                 v = evalWorld visibility w

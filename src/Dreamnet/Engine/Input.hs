@@ -29,9 +29,10 @@ data WorldEvent = Move (V2 Int)
                 | MoveCamera (V2 Int)
                 | Examine
                 | Operate
+                | OperateHeld
+                | OperateHeldOn
                 | Talk
                 | Get
-                | UseHeld
                 | Wear
                 | StoreIn
                 | PullFrom
@@ -41,6 +42,7 @@ data WorldEvent = Move (V2 Int)
                 | InventorySheet
                 | CharacterSheet
                 -- | SelectTeamMember  Int -- TODO replace with giving commands
+                | GiveCommand
 
                 | SwitchToHud
 
@@ -87,9 +89,10 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 'N')  = Just $ MoveCamera (V2  1  1)
         worldEvent (C.EventCharacter 'e')  = Just   Examine
         worldEvent (C.EventCharacter 'o')  = Just   Operate
+        worldEvent (C.EventCharacter 'f')  = Just   OperateHeld
+        worldEvent (C.EventCharacter 'F')  = Just   OperateHeldOn
         worldEvent (C.EventCharacter 't')  = Just   Talk
         worldEvent (C.EventCharacter 'g')  = Just   Get
-        worldEvent (C.EventCharacter 'f')  = Just   UseHeld
         worldEvent (C.EventCharacter 'w')  = Just   Wear
         worldEvent (C.EventCharacter 'S')  = Just   StoreIn
         worldEvent (C.EventCharacter 'P')  = Just   PullFrom
@@ -98,6 +101,7 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter ']')  = Just   HigherStance
         worldEvent (C.EventCharacter 'i')  = Just   InventorySheet
         worldEvent (C.EventCharacter 'c')  = Just   CharacterSheet
+        worldEvent (C.EventCharacter 'C')  = Just   GiveCommand
         worldEvent (C.EventCharacter '\t') = Just   SwitchToHud
         worldEvent (C.EventCharacter 'q')  = Just   Quit
         worldEvent _                       = Nothing
