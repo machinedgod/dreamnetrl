@@ -72,7 +72,6 @@ executable dreamnetrl
                         Dreamnet.Engine.World
                         Dreamnet.Engine.WorldMap
                         Dreamnet.Game
-                        Dreamnet.ObjectMonad
                         Dreamnet.Rendering.ChoiceData
                         Dreamnet.Rendering.Renderer
                         Dreamnet.Rendering.ScrollData

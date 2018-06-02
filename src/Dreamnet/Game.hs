@@ -2,10 +2,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 
 module Dreamnet.Game
 ( module Dreamnet.Engine.World
-, module Dreamnet.ObjectMonad
 , GameAPI(..)
 
 , Game
@@ -19,9 +19,9 @@ module Dreamnet.Game
 
 import Safe                (fromJustNote)
 import Control.Lens        (makeLenses, view, use, uses, assign, (+=), (%=),
-                            (.=))
+                            (.=), (.~))
 import Control.Monad.Trans (lift)
-import Control.Monad.Free  (Free)
+import Control.Monad.Free  (Free(Free, Pure))
 import Control.Monad.State (MonadState, StateT, runStateT, evalStateT, execStateT)
 import Data.Monoid         ((<>))
 import Data.Maybe          (fromMaybe)
@@ -41,8 +41,6 @@ import qualified Dreamnet.Engine.Input              as Input
 
 import Dreamnet.Rendering.Renderer
 import qualified Dreamnet.Rendering.Renderer as R
-
-import Dreamnet.ObjectMonad
 
 import Design.DesignAPI
 import Design.GameCharacters
@@ -280,6 +278,7 @@ instance GameAPI GameM where
     queryRenderData = use g_rendererData
 
 
+
 runGame ∷ GameM a → Game → C.Curses (a, Game)
 runGame p = runStateT (runGameM p)
 
@@ -290,4 +289,135 @@ evalGame p = evalStateT (runGameM p)
 
 execGame ∷ GameM a → Game → C.Curses Game
 execGame p = execStateT (runGameM p)
+
+--------------------------------------------------------------------------------
+-- TODO this object monad really doesn't have to exist. Everything could be
+--      implemented simply through WorldAPI.
+data ObjectF s a = Position (V2 Int → a)
+                 | Move (V2 Int) a
+                 | Passable (Bool → a)
+                 | SetPassable Bool a
+                 | SeeThrough (Bool → a)
+                 | SetSeeThrough Bool a
+                 | CanSee (V2 Int) (Bool → a)
+                 | ChangeSymbol Symbol a
+                 | ChangeMat String a
+                 | Message String a
+                 | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
+                 -- | Interact (InteractionType s) (V2 Int) Int a
+                 deriving(Functor) -- TODO Derive binary can't work with functions
+
+
+instance ObjectAPI s (Free (ObjectF s)) where
+    position = Free $ Position Pure
+
+    move v = Free $ Move v (Pure ())
+
+    passable = Free $ Passable Pure
+
+    setPassable c = Free $ SetPassable c (Pure ())
+
+    seeThrough = Free $ SeeThrough Pure
+
+    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
+
+    canSee v = Free $ CanSee v Pure
+
+    changeSymbol s = Free $ ChangeSymbol s (Pure ())
+
+    changeMat s = Free $ ChangeMat s (Pure ())
+
+    message m = Free $ Message m (Pure ())
+
+    scanRange r f = Free $ ScanRange r f Pure
+
+    --interact i v ix = Free $ Interact i v ix (Pure ())
+
+--------------------------------------------------------------------------------
+
+runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ (V2 Int, Object States) → Free (ObjectF States) GameState → w GameState
+runObjectMonadWorld (cv, o) (Free (Position fv)) =
+    runObjectMonadWorld (cv, o) (fv cv)
+runObjectMonadWorld (cv, o) (Free (Move v n)) =
+    moveObject cv o v *>
+        runObjectMonadWorld (v, o) n
+runObjectMonadWorld (cv, o) (Free (Passable fn)) =
+    runObjectMonadWorld (cv, o) (fn $ view o_passable o)
+runObjectMonadWorld (cv, o) (Free (SetPassable cl n)) =
+    let no = o_passable .~ cl $ o
+    in  replaceObject cv o no *>
+            runObjectMonadWorld (cv, no) n
+runObjectMonadWorld (cv, o) (Free (SeeThrough fn)) =
+    runObjectMonadWorld (cv, o) (fn $ view o_seeThrough o)
+runObjectMonadWorld (cv, o) (Free (SetSeeThrough st n)) =
+    let no = o_seeThrough .~ st $ o
+    in  replaceObject cv o no *>
+            runObjectMonadWorld (cv, no) n
+runObjectMonadWorld (cv, o) (Free (CanSee v fs)) =
+    castVisibilityRay cv v >>=
+        runObjectMonadWorld (cv, o) . fs . and . fmap snd
+runObjectMonadWorld (cv, o) (Free (ChangeSymbol c n)) =
+    let no = o_symbol .~ c $ o
+    in  replaceObject cv o no *>
+            runObjectMonadWorld (cv, no) n
+runObjectMonadWorld (cv, o) (Free (ChangeMat m n)) =
+    let no = o_material .~ m $ o
+    in  replaceObject cv o no *>
+            runObjectMonadWorld (cv, no) n
+runObjectMonadWorld (cv, o) (Free (Message m n)) =
+    setStatus m *>
+        runObjectMonadWorld (cv, o) n
+runObjectMonadWorld (cv, o) (Free (ScanRange r f fn)) = do
+    points ← interestingObjects cv r f
+    values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
+    runObjectMonadWorld (cv, o) (fn (zip points values))
+    where
+        onlyJust (Just x) l = x : l
+        onlyJust Nothing  l = l
+runObjectMonadWorld _ (Pure x) =
+    pure x
+
+
+
+runObjectMonad ∷ (V2 Int, Object States) → Free (ObjectF States) a → GameM a
+runObjectMonad t (Free (Position fn)) =
+    runObjectMonad t (fn (fst t))
+runObjectMonad (cv, o) (Free (Move v n)) =
+    doWorld (moveObject cv o v) *>
+        runObjectMonad (v, o) n
+runObjectMonad t (Free (Passable fn)) =
+    runObjectMonad t (fn $ view o_passable (snd t))
+runObjectMonad (cv, o) (Free (SetPassable b n)) =
+    let no = o_passable .~ b $ o
+    in  doWorld (replaceObject cv o no) *>
+            runObjectMonad (cv, no) n
+runObjectMonad t (Free (SeeThrough fn)) =
+    runObjectMonad t (fn $ view o_seeThrough (snd t))
+runObjectMonad (cv, o) (Free (SetSeeThrough b n)) =
+    let no = o_seeThrough .~ b $ o
+    in  doWorld (replaceObject cv o no) *>
+            runObjectMonad (cv, no) n
+runObjectMonad (cv, o) (Free (CanSee v fn)) =
+    doWorld (castVisibilityRay cv v) >>=
+        runObjectMonad (cv, o) . fn . and . fmap snd
+runObjectMonad (cv, o) (Free (ChangeSymbol s n)) =
+    let no = o_symbol .~ s $ o
+    in  doWorld (replaceObject cv o no) *>
+            runObjectMonad (cv, no) n
+runObjectMonad (cv, o) (Free (ChangeMat m n)) =
+    let no = o_material .~ m $ o
+    in  doWorld (replaceObject cv o no) *>
+            runObjectMonad (cv, no) n
+runObjectMonad (cv, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
+    doWorld (setStatus s) *>
+        runObjectMonad (cv, o) n
+runObjectMonad (cv, o) (Free (ScanRange r f fn)) = do
+    points ← doWorld (interestingObjects cv r f)
+    values ← doWorld (fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points)
+    runObjectMonad (cv, o) (fn (zip points values))
+    where
+        onlyJust (Just x) l = x : l
+        onlyJust Nothing  l = l
+runObjectMonad _ (Pure x) =
+    pure x
 
