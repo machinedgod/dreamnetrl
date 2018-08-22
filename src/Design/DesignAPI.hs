@@ -1,6 +1,8 @@
 {-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Design.DesignAPI
 where
@@ -53,7 +55,7 @@ makeLenses ''WearableItem
 
 
 instance Show (WearableItem i) where
-    show wi = _wi_name wi
+    show = _wi_name
 
 instance ItemTraits (WearableItem i) where
     isContainer = isJust . _wi_containerVolume
@@ -63,9 +65,12 @@ data AmmoType = LaserjetBattery
               deriving (Eq)
 
 
+-- TODO ammo type as phantom type?
 data WeaponItem = WeaponItem {
-      _wpi_name     ∷ String
-    , _wpi_ammoType ∷ AmmoType
+      _wpi_name        ∷ String
+    , _wpi_description ∷ String
+    , _wpi_settings    ∷ M.Map String String
+    , _wpi_ammoType    ∷ AmmoType
     }
     deriving (Eq)
 makeLenses ''WeaponItem
@@ -112,18 +117,18 @@ newtype Faction = Faction String
 --
 -- So for example, Camera could utilize some generic 'perception' program that
 -- somehow signals some other object, that's set up with switches?
-data States = Prop       String
-            | Camera     Faction Word
-            | Person     DreamnetCharacter
-            | Computer   ComputerData
-            | Clothes    (WearableItem States)
-            | Weapon     WeaponItem
-            | Ammo       AmmoItem
-            | Throwable  ThrownWeaponItem
-            | Consumable ConsumableItem
+data States = Prop        String
+            | Camera      Faction Word
+            | Person      DreamnetCharacter
+            | Computer    ComputerData
+            | Clothes     (WearableItem States)
+            | Weapon      WeaponItem
+            | Ammo        AmmoItem
+            | Throwable   ThrownWeaponItem
+            | Consumable  ConsumableItem
             | Empty
-            deriving (Eq)
-
+            deriving(Eq)
+            
 
 instance Show States where
     show (Prop s)        = "A " <> s

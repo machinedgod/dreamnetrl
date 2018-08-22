@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeInType #-}
+{-# LANGUAGE GADTs #-}
 
 module Dreamnet.Engine.Character
 ( Orientation(..)
@@ -190,7 +191,7 @@ makeLenses ''MeleeCombatSkills
 
 
 sumMelee ∷ MeleeCombatSkills → Word
-sumMelee mcs = sum $ fmap (\l → view l mcs)
+sumMelee mcs = sum $ fmap (`view` mcs)
     [ mcs_remainingPoints
     , mcs_barehanded
     , mcs_knives
@@ -219,7 +220,7 @@ makeLenses ''RangedCombatSkills
 
 
 sumRanged ∷ RangedCombatSkills → Word
-sumRanged rcs = sum $ fmap (\l → view l rcs)
+sumRanged rcs = sum $ fmap (`view` rcs)
     [ rcs_remainingPoints
     , rcs_guns
     , rcs_smgs
@@ -246,7 +247,7 @@ makeLenses ''ThrowingSkills
 
 
 sumThrowing ∷ ThrowingSkills → Word
-sumThrowing ts = sum $ fmap (\l → view l ts)
+sumThrowing ts = sum $ fmap (`view` ts)
     [ ts_remainingPoints
     , ts_grenades
     , ts_knives
@@ -275,7 +276,7 @@ makeLenses ''EngineeringSkills
 
 
 sumEngineering ∷ EngineeringSkills → Word
-sumEngineering es = sum $ fmap (\l → view l es)
+sumEngineering es = sum $ fmap (`view` es)
     [ es_remainingPoints
     , es_assembly
     , es_modding
@@ -306,7 +307,7 @@ makeLenses ''CommunicationSkills
 
 
 sumCommunication ∷ CommunicationSkills → Word
-sumCommunication ss = sum $ fmap (\l → view l ss)
+sumCommunication ss = sum $ fmap (`view` ss)
     [ ss_remainingPoints
     , ss_smallTalk
     , ss_bodyLanguage
@@ -335,7 +336,7 @@ makeLenses ''InfiltrationSkills
 
 
 sumInfiltration ∷ InfiltrationSkills → Word
-sumInfiltration is = sum $ fmap (\l → view l is)
+sumInfiltration is = sum $ fmap (`view` is)
     [ is_remainingPoints
     , is_blendInShadows
     , is_useOfCover
@@ -489,7 +490,7 @@ pickUp ∷ i → Character i c f → Character i c f
 pickUp i ch =
     let phsw = primaryHandSlot ch
     in  if isNothing (slotWrapperItem phsw)
-            then modifySlotContent (slotWrapperOrientation phsw) (slotWrapperType phsw) (const (Just i)) $ ch
+            then modifySlotContent (slotWrapperOrientation phsw) (slotWrapperType phsw) (const (Just i)) ch
             else ch
 
 --------------------------------------------------------------------------------

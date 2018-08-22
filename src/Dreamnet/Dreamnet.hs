@@ -1,6 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals #-}
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax, LambdaCase, NegativeLiterals #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
@@ -49,16 +47,17 @@ import Design.GameCharacters
 
 --------------------------------------------------------------------------------
 
-choiceChs ∷ [Char]
+choiceChs ∷ String
 choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added to be able to back out
 
 --------------------------------------------------------------------------------
 
 defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
-defaultDesignData = do
+defaultDesignData =
     pure $
         DesignData {
           _dd_characters  = characterDictionary characters
+        --, _dd_dev_startingMap = "./res/job"
         , _dd_dev_startingMap = "./res/bar"
         --, _dd_dev_startingMap = "./res/apartmentblock"
         --, _dd_dev_startingMap = "./res/apartment0"
@@ -84,10 +83,6 @@ dreamnet dd = C.runCurses $ do
     g ← newGame dd
     void $ flip execGame g $ do
         doWorld updateVisible
-        gs ← gameState
-        w  ← world
-        t  ← currentTurn
-        doRender (render gs w t)
         loopTheLoop dd
 
 --------------------------------------------------------------------------------
@@ -95,14 +90,14 @@ dreamnet dd = C.runCurses $ do
 loopTheLoop ∷ ∀ g. (GameAPI g, Monad g) ⇒ DesignData → g ()
 loopTheLoop dd = do
     doWorld (setStatus "")
-    gs ← changeGameState gameStateFlow
-    case gs of
+    w  ← world
+    t  ← currentTurn
+    gs ← gameState
+    doRender (render gs w t)
+    gs' ← changeGameState gameStateFlow
+    case gs' of
         Quit → pure ()
-        _    → do
-            w  ← world
-            t  ← currentTurn
-            doRender (render gs w t)
-            loopTheLoop dd
+        _    → loopTheLoop dd
     where
         gameStateFlow ∷ GameState → g GameState
         gameStateFlow Quit                        = pure Quit
@@ -144,7 +139,7 @@ maybeCharacter _           = Nothing
 
 
 processNormal ∷ (GameAPI g, Monad g) ⇒ DesignData → Input.WorldEvent → g GameState
-processNormal _ Input.Quit = do
+processNormal _ Input.Quit =
     pure Quit
 processNormal _ (Input.Move v) = do
     doWorld $ do
@@ -159,7 +154,7 @@ processNormal _ Input.Wait = do
     doWorld $ do
         setStatus "Waiting..."
         updateVisible
-    --runProgram v (operationProgramForSymbol (view o_symbol o) $ AiTick)
+    --runProgramAsPlayer v (operationProgramForSymbol (view o_symbol o) $ AiTick)
     increaseTurn
     pure Normal
 processNormal _ Input.HigherStance = do
@@ -172,7 +167,7 @@ processNormal _ Input.LowerStance = do
     pure Normal
 processNormal _ Input.Get = do
     increaseTurn
-    obtainTarget >>= \case
+    obtainTarget Adjactened >>= \case
         Nothing →
             doWorld $ setStatus "There's nothing here."
         Just (v, o) →
@@ -196,14 +191,14 @@ processNormal _ Input.Wear = do
         , ('t', "Torso",       (Nothing,  Torso))
         , ('T', "Back",        (Nothing,  Back))
         , ('b', "Belt",        (Nothing,  Belt))
-        , ('a', "Left arm",    ((Just LeftSide),  Arm))
-        , ('A', "Right arm",   ((Just RightSide), Arm))
-        , ('h', "Left thigh",  ((Just LeftSide),  Thigh))
-        , ('H', "Right thigh", ((Just RightSide), Thigh))
-        , ('s', "Left shin",   ((Just LeftSide),  Shin))
-        , ('S', "Right shin",  ((Just RightSide), Shin))
-        , ('f', "Left foot",   ((Just LeftSide),  Foot))
-        , ('F', "Right foot",  ((Just RightSide), Foot))
+        , ('a', "Left arm",    (Just LeftSide,  Arm))
+        , ('A', "Right arm",   (Just RightSide, Arm))
+        , ('h', "Left thigh",  (Just LeftSide,  Thigh))
+        , ('H', "Right thigh", (Just RightSide, Thigh))
+        , ('s', "Left shin",   (Just LeftSide,  Shin))
+        , ('S', "Right shin",  (Just RightSide, Shin))
+        , ('f', "Left foot",   (Just LeftSide,  Foot))
+        , ('F', "Right foot",  (Just RightSide, Foot))
         ]
     doWorld $
         changePlayer $
@@ -219,7 +214,7 @@ processNormal _ Input.StoreIn = do
     increaseTurn
     containerList ← doWorld $ do
         (pp, ix) ← playerPosition
-        cellAt pp >>= pure . fromCharacter equippedContainers [] . fromJustNote "storeIn" . valueAt ix
+        fromCharacter equippedContainers [] . fromJustNote "storeIn" . valueAt ix <$> cellAt pp
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
     doWorld $
         changePlayer $
@@ -239,7 +234,7 @@ processNormal _ Input.PullFrom = do
     increaseTurn
 
     -- TODO make this single-step choice (show containers and items as tree)
-    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "pullfrom" . valueAt ix) $ cellAt pp)) <$> world
+    containerList ← fromCharacter equippedContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fromJustNote "pullfrom" . valueAt ix <$> cellAt pp)) <$> world
     sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
 
     let itemList = (\(Just (Clothes wi)) → view wi_storedItems wi) (slotWrapperItem sw)
@@ -256,11 +251,12 @@ processNormal _ Input.PullFrom = do
                     modify (modifySlotContent
                             (slotWrapperOrientation sw)
                             (slotWrapperType sw)
-                            (\(Just (Clothes wi)) → Just $ Clothes $ wi_storedItems %~ filter ((/=) item) $ wi))
+                            (\(Just (Clothes wi)) → Just $ Clothes $ wi_storedItems %~ filter (item /=) $ wi))
     pure Normal
 processNormal _ Input.Examine = do
     increaseTurn
-    obtainTarget >>= \case
+    -- TODO examine distant too! :-O
+    obtainTarget Adjactened >>= \case
         Just (v, o)  → do
             onHerself ← (==v) . evalWorld (fst <$> playerPosition) <$> world
             if onHerself
@@ -268,7 +264,7 @@ processNormal _ Input.Examine = do
                     doWorld desc >>= \d → examineUpdateUi d $> Examination d
                 else
                     doWorld playerObject >>=
-                        \(Person ch) → runProgram v (programForState ch (view o_state o) Examine) >>= \case
+                        \(Person ch) → runProgramAsPlayer v (programForState ch (view o_state o) Examine) >>= \case
                             gs@(Examination d) → do
                                 examineUpdateUi d
                                 pure gs
@@ -283,13 +279,13 @@ processNormal _ Input.Examine = do
 processNormal _ Input.Operate = do
     -- TODO as much as operation program wants!
     increaseTurn
-    obtainTarget >>= \case
+    obtainTarget Adjactened >>= \case
         Nothing → do
             doWorld $ setStatus "There's nothing here."
             pure Normal
         Just (v, o) →
             doWorld playerObject >>=
-                \(Person ch) → runProgram v (programForState ch (view o_state o) Operate)
+                \(Person ch) → runProgramAsPlayer v (programForState ch (view o_state o) Operate)
 processNormal _ Input.OperateHeld = do
     increaseTurn -- TODO as much as the device wants!
     mres ← runMaybeT $ do
@@ -297,7 +293,7 @@ processNormal _ Input.OperateHeld = do
                     >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
         pp  ← lift $ doWorld (fst <$> playerPosition)
         pch ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
-        lift $ runProgram pp (programForState pch ho Operate);
+        lift $ runProgramAsPlayer pp (programForState pch ho Operate);
     maybe
         (doWorld (setStatus "You aren't carrying anything in your hands.") $> Normal)
         pure
@@ -315,7 +311,7 @@ processNormal _ Input.OperateHeldOn = do
             -- TODO obtain target should happen inside Object Program, and then interpreter
             --      can either show UI for the player, or use "brain"/Simulation to select
             --      one for the NPC's
-            obtainTarget >>= \case
+            obtainTarget (Distant (Range 1)) >>= \case
                 Nothing → do
                     doWorld $ setStatus "Nothing there."
                     pure Normal
@@ -324,29 +320,29 @@ processNormal _ Input.OperateHeldOn = do
                     pp ← doWorld (fst <$> playerPosition)
                     doWorld playerObject >>=
                         whenCharacter (\ch → do {
-                             void $ runProgram pp (programForState ch ho (OperateOn so));
-                             runProgram v  (programForState ch so (OperateWith ho));
+                             void $ runProgramAsPlayer pp (programForState ch ho (OperateOn so));
+                             runProgramAsPlayer v  (programForState ch so (OperateWith ho));
                             })
                             (pure Normal)
                     -- TODO which of the game states should take precedence?
 processNormal _ Input.Talk = do
     increaseTurn
-    obtainTarget >>= \case
+    obtainTarget Adjactened >>= \case
         Nothing → do
             doWorld $ setStatus "Trying to talk to someone, but there's no one there."
             pure Normal
-        Just (v, o) → do
+        Just (v, o) →
             doWorld playerObject >>=
                 whenCharacter
-                    (\ch → runProgram v (programForState ch (view o_state o) Talk))
+                    (\ch → runProgramAsPlayer v (programForState ch (view o_state o) Talk))
                     (pure Normal) >>= \case
                         c@(Conversation n) → do
                             conversationUpdateUi n
                             pure c
-                        g → do
+                        g →
                             pure g
 processNormal _ Input.InventorySheet = do
-    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fmap (fromJustNote "invsheet" . valueAt ix) $ cellAt pp)) <$> world
+    itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fromJustNote "invsheet" . valueAt ix <$> cellAt pp)) <$> world
     doRenderData (setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList))
     pure InventoryUI
 processNormal dd Input.CharacterSheet =
@@ -367,7 +363,7 @@ processNormal _ Input.GiveCommand = do
             doWorld $
                 setStatus "You currently have no team."
     pure Normal
-processNormal _ Input.SwitchToHud = do
+processNormal _ Input.SwitchToHud =
     pure $ HudTeam 0
 
 
@@ -443,11 +439,11 @@ processHudWatch _ _ Input.Back =
 
 
 processConversation ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
-processConversation cn@(TalkNode _ _ _ _) e =
+processConversation cn@TalkNode{} e =
     processConversationFlow cn e
-processConversation cn@(ChoiceNode _ _) e =
+processConversation cn@ChoiceNode{} e =
     processConversationChoice cn e
-processConversation cn@(DescriptionNode _ _) e = 
+processConversation cn@DescriptionNode{} e = 
     processConversationFlow cn e
 processConversation End _ =
     pure Normal
@@ -579,11 +575,11 @@ processEquipmentUI ch _ =
 -- (setting gamestate should probably be an specialization of setting the flow function)
 -- at Dreamnet:245 from ObjectAPI, this'll be it.
 processComputerOperation ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Int) → ComputerData → Input.InteractionEvent → g GameState
-processComputerOperation (v,ix) cd (Input.PassThrough '\n') = do
+processComputerOperation (v,ix) cd (Input.PassThrough '\n') =
     pure $ ComputerOperation (v,ix) (snd $ runComputer commitInput cd)
-processComputerOperation (v,ix) cd (Input.PassThrough '\b') = do
+processComputerOperation (v,ix) cd (Input.PassThrough '\b') =
     pure $ ComputerOperation (v,ix) (snd $ runComputer backspace cd)
-processComputerOperation (v,ix) cd (Input.PassThrough c) = do
+processComputerOperation (v,ix) cd (Input.PassThrough c) =
     pure $ ComputerOperation (v,ix) (snd $ runComputer (typeIn c) cd)
 processComputerOperation (v,ix) cd Input.BackOut = do
     doWorld $
@@ -596,7 +592,7 @@ processComputerOperation (v,ix) cd Input.BackOut = do
 equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
 equippedContainers = filter containers . equippedSlots
     where
-        containers (SlotWrapper s) = views s_item (fromMaybe False . fmap isContainer) s
+        containers (SlotWrapper s) = views s_item (maybe False isContainer) s
 
 
 listOfItemsFromContainers ∷ Character States c f → [String]

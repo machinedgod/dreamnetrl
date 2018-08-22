@@ -170,8 +170,9 @@ loadTileMap fp = do
 
 
 readTileset ∷ (MonadIO m) ⇒ FilePath → m Tileset
-readTileset fp = liftIO $ BS.readFile (makeFilename fp "set") >>=
-                   pure . either err makeMap . CSV.decode CSV.NoHeader
+readTileset fp = liftIO $ either err makeMap . CSV.decode CSV.NoHeader <$>
+                            BS.readFile (makeFilename fp "set")
+
     where
         err e   = error $ "Can't parse " <> makeFilename fp "set" <> ": " <> e
         makeMap = V.foldr' insertTile M.empty

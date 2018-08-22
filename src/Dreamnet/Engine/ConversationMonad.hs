@@ -32,13 +32,14 @@ data ConversationNode = TalkNode        String Word [String] ConversationNode
                       deriving (Show)
 
 
+instance Semigroup  ConversationNode where
+    (TalkNode s i ns nxt)   <> c = TalkNode s i ns (nxt `mappend` c)
+    (ChoiceNode opts nxts)  <> c = ChoiceNode opts ((`mappend` c) <$> nxts)
+    (DescriptionNode s nxt) <> c = DescriptionNode s (nxt `mappend` c)
+    End                     <> c = c
+
 instance Monoid ConversationNode where
     mempty = End
-    mappend (TalkNode s i ns nxt)   c = TalkNode s i ns (nxt `mappend` c)
-    mappend (ChoiceNode opts nxts)  c = ChoiceNode opts ((`mappend` c) <$> nxts)
-    mappend (DescriptionNode s nxt) c = DescriptionNode s (nxt `mappend` c)
-    mappend End                     c = c
-
  
 pick ∷ ConversationNode → Word → ConversationNode -- Should really wrap this Int with something that won't backfire with OOB
 pick (TalkNode _ _ _ n)    _ = n

@@ -8,6 +8,10 @@ module Dreamnet.Game
 ( module Dreamnet.Engine.World
 , GameAPI(..)
 
+, TargetSelectionType(..)
+, DistantTargetSelection(..)
+, lineOfSight
+
 , Game
 , newGame
 
@@ -15,11 +19,14 @@ module Dreamnet.Game
 , runGame
 , evalGame
 , execGame
+
+
 ) where
 
 import Safe                (fromJustNote)
 import Control.Lens        (makeLenses, view, use, uses, assign, (+=), (%=),
-                            (.=), (.~))
+                            (.=), (+=), (-=), (.~))
+import Control.Lens.Prism  (_Just)
 import Control.Monad.Trans (lift)
 import Control.Monad.Free  (Free(Free, Pure))
 import Control.Monad.State (MonadState, StateT, runStateT, evalStateT, execStateT)
@@ -27,17 +34,17 @@ import Data.Monoid         ((<>))
 import Data.Maybe          (fromMaybe)
 import Data.List           (genericLength, find)
 import Data.Foldable       (traverse_)
-import Linear              (V2, _x, _y)
+import Linear              (V2(V2), _x, _y)
 
 import qualified Data.Vector as V (fromList)
 import qualified Data.Map    as M (lookup)
 import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
-                                   drawBorder, Glyph(Glyph), render)
+                                   drawBorder, Glyph(Glyph), render, Attribute(AttributeColor))
 
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
-import qualified Dreamnet.Engine.Input              as Input
+import qualified Dreamnet.Engine.Input       as Input
 
 import Dreamnet.Rendering.Renderer
 import qualified Dreamnet.Rendering.Renderer as R
@@ -63,6 +70,8 @@ data Game = Game {
     , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
     , _g_gameState    ∷ GameState
     , _g_rendererData ∷ RendererEnvironment
+
+    , _g_currentTarget ∷ Maybe (V2 Int)
     }
 makeLenses ''Game
 
@@ -78,6 +87,8 @@ newGame dd = do
                        (playerPerson ("Carla" `characterForName` view dd_characters dd))
       , _g_gameState    = Normal 
       , _g_rendererData = rdf
+
+      , _g_currentTarget = Nothing
     }
     where
         -- 1) This *could* all be just a single thing. Object type really does not matter here.
@@ -179,6 +190,21 @@ newGame dd = do
 
 --------------------------------------------------------------------------------
 
+data TargetSelectionType = Adjactened
+                         | Distant DistantTargetSelection
+
+
+data DistantTargetSelection = Range       Word
+                            | Filtered    (States → Bool)
+                            | Composed    TargetSelectionType TargetSelectionType
+
+
+lineOfSight ∷ (States → Bool) → TargetSelectionType
+lineOfSight isVisibleF = Distant (Filtered isVisibleF)
+
+
+--------------------------------------------------------------------------------
+
 class GameAPI g where
     currentTurn      ∷ g Word
     increaseTurn     ∷ g ()
@@ -189,10 +215,10 @@ class GameAPI g where
     world            ∷ g (World States Visibility)
     doWorld          ∷ WorldM States Visibility a → g a
     -- TODO change to withTarget to make more functional
-    obtainTarget     ∷ g (Maybe (V2 Int, Object States))
+    obtainTarget     ∷ TargetSelectionType → g (Maybe (V2 Int, Object States))
     -- TODO offer abort!
     askChoice        ∷ [(Char, String, a)] → g a
-    runProgram       ∷ V2 Int → Free (ObjectF States) GameState → g GameState
+    runProgramAsPlayer       ∷ V2 Int → Free (ObjectF States) GameState → g GameState
     doRender         ∷ RendererF a → g a
     doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
     queryRenderData  ∷ g RendererEnvironment
@@ -223,19 +249,48 @@ instance GameAPI GameM where
             g_world .= w' >>
                 pure x
 
-    obtainTarget = do
+    obtainTarget Adjactened = do
         ap ← uses g_world (evalWorld (fst <$> playerPosition))
         doRender $ updateMain $ RenderAction $
-            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap $
+            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap
                 [ "yku"
                 , "h.l"
                 , "bjn"
                 ]
         t ← GameM (lift Input.nextTargetSelectionEvent)
-        uses g_world (evalWorld (fmap lastValue $ cellAt (ap + t))) >>=
+        uses g_world (evalWorld (lastValue <$> cellAt (ap + t))) >>=
             \case
                 Nothing → pure Nothing
                 Just x  → pure (Just (ap + t, x))
+    
+    -- TODO should probably get into some target selection state?
+    obtainTarget ts@(Distant _) =
+        use g_currentTarget >>= \case 
+            Nothing → do
+                ap ← uses g_world (evalWorld (fst <$> playerPosition))
+                g_currentTarget .= Just ap
+                obtainTarget ts
+            Just t → do
+                redColorId ← use (g_rendererData.rd_styles.s_colorRed)
+                doRender $ updateMain $
+                    draw' t 'X' [ C.AttributeColor redColorId ]
+                
+                ev ← GameM (lift Input.nextUiEvent)
+                case ev of
+                    Input.TabNext      → obtainTarget ts -- TODO select next target 'smart'
+                    Input.TabPrevious  → obtainTarget ts -- TODO select next target 'smart'
+                    Input.MoveLeft     → g_currentTarget._Just._x -= 1 >> obtainTarget ts
+                    Input.MoveDown     → g_currentTarget._Just._y += 1 >> obtainTarget ts
+                    Input.MoveUp       → g_currentTarget._Just._y -= 1 >> obtainTarget ts
+                    Input.MoveRight    → g_currentTarget._Just._x += 1 >> obtainTarget ts
+                    Input.Back         → pure Nothing
+                    Input.SelectChoice → do
+                        (Just v) ← use g_currentTarget
+                        uses g_world (evalWorld (lastValue <$> cellAt v)) >>=
+                            \case
+                                Nothing → pure Nothing
+                                Just x  → pure (Just (v, x))
+
 
     askChoice lst = do
         doRender $ updateUi $ RenderAction $ do
@@ -257,14 +312,14 @@ instance GameAPI GameM where
             fst3 (x, _, _) = x
             trd3 (_, _, x) = x
 
-    runProgram v prg = do
+    runProgramAsPlayer v prg = do
         mo ← uses g_world (evalWorld (lastValue <$> cellAt v)) -- TODO not really correct
         case mo of
             Nothing → pure Normal
-            Just o  → doWorld $ do
-               gs ← runObjectMonadWorld (v, o) prg 
-               updateVisible
-               pure gs
+            Just o  → do
+                gs ← runObjectMonadForPlayer (v, o) prg 
+                doWorld updateVisible
+                pure gs
 
     doRender r = do
         rd ← use g_rendererData
@@ -276,7 +331,6 @@ instance GameAPI GameM where
     doRenderData f = g_rendererData %= f
 
     queryRenderData = use g_rendererData
-
 
 
 runGame ∷ GameM a → Game → C.Curses (a, Game)
@@ -291,133 +345,50 @@ execGame ∷ GameM a → Game → C.Curses Game
 execGame p = execStateT (runGameM p)
 
 --------------------------------------------------------------------------------
--- TODO this object monad really doesn't have to exist. Everything could be
---      implemented simply through WorldAPI.
-data ObjectF s a = Position (V2 Int → a)
-                 | Move (V2 Int) a
-                 | Passable (Bool → a)
-                 | SetPassable Bool a
-                 | SeeThrough (Bool → a)
-                 | SetSeeThrough Bool a
-                 | CanSee (V2 Int) (Bool → a)
-                 | ChangeSymbol Symbol a
-                 | ChangeMat String a
-                 | Message String a
-                 | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
-                 -- | Interact (InteractionType s) (V2 Int) Int a
-                 deriving(Functor) -- TODO Derive binary can't work with functions
 
-
-instance ObjectAPI s (Free (ObjectF s)) where
-    position = Free $ Position Pure
-
-    move v = Free $ Move v (Pure ())
-
-    passable = Free $ Passable Pure
-
-    setPassable c = Free $ SetPassable c (Pure ())
-
-    seeThrough = Free $ SeeThrough Pure
-
-    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
-
-    canSee v = Free $ CanSee v Pure
-
-    changeSymbol s = Free $ ChangeSymbol s (Pure ())
-
-    changeMat s = Free $ ChangeMat s (Pure ())
-
-    message m = Free $ Message m (Pure ())
-
-    scanRange r f = Free $ ScanRange r f Pure
-
-    --interact i v ix = Free $ Interact i v ix (Pure ())
-
---------------------------------------------------------------------------------
-
-runObjectMonadWorld ∷ (Monad w, WorldAPI States v w) ⇒ (V2 Int, Object States) → Free (ObjectF States) GameState → w GameState
-runObjectMonadWorld (cv, o) (Free (Position fv)) =
-    runObjectMonadWorld (cv, o) (fv cv)
-runObjectMonadWorld (cv, o) (Free (Move v n)) =
-    moveObject cv o v *>
-        runObjectMonadWorld (v, o) n
-runObjectMonadWorld (cv, o) (Free (Passable fn)) =
-    runObjectMonadWorld (cv, o) (fn $ view o_passable o)
-runObjectMonadWorld (cv, o) (Free (SetPassable cl n)) =
-    let no = o_passable .~ cl $ o
-    in  replaceObject cv o no *>
-            runObjectMonadWorld (cv, no) n
-runObjectMonadWorld (cv, o) (Free (SeeThrough fn)) =
-    runObjectMonadWorld (cv, o) (fn $ view o_seeThrough o)
-runObjectMonadWorld (cv, o) (Free (SetSeeThrough st n)) =
-    let no = o_seeThrough .~ st $ o
-    in  replaceObject cv o no *>
-            runObjectMonadWorld (cv, no) n
-runObjectMonadWorld (cv, o) (Free (CanSee v fs)) =
-    castVisibilityRay cv v >>=
-        runObjectMonadWorld (cv, o) . fs . and . fmap snd
-runObjectMonadWorld (cv, o) (Free (ChangeSymbol c n)) =
-    let no = o_symbol .~ c $ o
-    in  replaceObject cv o no *>
-            runObjectMonadWorld (cv, no) n
-runObjectMonadWorld (cv, o) (Free (ChangeMat m n)) =
-    let no = o_material .~ m $ o
-    in  replaceObject cv o no *>
-            runObjectMonadWorld (cv, no) n
-runObjectMonadWorld (cv, o) (Free (Message m n)) =
-    setStatus m *>
-        runObjectMonadWorld (cv, o) n
-runObjectMonadWorld (cv, o) (Free (ScanRange r f fn)) = do
-    points ← interestingObjects cv r f
-    values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
-    runObjectMonadWorld (cv, o) (fn (zip points values))
-    where
-        onlyJust (Just x) l = x : l
-        onlyJust Nothing  l = l
-runObjectMonadWorld _ (Pure x) =
-    pure x
-
-
-
-runObjectMonad ∷ (V2 Int, Object States) → Free (ObjectF States) a → GameM a
-runObjectMonad t (Free (Position fn)) =
-    runObjectMonad t (fn (fst t))
-runObjectMonad (cv, o) (Free (Move v n)) =
+runObjectMonadForPlayer ∷ (V2 Int, Object States) → Free (ObjectF States) a → GameM a
+runObjectMonadForPlayer t (Free (Position fn)) =
+    runObjectMonadForPlayer t (fn (fst t))
+runObjectMonadForPlayer (cv, o) (Free (Move v n)) =
     doWorld (moveObject cv o v) *>
-        runObjectMonad (v, o) n
-runObjectMonad t (Free (Passable fn)) =
-    runObjectMonad t (fn $ view o_passable (snd t))
-runObjectMonad (cv, o) (Free (SetPassable b n)) =
+        runObjectMonadForPlayer (v, o) n
+runObjectMonadForPlayer t (Free (Passable fn)) =
+    runObjectMonadForPlayer t (fn $ view o_passable (snd t))
+runObjectMonadForPlayer (cv, o) (Free (SetPassable b n)) =
     let no = o_passable .~ b $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonad (cv, no) n
-runObjectMonad t (Free (SeeThrough fn)) =
-    runObjectMonad t (fn $ view o_seeThrough (snd t))
-runObjectMonad (cv, o) (Free (SetSeeThrough b n)) =
+            runObjectMonadForPlayer (cv, no) n
+runObjectMonadForPlayer t (Free (SeeThrough fn)) =
+    runObjectMonadForPlayer t (fn $ view o_seeThrough (snd t))
+runObjectMonadForPlayer (cv, o) (Free (SetSeeThrough b n)) =
     let no = o_seeThrough .~ b $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonad (cv, no) n
-runObjectMonad (cv, o) (Free (CanSee v fn)) =
+            runObjectMonadForPlayer (cv, no) n
+runObjectMonadForPlayer (cv, o) (Free (CanSee v fn)) =
     doWorld (castVisibilityRay cv v) >>=
-        runObjectMonad (cv, o) . fn . and . fmap snd
-runObjectMonad (cv, o) (Free (ChangeSymbol s n)) =
+        runObjectMonadForPlayer (cv, o) . fn . and . fmap snd
+runObjectMonadForPlayer (cv, o) (Free (ChangeSymbol s n)) =
     let no = o_symbol .~ s $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonad (cv, no) n
-runObjectMonad (cv, o) (Free (ChangeMat m n)) =
+            runObjectMonadForPlayer (cv, no) n
+runObjectMonadForPlayer (cv, o) (Free (ChangeMat m n)) =
     let no = o_material .~ m $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonad (cv, no) n
-runObjectMonad (cv, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
+            runObjectMonadForPlayer (cv, no) n
+runObjectMonadForPlayer (cv, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
     doWorld (setStatus s) *>
-        runObjectMonad (cv, o) n
-runObjectMonad (cv, o) (Free (ScanRange r f fn)) = do
+        runObjectMonadForPlayer (cv, o) n
+runObjectMonadForPlayer (cv, o) (Free (ScanRange r f fn)) = do
     points ← doWorld (interestingObjects cv r f)
-    values ← doWorld (fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points)
-    runObjectMonad (cv, o) (fn (zip points values))
+    values ← doWorld (foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points)
+    runObjectMonadForPlayer (cv, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
-runObjectMonad _ (Pure x) =
+runObjectMonadForPlayer (cv, o) (Free (AcquireTarget s fn)) =
+    case s of
+        Freeform    → runObjectMonadForPlayer (cv, o) (fn (V2 0 0))
+        LineOfSight → runObjectMonadForPlayer (cv, o) (fn (V2 1 1))
+runObjectMonadForPlayer _ (Pure x) =
     pure x
 

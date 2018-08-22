@@ -4,7 +4,7 @@
 module Design.ObjectPrograms
 where
 
-import Control.Lens     (view, views)
+import Control.Lens     (view, views, (^.))
 import Data.Semigroup   ((<>))
 import Data.Bool        (bool)
 import Data.Functor     (($>))
@@ -37,9 +37,9 @@ genericClothes _ _ =
 
 genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType States → o GameState
 genericWeapon wpi Examine =
-    message ("Nice weapon, a " <> view wpi_name wpi) $> Normal
-genericWeapon _ Operate =
-    message "This weapon doesn't seem to have any configs or settings." $> Normal
+    message (wpi ^. wpi_description) $> Normal
+genericWeapon wpi Operate =
+    message ("This weapon has these settings: " <> show (wpi ^. wpi_settings)) $> Normal
 genericWeapon _ Talk =
     message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down." $> Normal
 genericWeapon _ (OperateOn s) =

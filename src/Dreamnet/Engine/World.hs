@@ -20,6 +20,7 @@ module Dreamnet.Engine.World
 , o_state
 
 , InteractionType(..)
+, TargetSelectionStyle(..)
 , ObjectAPI(..)
 
 , WorldReadAPI(..)
@@ -34,6 +35,9 @@ module Dreamnet.Engine.World
 , runWorld
 , evalWorld
 , execWorld
+
+, ObjectF(..)
+, runObjectMonadForAI
 ) where
 
 
@@ -41,10 +45,11 @@ import Prelude hiding (interact, rem, map)
 import Safe           (fromJustNote)
 
 import Control.Lens               (makeLenses, (%=), (.=), use, uses, view,
-                                   views)
+                                   views, (.~))
 import Control.Monad              (when, (>=>), filterM)
+import Control.Monad.Free         (Free(..))
 import Control.Monad.State.Strict (MonadState, State, runState, evalState, execState)
-import Linear                     (V2)
+import Linear                     (V2(V2))
 import Data.Monoid                ((<>))
 import Data.Bool                  (bool)
 import Data.Foldable              (traverse_, for_)
@@ -61,11 +66,13 @@ import Dreamnet.Engine.Visibility
 newtype Symbol = Symbol Char
                deriving (Eq, Show)
 
+instance Semigroup Symbol where
+    (Symbol ' ') <> (Symbol ch') = Symbol ch'
+    (Symbol ch)  <> (Symbol ' ') = Symbol ch
+    _            <> (Symbol ch') = Symbol ch'  -- TODO make correct, add char codes
+
 instance Monoid Symbol where
     mempty = Symbol ' '
-    (Symbol ' ') `mappend` (Symbol ch') = Symbol ch'
-    (Symbol ch)  `mappend` (Symbol ' ') = Symbol ch
-    _            `mappend` (Symbol ch') = Symbol ch'  -- TODO make correct, add char codes
 
 --------------------------------------------------------------------------------
 
@@ -101,6 +108,11 @@ data InteractionType a = Examine
                        | OperateOn   a
                        | OperateWith a
 
+-- TODO doesn't fit in the world, but in the Game (where Player exists)
+data TargetSelectionStyle = Freeform
+                          | LineOfSight
+
+
 -- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
 -- Note2: WHy?
 -- Note3: Because, if it involves player actions, then those objects can't be
@@ -118,6 +130,8 @@ class ObjectAPI a o | o → a where
     changeMat     ∷ String → o ()
     message       ∷ String → o ()
     scanRange     ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
+    acquireTarget ∷ TargetSelectionStyle → o (V2 Int)
+
     --interact      ∷ InteractionType a → V2 Int → Int → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
 
@@ -315,3 +329,99 @@ evalWorld wm = evalState (runWorldM wm)
 
 execWorld ∷ WorldM o v a → World o v → World o v
 execWorld wm = execState (runWorldM wm)
+
+--------------------------------------------------------------------------------
+-- TODO this object monad really doesn't have to exist. Everything could be
+--      implemented simply through WorldAPI.
+data ObjectF s a = Position (V2 Int → a)
+                 | Move (V2 Int) a
+                 | Passable (Bool → a)
+                 | SetPassable Bool a
+                 | SeeThrough (Bool → a)
+                 | SetSeeThrough Bool a
+                 | CanSee (V2 Int) (Bool → a)
+                 | ChangeSymbol Symbol a
+                 | ChangeMat String a
+                 | Message String a
+                 | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
+                 | AcquireTarget TargetSelectionStyle (V2 Int → a)
+                 -- | Interact (InteractionType s) (V2 Int) Int a
+                 deriving(Functor) -- TODO Derive binary can't work with functions
+
+
+instance ObjectAPI s (Free (ObjectF s)) where
+    position = Free $ Position Pure
+
+    move v = Free $ Move v (Pure ())
+
+    passable = Free $ Passable Pure
+
+    setPassable c = Free $ SetPassable c (Pure ())
+
+    seeThrough = Free $ SeeThrough Pure
+
+    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
+
+    canSee v = Free $ CanSee v Pure
+
+    changeSymbol s = Free $ ChangeSymbol s (Pure ())
+
+    changeMat s = Free $ ChangeMat s (Pure ())
+
+    message m = Free $ Message m (Pure ())
+
+    scanRange r f = Free $ ScanRange r f Pure
+
+    acquireTarget s = Free $ AcquireTarget s Pure
+
+    --interact i v ix = Free $ Interact i v ix (Pure ())
+
+--------------------------------------------------------------------------------
+
+
+runObjectMonadForAI ∷ (Eq o, Monad w, WorldAPI o v w) ⇒ (V2 Int, Object o) → Free (ObjectF o) a → w a
+runObjectMonadForAI (cv, o) (Free (Position fv)) =
+    runObjectMonadForAI (cv, o) (fv cv)
+runObjectMonadForAI (cv, o) (Free (Move v n)) =
+    moveObject cv o v *>
+        runObjectMonadForAI (v, o) n
+runObjectMonadForAI (cv, o) (Free (Passable fn)) =
+    runObjectMonadForAI (cv, o) (fn $ view o_passable o)
+runObjectMonadForAI (cv, o) (Free (SetPassable cl n)) =
+    let no = o_passable .~ cl $ o
+    in  replaceObject cv o no *>
+            runObjectMonadForAI (cv, no) n
+runObjectMonadForAI (cv, o) (Free (SeeThrough fn)) =
+    runObjectMonadForAI (cv, o) (fn $ view o_seeThrough o)
+runObjectMonadForAI (cv, o) (Free (SetSeeThrough st n)) =
+    let no = o_seeThrough .~ st $ o
+    in  replaceObject cv o no *>
+            runObjectMonadForAI (cv, no) n
+runObjectMonadForAI (cv, o) (Free (CanSee v fs)) =
+    castVisibilityRay cv v >>=
+        runObjectMonadForAI (cv, o) . fs . and . fmap snd
+runObjectMonadForAI (cv, o) (Free (ChangeSymbol c n)) =
+    let no = o_symbol .~ c $ o
+    in  replaceObject cv o no *>
+            runObjectMonadForAI (cv, no) n
+runObjectMonadForAI (cv, o) (Free (ChangeMat m n)) =
+    let no = o_material .~ m $ o
+    in  replaceObject cv o no *>
+            runObjectMonadForAI (cv, no) n
+runObjectMonadForAI (cv, o) (Free (Message m n)) =
+    setStatus m *>
+        runObjectMonadForAI (cv, o) n
+runObjectMonadForAI (cv, o) (Free (ScanRange r f fn)) = do
+    points ← interestingObjects cv r f
+    values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
+    runObjectMonadForAI (cv, o) (fn (zip points values))
+    where
+        onlyJust (Just x) l = x : l
+        onlyJust Nothing  l = l
+runObjectMonadForAI (cv, o) (Free (AcquireTarget s fn)) =
+    case s of
+        Freeform    → runObjectMonadForAI (cv, o) (fn (V2 0 0))
+        LineOfSight → runObjectMonadForAI (cv, o) (fn (V2 1 1))
+runObjectMonadForAI _ (Pure x) =
+    pure x
+

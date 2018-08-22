@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, NegativeLiterals, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax, LambdaCase, TupleSections, NegativeLiterals, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -17,8 +17,11 @@ module Dreamnet.Rendering.Renderer
 , selectPrevious
 , cd_currentSelection
 
+, s_colorRed
+
 , Camera
 , RendererEnvironment
+, rd_styles
 , rd_choiceData
 , setScroll
 , doScroll
@@ -33,6 +36,7 @@ module Dreamnet.Rendering.Renderer
 , RendererF
 , runRenderer
 
+, draw'
 , draw
 , drawString
 , drawList
@@ -52,16 +56,15 @@ module Dreamnet.Rendering.Renderer
 
 import Safe                      (atDef)
 import Control.Lens              (makeLenses, view, views, (^.), (%~), (.~))
-import Control.Monad             (when)
 import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
 import Linear                    (V2(V2), _x, _y)
 import Data.Semigroup            ((<>))
-import Data.Maybe                (fromMaybe, isJust, fromJust)
+import Data.Maybe                (fromMaybe, isJust)
 import Data.Bifunctor            (second)
-import Data.Foldable             (traverse_, forM_)
+import Data.Foldable             (traverse_, forM_, fold)
 import Data.Char                 (digitToInt)
-import Data.List                 (intercalate, genericLength, genericReplicate)
+import Data.List                 (genericLength, genericReplicate)
 import Data.Bool                 (bool)
 import Data.Tuple                (swap)
 
@@ -324,9 +327,9 @@ instance RenderAPI RendererF where
 
     screenSize = RendererF $ lift C.screenSize
 
-    mainSize = RendererF $ lift $ mainSize'
+    mainSize = RendererF $ lift mainSize'
 
-    hudSize = RendererF $ lift $ hudSize'
+    hudSize = RendererF $ lift hudSize'
 
 
 runRenderer ∷ RendererEnvironment → RendererF a → C.Curses a
@@ -335,7 +338,7 @@ runRenderer rd f = runReaderT (runRendererF f) rd
 --------------------------------------------------------------------------------
 
 clear ∷ RenderAction ()
-clear = RenderAction $ C.clear
+clear = RenderAction C.clear
 
 
 drawMap ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
@@ -364,7 +367,7 @@ drawMap chf matf w dat vis = do
         visibleChunk (V2 x' y') (V2 w' h') (fromIntegral → wh) v =
             let oln i = V.drop (fromIntegral $ wh * (y' + i)) v
                 ldata = V.drop (fromIntegral $ wh - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
-            in  foldMap id $ ldata . oln <$> [0..h']
+            in  fold $ ldata . oln <$> [0..h']
 
 
 
@@ -445,7 +448,7 @@ drawTeamHud team mayix = do
 
             -- Weapon
             drawString (ox + 1) (oy + 1) $ 
-                maybe ("<EMPTY>")
+                maybe  "<EMPTY>"
                       (take (fromIntegral boxWidth) . show)
                       (slotWrapperItem . primaryHandSlot $ ch)
             
@@ -460,9 +463,7 @@ drawTeamHud team mayix = do
                 hBars = floor ((fromIntegral hp / fromIntegral mhp ∷ Float) * fromIntegral boxWidth)
                 hDots = fromIntegral boxWidth - hBars
             drawString (ox + 1) (oy + 3)
-                (concat [ replicate hBars '|'
-                        , replicate hDots '.'
-                        ])
+                (replicate hBars '|' <> replicate hDots '.')
             
 
         --shorten ∷ Word → String → String
@@ -765,8 +766,8 @@ drawInformation = do
                      (Just $ C.Glyph '╰' [])
                      (Just $ C.Glyph '╯' [])
         (rows, cols) ← C.windowSize
-        when (isJust mt) $
-            drawTitle cols (fromJust mt)
+        forM_ mt $ 
+            drawTitle cols
         V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad (lineWidth sd)) (visibleLines sd)
         draw (cols - 3) 1          (bool ' ' '▲' $ isAtTop sd)
         draw (cols - 3) (rows - 2) (bool ' ' '▼' $ hasMoreLines sd)
@@ -858,7 +859,7 @@ drawString x y s = do
 
 drawList ∷ (Integral a) ⇒ a → a → [String] → C.Update ()
 drawList x y =
-    traverse_ (\(ix, l) → drawString x ix l)
+    traverse_ (uncurry (drawString x))
     . zip [y..]
 
 
@@ -971,7 +972,7 @@ smallDigit _ = smallDigit 8
 
 
 loremIpsum ∷ String
-loremIpsum = intercalate " "
+loremIpsum = unwords
     [ "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
     , "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis"
     , "nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."

@@ -22,7 +22,7 @@ module Design.Items
 import Control.Lens    (view)
 import Data.Semigroup  ((<>))
 
-import qualified Data.Map as M (Map, fromList)
+import qualified Data.Map as M (Map, fromList, singleton)
 
 import Dreamnet.Engine.Character   (SlotType(..))
 import Design.DesignAPI
@@ -58,8 +58,10 @@ consumableDict = M.fromList
 
 laserjet ∷ WeaponItem
 laserjet = WeaponItem {
-      _wpi_name     = "Laserjet"
-    , _wpi_ammoType = LaserjetBattery
+      _wpi_name        = "Laserjet"
+    , _wpi_description = "Laserjet is a proprietary Lens & Optix, Inc. product. Basically a concentrated 1m wide ray of focused, coherent heat energy, enough per cubical centimeter to instantly convert any carbon-based organism back to just carbon."
+    , _wpi_settings    = M.singleton "power" "10"
+    , _wpi_ammoType    = LaserjetBattery
     }
 
 

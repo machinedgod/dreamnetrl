@@ -61,7 +61,7 @@ type Range = Word
 --------------------------------------------------------------------------------
 
 newtype Cell a = Cell [a]
-               deriving (Functor, Applicative, Monad, Monoid, Foldable, Traversable) 
+               deriving (Functor, Applicative, Monad, Semigroup, Monoid, Foldable, Traversable)
 
 
 valueAt ∷ Int → Cell a → Maybe a
@@ -80,7 +80,7 @@ addToCell ∷ a → Cell a → Cell a
 addToCell x (Cell l) = Cell (l <> [x])
 
 
-deleteFromCell ∷ (Eq a) ⇒ a → Cell a → Cell a 
+deleteFromCell ∷ (Eq a) ⇒ a → Cell a → Cell a
 deleteFromCell x (Cell l) = Cell (x `delete` l)
 
 
@@ -99,7 +99,7 @@ class WorldMapReadAPI a wm | wm → a where
 class (WorldMapReadAPI a wm) ⇒ WorldMapAPI a wm | wm → a where
     modifyCell  ∷ V2 Int → (Cell a → Cell a) → wm ()
     replaceCell ∷ V2 Int → Cell a → wm ()
-    
+
 --------------------------------------------------------------------------------
 
 -- | Type variables
@@ -109,7 +109,7 @@ data WorldMap a = WorldMap {
     , _wm_height  ∷ Height
     , _wm_data    ∷ V.Vector (Cell a)
     , _wm_desc    ∷ String
-    , _wm_spawns  ∷ V.Vector (V2 Int) 
+    , _wm_spawns  ∷ V.Vector (V2 Int)
     }
 makeLenses ''WorldMap
 
@@ -120,7 +120,7 @@ instance CoordVector (WorldMap a) where
 
 
 newWorldMap ∷ Width → Height → a →  WorldMap a
-newWorldMap w h x = 
+newWorldMap w h x =
     WorldMap {
       _wm_width   = w
     , _wm_height  = h
@@ -131,7 +131,7 @@ newWorldMap w h x =
 
 
 fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → a) → WorldMap a
-fromTileMap tm t2o = 
+fromTileMap tm t2o =
     WorldMap {
       _wm_width   = width tm
     , _wm_height  = height tm
@@ -172,7 +172,7 @@ newtype WorldMapM o a = WorldMapM { runWorldMapM ∷ State (WorldMap o) a }
 
 
 runWorldMap ∷ WorldMapM o a → WorldMap o → (a, WorldMap o)
-runWorldMap wmm wm = runState (runWorldMapM wmm) wm
+runWorldMap wmm = runState (runWorldMapM wmm)
 
 
 evalWorldMap ∷ WorldMapM o a → WorldMap o → a
@@ -186,7 +186,7 @@ execWorldMap wmm = snd . runWorldMap wmm
 
 instance WorldMapReadAPI a (WorldMapM a) where
     desc = use wm_desc
-    
+
     -- TODO partial function! :-O
     cellAt v = get >>= \m → uses wm_data (fromMaybe mempty . (V.!? linCoord m v))
 
@@ -196,7 +196,7 @@ instance WorldMapReadAPI a (WorldMapM a) where
         where
             collectObjects l x = cellAt x >>= \o → pure $ bool l (x : l) (or $ ff <$> o)
 
-    oob v = flip outOfBounds v <$> get
+    oob = gets flip outOfBounds
 
 
 instance WorldMapAPI a (WorldMapM a) where

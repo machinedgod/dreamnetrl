@@ -1,6 +1,10 @@
 all:
-	stack install --profile
 	make -C res
+	stack install --flag ncurses:force-narrow-library
+
+repl:
+	make -C res
+	stack repl --flag ncurses:force-narrow-library
 
 clean:
 	stack clean
