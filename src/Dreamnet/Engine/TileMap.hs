@@ -158,8 +158,8 @@ loadTileMap fp = do
     desc   ← liftIO $ readFile (makeFilename fp "desc")
     pos    ← readPositioned (makeFilename fp "positioned")
 
-    let w = (layers !! 0) ^.l_width
-        h = (layers !! 0) ^.l_height
+    let w = head layers ^.l_width
+        h = head layers ^.l_height
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)

@@ -15,8 +15,8 @@ import Linear (V2(V2))
 
 --------------------------------------------------------------------------------
 
-type Width    = Word
-type Height   = Word
+type Width  = Word
+type Height = Word
 
 class CoordVector c where
     width  ∷ c → Width

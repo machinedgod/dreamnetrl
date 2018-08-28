@@ -2,7 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Engine.Input
-( WorldEvent(..)
+( MonadInput(..)
+, WorldEvent(..)
 , UIEvent(..)
 , InteractionEvent(..)
 
@@ -21,6 +22,11 @@ import Linear     (V2(V2))
 import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
                                   Key(KeyBackspace, KeyBackTab))
+
+--------------------------------------------------------------------------------
+
+class (Monad m) ⇒ MonadInput m where
+    liftCursesEvent ∷ C.Curses a → m a
 
 --------------------------------------------------------------------------------
 

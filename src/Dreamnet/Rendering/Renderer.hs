@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
 module Dreamnet.Rendering.Renderer
@@ -15,26 +16,18 @@ module Dreamnet.Rendering.Renderer
 , newChoiceData
 , selectNext
 , selectPrevious
-, cd_currentSelection
-
-, s_colorRed
 
 , Camera
 , RendererEnvironment
-, rd_styles
-, rd_choiceData
-, setScroll
-, doScroll
-, setChoice
-, doChoice
-, moveCamera
 , newRenderEnvironment
 
 , RenderAction(RenderAction)
 , RenderAPI(..)
 
-, RendererF
+, RendererM
 , runRenderer
+, evalRenderer
+, execRenderer
 
 , draw'
 , draw
@@ -55,9 +48,11 @@ module Dreamnet.Rendering.Renderer
 
 
 import Safe                      (atDef)
-import Control.Lens              (makeLenses, view, views, (^.), (%~), (.~))
-import Control.Monad.Trans       (lift)
-import Control.Monad.Reader      (MonadReader, ReaderT, runReaderT)
+import Control.Lens              (Lens', makeLenses, view, views, use, uses,
+                                  (^.), (%=), (.=))
+import Control.Monad.Trans       (MonadTrans, lift)
+import Control.Monad.State       (MonadState, StateT, runStateT, evalStateT,
+                                  execStateT)
 import Linear                    (V2(V2), _x, _y)
 import Data.Semigroup            ((<>))
 import Data.Maybe                (fromMaybe, isJust)
@@ -72,6 +67,7 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
+import Dreamnet.Engine.Input       (MonadInput(..))
 import Dreamnet.Engine.Utils       (lines')
 import Dreamnet.Engine.Character   
 import Dreamnet.Engine.CoordVector
@@ -80,23 +76,7 @@ import Dreamnet.Engine.Visibility
 import Dreamnet.Rendering.ScrollData
 import Dreamnet.Rendering.ChoiceData
 
-import Design.ComputerModel
-import Design.DesignAPI     (DreamnetCharacter)
-
---------------------------------------------------------------------------------
-
--- TODO remove dependence on Curses and use them just as an implementation
-newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
-                       deriving (Functor, Applicative, Monad)
-
-
-class RenderAPI r where
-    updateMain ∷ RenderAction () → r ()
-    updateHud  ∷ RenderAction () → r ()
-    updateUi   ∷ RenderAction () → r ()
-    screenSize ∷ r (Integer, Integer)
-    mainSize   ∷ r (Integer, Integer)
-    hudSize    ∷ r (Integer, Integer)
+import Dreamnet.ComputerModel
 
 --------------------------------------------------------------------------------
 
@@ -118,18 +98,18 @@ padC i s =
 --------------------------------------------------------------------------------
 
 data WatchData = WatchData {
-      _wd_hours   ∷ Word
-    , _wd_minutes ∷ Word
-    , _wd_seconds ∷ Word
+      _wd_hours   ∷ Int
+    , _wd_minutes ∷ Int
+    , _wd_seconds ∷ Int
     , _wd_weekDay ∷ String
-    , _wd_day     ∷ Word
-    , _wd_month   ∷ Word
-    , _wd_year    ∷ Word
+    , _wd_day     ∷ Int
+    , _wd_month   ∷ Int
+    , _wd_year    ∷ Int
     }
 makeLenses ''WatchData
 
 
-fromSeconds ∷ Word → WatchData
+fromSeconds ∷ Int → WatchData
 fromSeconds t =
     let s = t `mod` 60
         m = t `div` 60 `mod` 60
@@ -145,7 +125,7 @@ fromSeconds t =
         }
 
 
-numberToDigits ∷ Word → (Word, Word)
+numberToDigits ∷ Int → (Int, Int)
 numberToDigits i =
     let f ix = fromIntegral . digitToInt . flip (atDef '0') ix . reverse . show
     in  (f 1 i, f 0 i)
@@ -178,8 +158,8 @@ makeLenses ''Styles
 --------------------------------------------------------------------------------
 
 data Camera = Camera {
-      _cm_position ∷ V2 Word
-    , _cm_viewport ∷ V2 Word
+      _cm_position ∷ V2 Int
+    , _cm_viewport ∷ V2 Int
     }
 makeLenses ''Camera
 
@@ -197,30 +177,6 @@ data RendererEnvironment = RendererEnvironment {
     , _rd_scrollData ∷ ScrollData
     }
 makeLenses ''RendererEnvironment
-
-
-setScroll ∷ ScrollData → RendererEnvironment → RendererEnvironment 
-setScroll sd = rd_scrollData .~ sd
-
-
-doScroll ∷ (ScrollData → ScrollData) → RendererEnvironment → RendererEnvironment
-doScroll f = rd_scrollData %~ f
-
-
-setChoice ∷ ChoiceData → RendererEnvironment → RendererEnvironment 
-setChoice cd = rd_choiceData .~ cd
-
-
-doChoice ∷ (ChoiceData → ChoiceData) → RendererEnvironment → RendererEnvironment
-doChoice f = rd_choiceData %~ f
-
-
-moveCamera ∷ V2 Int → RendererEnvironment → RendererEnvironment
-moveCamera v = rd_camera.cm_position %~ clip
-    where
-        clip ∷ V2 Word → V2 Word
-        clip op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
-
 
 
 mainSize' ∷ C.Curses (Integer, Integer)
@@ -313,41 +269,110 @@ newRenderEnvironment = do
 
 --------------------------------------------------------------------------------
 
+-- TODO remove dependence on Curses and use them just as an implementation
+newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
+                       deriving (Functor, Applicative, Monad)
+
+
+class RenderAPI r where
+    updateMain    ∷ RenderAction () → r ()
+    updateHud     ∷ RenderAction () → r ()
+    updateUi      ∷ RenderAction () → r ()
+    screenSize    ∷ r (Integer, Integer)
+    mainSize      ∷ r (Integer, Integer)
+    hudSize       ∷ r (Integer, Integer)
+    setScroll     ∷ ScrollData → r ()
+    doScroll      ∷ (ScrollData → ScrollData) → r ()
+    withScroll    ∷ (ScrollData → a) → r a
+    setChoice     ∷ ChoiceData → r ()
+    doChoice      ∷ (ChoiceData → ChoiceData) → r ()
+    withChoice    ∷ (ChoiceData → a) → r a
+    currentChoice ∷ r Int
+    moveCamera    ∷ V2 Int → r ()
+    camera        ∷ r Camera
+    style         ∷ Lens' Styles a → r a
+    flush         ∷ r ()
+
+--------------------------------------------------------------------------------
+
 -- TODO double buffering
-newtype RendererF a = RendererF { runRendererF ∷ ReaderT RendererEnvironment C.Curses a }
-                    deriving (Functor, Applicative, Monad, MonadReader RendererEnvironment)
+newtype RendererM m a = RendererM { runRendererM ∷ StateT RendererEnvironment m a }
+                      deriving (Functor, Applicative, Monad, MonadState RendererEnvironment)
 
 
-instance RenderAPI RendererF where
-    updateMain ac = view rd_mainWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
-
-    updateHud ac = view rd_hudWindow >>= RendererF . lift . (`C.updateWindow` runAction ac)
-
-    updateUi ac = view rd_uiWindow >>= RendererF . lift . (`C.updateWindow` (C.clear >> runAction ac))
-
-    screenSize = RendererF $ lift C.screenSize
-
-    mainSize = RendererF $ lift mainSize'
-
-    hudSize = RendererF $ lift hudSize'
+instance MonadTrans RendererM where
+    lift = RendererM . lift
 
 
-runRenderer ∷ RendererEnvironment → RendererF a → C.Curses a
-runRenderer rd f = runReaderT (runRendererF f) rd
+instance MonadInput (RendererM C.Curses) where
+    liftCursesEvent = RendererM . lift
+
+
+instance RenderAPI (RendererM C.Curses) where
+    updateMain ac = use rd_mainWindow >>= lift . (`C.updateWindow` runAction ac)
+
+    updateHud ac = use rd_hudWindow >>= lift . (`C.updateWindow` runAction ac)
+
+    updateUi ac = use rd_uiWindow >>= lift . (`C.updateWindow` (C.clear >> runAction ac))
+
+    screenSize = lift C.screenSize
+
+    mainSize = lift mainSize'
+
+    hudSize = lift hudSize'
+
+    setScroll sd = rd_scrollData .= sd
+
+    doScroll f = rd_scrollData %= f
+
+    withScroll f = uses rd_scrollData f
+
+    setChoice cd = rd_choiceData .= cd
+
+    doChoice f = rd_choiceData %= f
+
+    withChoice = uses rd_choiceData
+
+    currentChoice = use (rd_choiceData.cd_currentSelection)
+
+    moveCamera v = rd_camera.cm_position %= clip
+        where
+            clip ∷ V2 Int → V2 Int
+            clip op = fmap fromIntegral $ max (V2 0 0) $ (fromIntegral <$> op) - v
+
+    camera = use rd_camera
+
+    style l = use (rd_styles.l)
+
+    flush = lift C.render
+
+
+
+runRenderer ∷ (Monad m) ⇒ RendererM m a → RendererEnvironment → m (a, RendererEnvironment)
+runRenderer = runStateT . runRendererM
     
+
+evalRenderer ∷ (Monad m) ⇒ RendererM m a → RendererEnvironment → m a
+evalRenderer = evalStateT . runRendererM
+
+
+execRenderer ∷ (Monad m) ⇒ RendererM m a → RendererEnvironment → m RendererEnvironment
+execRenderer = execStateT . runRendererM
+
 --------------------------------------------------------------------------------
 
 clear ∷ RenderAction ()
 clear = RenderAction C.clear
 
 
-drawMap ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
-drawMap chf matf w dat vis = do
-    u ← view (rd_styles.s_visibilityUnknown)
-    k ← view (rd_styles.s_visibilityKnown)
-    c ← view rd_camera
+drawMap ∷ (RenderAPI r, Monad r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
+drawMap chf matf (fromIntegral → w) dat vis = do
+    u ← style s_visibilityUnknown
+    k ← style s_visibilityKnown
+    c ← camera
 
-    let viewport = V2 (min (c^.cm_viewport._x) w) (min (c^.cm_viewport._y) (fromIntegral $ V.length dat `div` fromIntegral w))
+    let viewport = V2 (min (c^.cm_viewport._x) w)
+                      (min (c^.cm_viewport._y) (fromIntegral $ V.length dat `div` w))
 
     let dat' = visibleChunk (c^.cm_position) viewport w dat
     let vis' = visibleChunk (c^.cm_position) viewport w vis
@@ -356,15 +381,15 @@ drawMap chf matf w dat vis = do
     where
         -- TODO I wonder if I can somehow reimplement this without relying on
         -- pattern matching the Visibility (using Ord, perhaps?)
-        drawTile ∷ Width → [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
-        drawTile wh u k i (c, m, v) = uncurry (draw' $ coordLin' wh i) $
+        drawTile ∷ Int → [C.Attribute] → [C.Attribute] → Int → (Char, Material, Visibility) → RenderAction ()
+        drawTile wh u k i (c, m, v) = uncurry (draw' $ coordLin' (fromIntegral wh) i) $
                                      case v of
                                          Unknown → (' ', u)
                                          Known   → (c, k)
                                          Visible → (c, m)
 
-        visibleChunk ∷ V2 Word → V2 Word → Width → V.Vector a → V.Vector a
-        visibleChunk (V2 x' y') (V2 w' h') (fromIntegral → wh) v =
+        visibleChunk ∷ V2 Int → V2 Int → Int → V.Vector a → V.Vector a
+        visibleChunk (V2 x' y') (V2 w' h') wh v =
             let oln i = V.drop (fromIntegral $ wh * (y' + i)) v
                 ldata = V.drop (fromIntegral $ wh - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
             in  fold $ ldata . oln <$> [0..h']
@@ -410,10 +435,10 @@ teamBoxesLength ∷ (Num n) ⇒ n
 teamBoxesLength = genericLength . head $ teamBoxes
 
 
-drawTeamHud ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ [DreamnetCharacter] → Maybe Int → r (RenderAction ())
+drawTeamHud ∷ (RenderAPI r, Monad r, Show i) ⇒ [Character i c f] → Maybe Int → r (RenderAction ())
 drawTeamHud team mayix = do
-    white ← view (rd_styles.s_colorWhite)
-    green ← view (rd_styles.s_colorGreen)
+    white ← style s_colorWhite
+    green ← style s_colorGreen
     pure $ RenderAction $ do
         C.setColor white
 
@@ -431,7 +456,7 @@ drawTeamHud team mayix = do
                 (fromIntegral (ix `div` 3) *  5 + 2)
                 ch
     where
-        drawData ∷ Integer → Integer → DreamnetCharacter → C.Update ()
+        drawData ∷  (Show i) ⇒ Integer → Integer → Character i c f → C.Update ()
         drawData ox oy ch = do
             drawList ox oy [ "                "
                            , "                "
@@ -482,10 +507,10 @@ drawTeamHud team mayix = do
             drawString 0 10 $ genericReplicate len '-'
 
 
-drawWatch ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ Bool → Word → r (RenderAction ())
+drawWatch ∷ (RenderAPI r, Monad r) ⇒ Bool → Int → r (RenderAction ())
 drawWatch sel turns = do
-    white ← view (rd_styles.s_colorWhite)
-    green ← view (rd_styles.s_colorGreen)
+    white ← style s_colorWhite
+    green ← style s_colorGreen
     pure $ RenderAction $ do
         C.setColor white
         C.windowSize >>= \ox → drawList (subtract watchLength . snd $ ox) 0 watch
@@ -520,10 +545,10 @@ drawWatch sel turns = do
                ]
 
 
-drawStatus ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ Bool → String → r (RenderAction ())
+drawStatus ∷ (RenderAPI r, Monad r) ⇒ Bool → String → r (RenderAction ())
 drawStatus sel msg = do
-    green ← view (rd_styles.s_colorGreen)
-    white ← view (rd_styles.s_colorWhite)
+    green ← style s_colorGreen
+    white ← style s_colorWhite
     pure $ RenderAction $ do
         let start       = teamBoxesLength
             padding     = 4
@@ -548,7 +573,7 @@ drawStatus sel msg = do
         drawList start padding lns
 
 
-drawCharacterSheet ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawCharacterSheet ∷ (RenderAPI r, Monad r, Show f) ⇒ Character i c f → r (RenderAction ())
 drawCharacterSheet ch = screenSize >>= \(rows, cols) →
     pure $ RenderAction $ do
         let x = (cols - listDrawingWidth characterSheet) `div` 2
@@ -667,7 +692,7 @@ characterSheet =
     ]
 
 
-drawEquipmentDoll ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ DreamnetCharacter → r (RenderAction ())
+drawEquipmentDoll ∷ (RenderAPI r, Monad r, Show i) ⇒ Character i c f → r (RenderAction ())
 drawEquipmentDoll ch = screenSize >>= \(rows, cols) →
     pure $ RenderAction $ do
         let x = (cols - listDrawingWidth equipmentDoll) `div` 2
@@ -748,12 +773,15 @@ equipmentDoll =
     ]
 
 
-drawInformation ∷ (MonadReader RendererEnvironment r) ⇒ r (RenderAction ())
+drawInformation ∷ (RenderAPI r, Monad r) ⇒ r (RenderAction ())
 drawInformation = do
-    sd ← view rd_scrollData
-    let (V2 x y)     = view sd_position sd
-        (V2 w h)     = view sd_size sd
-        mt           = view sd_title sd
+    (V2 x y)← withScroll (view sd_position)
+    (V2 w h)← withScroll (view sd_size)
+    mt      ← withScroll (view sd_title)
+    lw      ← withScroll lineWidth
+    vl      ← withScroll visibleLines
+    iat     ← withScroll isAtTop
+    hml     ← withScroll hasMoreLines
     pure $ RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
@@ -768,9 +796,9 @@ drawInformation = do
         (rows, cols) ← C.windowSize
         forM_ mt $ 
             drawTitle cols
-        V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad (lineWidth sd)) (visibleLines sd)
-        draw (cols - 3) 1          (bool ' ' '▲' $ isAtTop sd)
-        draw (cols - 3) (rows - 2) (bool ' ' '▼' $ hasMoreLines sd)
+        V.imapM_ (\i → drawString 2 (i + bool 1 4 (isJust mt)) . pad lw) vl
+        draw (cols - 3) 1          (bool ' ' '▲' iat)
+        draw (cols - 3) (rows - 2) (bool ' ' '▼' hml)
     where
         drawTitle ∷ Integer → String → C.Update ()
         drawTitle cols tn = do
@@ -785,11 +813,12 @@ drawInformation = do
                 draw (trimmedLen + 3) 1 '│'
 
 
-drawChoice ∷ (MonadReader RendererEnvironment r) ⇒ r (RenderAction ())
+drawChoice ∷ (RenderAPI r, Monad r) ⇒ r (RenderAction ())
 drawChoice = do
-    cd ← view rd_choiceData
-    let (V2 x y)     = view cd_position cd
-        (V2 w h)     = view cd_size cd
+    (V2 x y) ← withChoice (view cd_position)
+    (V2 w h) ← withChoice (view cd_size)
+    os       ← withChoice (view cd_options)
+    cs       ← withChoice (view cd_currentSelection)
     pure $ RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
@@ -801,8 +830,8 @@ drawChoice = do
                      (Just $ C.Glyph '╮' [])
                      (Just $ C.Glyph '╰' [])
                      (Just $ C.Glyph '╯' [])
-        V.imapM_ drawChoiceLine (view cd_options cd)
-        drawSelectionWidget (view cd_currentSelection cd)
+        V.imapM_ drawChoiceLine os
+        drawSelectionWidget cs
     where
         drawChoiceLine i l = do
             (_, columns) ← C.windowSize
@@ -834,9 +863,10 @@ drawComputer cd = RenderAction $ do
 
 --------------------------------------------------------------------------------
 
-lookupMaterial ∷ (RenderAPI r, MonadReader RendererEnvironment r) ⇒ String → r Material
-lookupMaterial n = view (rd_styles.s_unknown) >>= \umat →
-    views (rd_styles.s_materials) (fromMaybe umat . M.lookup n)
+lookupMaterial ∷ (RenderAPI r, Monad r) ⇒ String → r Material
+lookupMaterial n = do
+    umat ← style s_unknown
+    fromMaybe umat . M.lookup n <$> style s_materials
 
 
 draw' ∷ (Integral a) ⇒ V2 a → Char → Material → RenderAction ()
@@ -863,7 +893,7 @@ drawList x y =
     . zip [y..]
 
 
-digit ∷ Word → [String]
+digit ∷ Int → [String]
 digit 0 = [ " ━ "
           , "┃ ┃"
           , "   "
@@ -927,7 +957,7 @@ digit 9 = [ " ━ "
 digit _ = digit 8
 
 
-smallDigit ∷ Word → [String]
+smallDigit ∷ Int → [String]
 smallDigit 0 = ["|̅‾|"
                ,"|̅ |"
                ,"|_|"

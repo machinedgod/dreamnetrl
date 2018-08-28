@@ -3,191 +3,235 @@
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Dreamnet.Game
 ( module Dreamnet.Engine.World
-, GameAPI(..)
 
+, ItemTraits(..)
+
+, Material(..)
+
+, WearableItem(..), wi_name, wi_equippedAt, wi_volume, wi_weight, wi_material,
+  wi_coverage, wi_containerVolume, wi_storedItems
+
+, AmmoType(..)
+
+, WeaponItem(..), wpi_name, wpi_description, wpi_settings, wpi_ammoType
+
+, AmmoItem(..), ami_name, ami_type, ami_currentLoad, ami_maxLoad
+
+, ThrownWeaponItem(..), twi_name
+
+, ConsumableItem(..), ci_name
+
+, Faction(..)
+, States(..), withCharacter, whenCharacter, whenComputer, maybeCharacter
+
+, DreamnetCharacter
 , TargetSelectionType(..)
 , DistantTargetSelection(..)
 , lineOfSight
 
-, Game
-, newGame
+, TargetActivationF(TargetActivationF, runWithTarget)
+, GameAPI(..)
+, GameState(..)
+, DesignData(..)
+, dd_characters
+, dd_dev_startingMap
 
 , GameM
 , runGame
 , evalGame
 , execGame
 
-
 ) where
 
-import Safe                (fromJustNote)
-import Control.Lens        (makeLenses, view, use, uses, assign, (+=), (%=),
-                            (.=), (+=), (-=), (.~))
-import Control.Lens.Prism  (_Just)
-import Control.Monad.Trans (lift)
-import Control.Monad.Free  (Free(Free, Pure))
-import Control.Monad.State (MonadState, StateT, runStateT, evalStateT, execStateT)
-import Data.Monoid         ((<>))
-import Data.Maybe          (fromMaybe)
-import Data.List           (genericLength, find)
-import Data.Foldable       (traverse_)
-import Linear              (V2(V2), _x, _y)
+import Safe                       (fromJustNote)
+import Control.Lens               (makeLenses, view, (.~))
+import Control.Monad.Trans        (MonadTrans, lift)
+import Control.Monad.Free         (Free(Free, Pure))
+import Control.Monad.State        (MonadState, StateT, runStateT, evalStateT,
+                                   execStateT, get, gets, put, modify)
+import Data.Maybe                 (isJust)
+import Data.List                  (find)
+import Data.List.NonEmpty         (NonEmpty((:|)))
+import Linear                     (V2(V2))
 
-import qualified Data.Vector as V (fromList)
-import qualified Data.Map    as M (lookup)
-import qualified UI.NCurses  as C (Curses, clear, resizeWindow, moveWindow,
-                                   drawBorder, Glyph(Glyph), render, Attribute(AttributeColor))
-
+import qualified Data.Map    as M (Map)
+import qualified UI.NCurses  as C (Curses)
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
-import qualified Dreamnet.Engine.Input       as Input
+import Dreamnet.Engine.Character
+import Dreamnet.Engine.Conversation
 
-import Dreamnet.Rendering.Renderer
+import qualified Dreamnet.Engine.Input       as I
 import qualified Dreamnet.Rendering.Renderer as R
 
-import Design.DesignAPI
-import Design.GameCharacters
-import Design.ComputerModel
-import Design.Items
-
+import Dreamnet.ComputerModel
 
 --------------------------------------------------------------------------------
 
--- TODO apply DeGoes principle here: extract everything with a neat api, that
--- then runs and produces WorldAPI state values
--- TODO explore the idea of moving all this data into appropriate Game States
---      that interact with each other and never having any 'overlord-level'
---      data
--- TODO try making World Objects keep ObjectPrograms in them, rather than states
---      then, somehow, programs can keep the state by themselves. Its a monad
---      after all.
-data Game = Game {
-      _g_turn         ∷ Word -- TODO move turn into World?
-    , _g_world        ∷ World States Visibility -- TODO could "States" here be parametric?
-    , _g_gameState    ∷ GameState
-    , _g_rendererData ∷ RendererEnvironment
+class ItemTraits i where
+    isContainer ∷ i → Bool
+    -- TODO container of what type?
 
-    , _g_currentTarget ∷ Maybe (V2 Int)
+data Material = Kevlar
+              | Polyester
+              | Cotton
+              deriving (Eq, Show)
+
+
+-- TODO I'm just like making shit up here, to define what wearable item is
+data WearableItem i = WearableItem {
+      _wi_name       ∷ String
+    , _wi_equippedAt ∷ SlotType
+    -- Volume of the item
+    , _wi_volume     ∷ Word
+    -- Weight of the item
+    , _wi_weight     ∷ Float
+    -- Material (TODO make a list?)
+    , _wi_material   ∷ Material
+    -- When worn as clothes, what is the coverage percent of the body part?
+    , _wi_coverage   ∷ Float
+
+    -- If Nothing, its not a container. If Just x, then what is the container's volume?
+    -- Note, does not necessarily have to be less than _wi_volume, eg. belts and clip carriers
+    , _wi_containerVolume ∷ Maybe Word
+    , _wi_storedItems ∷ [i] -- TODO probably just use a slot, or slots! :-O?
     }
-makeLenses ''Game
+    deriving (Eq, Functor)
+makeLenses ''WearableItem
 
 
-newGame ∷ DesignData → C.Curses Game
-newGame dd = do
-    rdf ← newRenderEnvironment
-    sm  ← loadTileMap (view dd_dev_startingMap dd)
-    pure Game {
-        _g_turn  = 0
-      , _g_world = newWorld
-                       (fromTileMap sm  objectFromTile)
-                       (playerPerson ("Carla" `characterForName` view dd_characters dd))
-      , _g_gameState    = Normal 
-      , _g_rendererData = rdf
+instance Show (WearableItem i) where
+    show = _wi_name
 
-      , _g_currentTarget = Nothing
+instance ItemTraits (WearableItem i) where
+    isContainer = isJust . _wi_containerVolume
+
+
+data AmmoType = LaserjetBattery
+              deriving (Eq)
+
+
+-- TODO ammo type as phantom type?
+data WeaponItem = WeaponItem {
+      _wpi_name        ∷ String
+    , _wpi_description ∷ String
+    , _wpi_settings    ∷ M.Map String String
+    , _wpi_ammoType    ∷ AmmoType
     }
-    where
-        -- 1) This *could* all be just a single thing. Object type really does not matter here.
-        -- 2) Actually, it does, because Object carries a specific state, later used by object programs
-        objectFromTile ∷ Tile → Object States
-        objectFromTile t@(ttype → "Base") =
-            let m  = "concrete"
-                p  = 1 `readBoolProperty` t
-                s  = 2 `readBoolProperty` t
-                h  = 0
-                st = Empty
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Prop") =
-            let m  = 4 `readStringProperty` t
-                p  = 2 `readBoolProperty` t
-                s  = 3 `readBoolProperty` t
-                h  = 5 `readWordProperty` t
-                d  = 6 `readStringProperty` t
-                st = Prop (1 `readStringProperty` t) d
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Person") = 
-            let m  = "blue"
-                p  = False
-                s  = True
-                h  = 3
-                st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
-            in  Object (Symbol '@') m p s h st
-        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!)
-            objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
-        objectFromTile t@(ttype → "Camera") =
-            let m  = "green light"
-                p  = True
-                s  = True
-                h  = 1
-                st = Camera (Faction $ 1 `readStringProperty` t) 0
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Computer") =
-            let m  = "metal"
-                p  = False
-                s  = True
-                h  = 1
-                st = Computer (ComputerData "" [])
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Clothes") = 
-            let m   = "cloth"
-                p   = True
-                s   = True
-                h   = 0
-                cid = 1 `readStringProperty` t
-                st  = Clothes $
-                        fromMaybe (error $ "WearableItem " <> cid <> " isn't defined!") $
-                            M.lookup cid clothesDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Weapon") = 
-            let m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                wid = 1 `readStringProperty` t
-                st  = Weapon $
-                        fromMaybe (error $ "WeaponItem " <> wid <> " isn't defined!") $
-                            M.lookup wid weaponsDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Ammo") = 
-            let m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                aid = 1 `readStringProperty` t
-                st  = Ammo $
-                        fromMaybe (error $ "AmmoItem " <> aid <> " isn't defined!") $
-                            M.lookup aid ammoDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Throwable") = 
-            let m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                tid = 1 `readStringProperty` t
-                st  = Throwable $
-                        fromMaybe (error $ "ThrowableItem " <> tid <> " isn't defined!") $
-                            M.lookup tid throwableDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Consumable") = 
-            let m   = "red"
-                p   = True
-                s   = True
-                h   = 0
-                tid = 1 `readStringProperty` t
-                st  = Consumable $
-                        fromMaybe (error $ "ConsumableItem " <> tid <> " isn't defined!") $
-                            M.lookup tid consumableDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t =
-            error $ "Can't convert Tile type into Object: " <> show t
-        -- TODO Errrrrr, this should be done through the tileset???
+    deriving (Eq)
+makeLenses ''WeaponItem
 
-        playerPerson ∷ DreamnetCharacter → Object States
-        playerPerson = Object (Symbol '@') "metal" False True 3 . Person
+
+data AmmoItem = AmmoItem {
+      _ami_name        ∷ String
+    , _ami_type        ∷ AmmoType
+    , _ami_currentLoad ∷ Word
+    , _ami_maxLoad     ∷ Word
+    }
+    deriving (Eq)
+makeLenses ''AmmoItem
+
+
+newtype ThrownWeaponItem = ThrownWeaponItem {
+      _twi_name ∷ String
+    }
+    deriving (Eq)
+makeLenses ''ThrownWeaponItem
+
+
+newtype ConsumableItem = ConsumableItem {
+      _ci_name ∷ String
+    }
+    deriving(Eq)
+makeLenses ''ConsumableItem
+
+--------------------------------------------------------------------------------
+
+newtype Faction = Faction String
+                deriving (Eq, Show)
+
+
+-- TODO Not happy with this development!
+-- NOTE this *could* be a record of lists instead, eg.
+-- cameras :: [(Faction, Word)], props :: [String], etc
+-- Also, if I use a table of stats, then I could encode few different types
+-- of objects together?
+-- It could be that states support few general programs, that are then
+-- configurable via properties and switches. Then, when making a map, object Type
+-- would determine the program to run, and tile properties would be switches and
+-- additional parameters
+--
+-- So for example, Camera could utilize some generic 'perception' program that
+-- somehow signals some other object, that's set up with switches?
+data States = Prop        String String
+            | Camera      Faction Word
+            | Person      DreamnetCharacter
+            | Computer    ComputerData
+            | Clothes     (WearableItem States)
+            | Weapon      WeaponItem
+            | Ammo        AmmoItem
+            | Throwable   ThrownWeaponItem
+            | Consumable  ConsumableItem
+            deriving(Eq)
+
+
+instance Show States where
+    show (Prop s _)      = s
+    show (Camera _ _)    = "camera"
+    show (Person ch)     = view ch_name ch
+    show (Computer _)    = "computer"
+    show (Clothes wi)    = view wi_name wi
+    show (Weapon wpi)    = view wpi_name wpi
+    show (Ammo ami)      = view ami_name ami
+    show (Throwable twi) = view twi_name twi
+    show (Consumable ci) = view ci_name ci
+
+
+instance ItemTraits States where
+    isContainer (Clothes wi) = isContainer wi
+    isContainer _            = False
+
+
+withCharacter ∷ (DreamnetCharacter → DreamnetCharacter) → States → States
+withCharacter f (Person ch) = Person (f ch)
+withCharacter _ x           = x
+
+--------------------------------------------------------------------------------
+
+whenCharacter ∷ (DreamnetCharacter →  a) →  a → States →  a
+whenCharacter f _ (Person ch) = f ch
+whenCharacter _ d _           = d
+
+
+whenComputer ∷ (ComputerData →  a) →  a → States →  a
+whenComputer f _ (Computer cd) = f cd
+whenComputer _ d _             = d
+
+--------------------------------------------------------------------------------
+
+maybeCharacter ∷ States → Maybe DreamnetCharacter
+maybeCharacter (Person ch) = Just ch
+maybeCharacter _           = Nothing
+
+--------------------------------------------------------------------------------
+
+type DreamnetCharacter = Character States (Free (ConversationF States) ()) Faction
+type DreamnetWorld     = World States Visibility
+
+
+data DesignData = DesignData {
+      _dd_characters      ∷ M.Map String DreamnetCharacter
+      -- TODO move item dictionaries here
+    , _dd_dev_startingMap ∷ String
+    }
+makeLenses ''DesignData
 
 --------------------------------------------------------------------------------
 
@@ -203,152 +247,196 @@ data DistantTargetSelection = Range       Word
 lineOfSight ∷ (States → Bool) → TargetSelectionType
 lineOfSight isVisibleF = Distant (Filtered isVisibleF)
 
-
 --------------------------------------------------------------------------------
+
+newtype TargetActivationF g = TargetActivationF {
+      runWithTarget ∷  (GameAPI g) ⇒ V2 Int → g (GameState g)
+    }
+
 
 class GameAPI g where
-    currentTurn      ∷ g Word
-    increaseTurn     ∷ g ()
-    moveCamera       ∷ V2 Int → g ()
     -- TODO USE this instead of manually calling curses
-    nextEvent        ∷ C.Curses a → g a -- TODO type leak
-    gameState        ∷ g GameState
-    changeGameState  ∷ (GameState → g GameState) → g GameState
-    world            ∷ g (World States Visibility)
-    doWorld          ∷ WorldM States Visibility a → g a
-    -- TODO change to withTarget to make more functional
-    obtainTarget     ∷ TargetSelectionType → g (Maybe (V2 Int, Object States))
+    nextEvent          ∷ C.Curses a → g a -- TODO type leak
+    gameState          ∷ g (GameState g)
+    changeGameState    ∷ (GameState g → GameState g) → g (GameState g)
+    world              ∷ g DreamnetWorld
+    doWorld            ∷ WorldM States Visibility a → g a -- TODO why not WorldApi???
+    withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → g (GameState g)) → g (GameState g)
     -- TODO offer abort!
-    askChoice        ∷ [(Char, String, a)] → g a
-    runProgramAsPlayer       ∷ V2 Int → Free (ObjectF States) GameState → g GameState
-    doRender         ∷ RendererF a → g a
-    doRenderData     ∷ (RendererEnvironment → RendererEnvironment) → g ()
-    queryRenderData  ∷ g RendererEnvironment
+    -- TODO move into a state
+    askChoice          ∷ [(Char, String, a)] → g a
+    runProgramAsPlayer ∷ V2 Int → Free (ObjectF States) () → g (GameState g)
 
 --------------------------------------------------------------------------------
 
-newtype GameM a = GameM { runGameM ∷ StateT Game C.Curses a }
-                deriving (Functor, Applicative, Monad, MonadState Game)
-            
+-- TODO try making World Objects keep ObjectPrograms in them, rather than states
+--      then, somehow, programs can keep the state by themselves. Its a monad
+--      after all.
+data GameState g = Quit               DreamnetWorld
+                 | Normal             DreamnetWorld
+                 | Examination        DreamnetWorld String
+                 | Conversation       DreamnetWorld (NonEmpty DreamnetCharacter) (Free (ConversationF States) ())
+                 | ComputerOperation  DreamnetWorld (V2 Int, Int) ComputerData
 
-instance GameAPI GameM where
-    currentTurn = use g_turn
+                 | HudTeam      DreamnetWorld Int
+                 | HudMessages  DreamnetWorld
+                 | HudWatch     DreamnetWorld Int Int
+                 | InventoryUI  DreamnetWorld
+                 | SkillsUI     DreamnetWorld DreamnetCharacter
+                 | EquipmentUI  DreamnetWorld DreamnetCharacter
 
-    increaseTurn = g_turn += 1
+                 | TargetSelectionAdjactened  DreamnetWorld (V2 Int) (TargetActivationF g)
+                 | TargetSelectionDistant     DreamnetWorld (V2 Int) (TargetActivationF g)
 
-    moveCamera v = g_rendererData %= R.moveCamera v
+--------------------------------------------------------------------------------
 
-    nextEvent = GameM . lift
+-- TODO Can't be monadstate of two things at once (GameState and RendererEnvironment)
+newtype GameM m a = GameM { runGameM ∷ StateT (GameState (GameM m)) m a }
+                  deriving (Functor, Applicative, Monad, MonadState (GameState (GameM m)))
 
-    gameState = use g_gameState
 
-    changeGameState f = use g_gameState >>= f >>= \g → assign g_gameState g >> pure g
+instance MonadTrans GameM where
+    lift = GameM . lift
 
-    world = use g_world
 
-    doWorld m =
-        uses g_world (runWorld m) >>= \(x, w') →
-            g_world .= w' >>
-                pure x
+instance (R.RenderAPI m, Monad m) ⇒ R.RenderAPI (GameM m) where
+    updateMain = lift . R.updateMain
 
-    obtainTarget Adjactened = do
-        ap ← uses g_world (evalWorld (fst <$> playerPosition))
-        doRender $ updateMain $ RenderAction $
-            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) ap
-                [ "yku"
-                , "h.l"
-                , "bjn"
-                ]
-        t ← GameM (lift Input.nextTargetSelectionEvent)
-        uses g_world (evalWorld (lastValue <$> cellAt (ap + t))) >>=
-            \case
-                Nothing → pure Nothing
-                Just x  → pure (Just (ap + t, x))
+    updateHud = lift . R.updateHud
+
+    updateUi = lift . R.updateUi
+
+    screenSize = lift R.screenSize
+
+    mainSize = lift R.mainSize
+
+    hudSize = lift R.hudSize
+
+    setScroll = lift . R.setScroll
+
+    doScroll = lift . R.doScroll
     
-    -- TODO should probably get into some target selection state?
-    obtainTarget ts@(Distant _) =
-        use g_currentTarget >>= \case 
-            Nothing → do
-                ap ← uses g_world (evalWorld (fst <$> playerPosition))
-                g_currentTarget .= Just ap
-                obtainTarget ts
-            Just t → do
-                redColorId ← use (g_rendererData.rd_styles.s_colorRed)
-                doRender $ updateMain $
-                    draw' t 'X' [ C.AttributeColor redColorId ]
-                
-                ev ← GameM (lift Input.nextUiEvent)
-                case ev of
-                    Input.TabNext      → obtainTarget ts -- TODO select next target 'smart'
-                    Input.TabPrevious  → obtainTarget ts -- TODO select next target 'smart'
-                    Input.MoveLeft     → g_currentTarget._Just._x -= 1 >> obtainTarget ts
-                    Input.MoveDown     → g_currentTarget._Just._y += 1 >> obtainTarget ts
-                    Input.MoveUp       → g_currentTarget._Just._y -= 1 >> obtainTarget ts
-                    Input.MoveRight    → g_currentTarget._Just._x += 1 >> obtainTarget ts
-                    Input.Back         → pure Nothing
-                    Input.SelectChoice → do
-                        (Just v) ← use g_currentTarget
-                        uses g_world (evalWorld (lastValue <$> cellAt v)) >>=
-                            \case
-                                Nothing → pure Nothing
-                                Just x  → pure (Just (v, x))
+    withScroll = lift . R.withScroll
 
+    setChoice = lift . R.setChoice
+
+    doChoice = lift . R.doChoice
+
+    withChoice = lift . R.withChoice
+
+    currentChoice = lift R.currentChoice
+
+    moveCamera = lift . R.moveCamera
+
+    camera = lift R.camera
+
+    style s = lift (R.style s)
+
+    flush = lift R.flush
+
+
+
+instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
+    nextEvent = lift . I.liftCursesEvent
+
+    gameState = get
+
+    changeGameState f = modify f >> get
+
+    world = gets $ \case
+        (Quit w)                  → w
+        (Normal w)                → w
+        (Examination w _)         → w
+        (Conversation w _ _)      → w
+        (ComputerOperation w _ _) → w
+
+        (HudTeam w _)     → w
+        (HudMessages w)   → w
+        (HudWatch w _ _)  → w
+        (InventoryUI w)   → w
+        (SkillsUI w _)    → w
+        (EquipmentUI w _) → w
+        
+        (TargetSelectionAdjactened w _ _) → w
+        (TargetSelectionDistant w _ _)    → w
+
+    doWorld m = do
+        (x, w') ← runWorld m <$> world
+        modify $ \case
+            (Quit _)                   → Quit w'
+            (Normal _)                 → Normal w'
+            (Examination _ s)          → Examination w' s
+            (Conversation _ cs c)      → Conversation w' cs c
+            (ComputerOperation _ v cd) → ComputerOperation w' v cd
+
+            (HudTeam _ i)      → HudTeam w' i
+            (HudMessages _)    → HudMessages w'
+            (HudWatch _ hs mm) → HudWatch w' hs mm
+            (InventoryUI _)    → InventoryUI w'
+            (SkillsUI _ ch)    → SkillsUI w' ch
+            (EquipmentUI _ ch) → EquipmentUI w' ch
+
+            (TargetSelectionAdjactened _ t f) → TargetSelectionAdjactened w' t f
+            (TargetSelectionDistant _ t f)    → TargetSelectionDistant w' t f
+        pure x
+
+    withTarget Adjactened f = do
+        w  ← world
+        pp ← doWorld (fst <$> playerPosition)
+        let gs = TargetSelectionAdjactened w pp (TargetActivationF f)
+        put gs
+        pure gs
+
+    withTarget (Distant _) f = do
+        w  ← world
+        pp ← doWorld (fst <$> playerPosition)
+        let gs = TargetSelectionDistant w pp (TargetActivationF f)
+        put gs
+        pure gs
 
     askChoice lst = do
-        doRender $ updateUi $ RenderAction $ do
-            C.clear
-            C.resizeWindow (genericLength lst + 4) 30 -- TODO Enough to fit all
-            C.moveWindow 10 10 -- TODO Center
-            C.drawBorder (Just $ C.Glyph '│' [])
-                         (Just $ C.Glyph '│' [])
-                         (Just $ C.Glyph '─' [])
-                         (Just $ C.Glyph '─' [])
-                         (Just $ C.Glyph '╭' [])
-                         (Just $ C.Glyph '╮' [])
-                         (Just $ C.Glyph '╰' [])
-                         (Just $ C.Glyph '╯' [])
-            traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
-        t ← GameM (lift $ Input.nextAllowedCharEvent  (fst3 $ unzip3 lst))
-        pure $ trd3 $ fromJustNote "Picking up correct choice from askChoice" $ find ((== t) . fst3) lst 
+        --doRender $ updateUi $ RenderAction $ do
+        --    C.clear
+        --    C.resizeWindow (genericLength lst + 4) 30 -- TODO Enough to fit all
+        --    C.moveWindow 10 10 -- TODO Center
+        --    C.drawBorder (Just $ C.Glyph '│' [])
+        --                 (Just $ C.Glyph '│' [])
+        --                 (Just $ C.Glyph '─' [])
+        --                 (Just $ C.Glyph '─' [])
+        --                 (Just $ C.Glyph '╭' [])
+        --                 (Just $ C.Glyph '╮' [])
+        --                 (Just $ C.Glyph '╰' [])
+        --                 (Just $ C.Glyph '╯' [])
+        --    traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
+        t ← nextEvent $ I.nextAllowedCharEvent  (fst3 $ unzip3 lst)
+        pure $ trd3 $ fromJustNote "Picking up correct choice from askChoice" $ find ((== t) . fst3) lst
         where
             fst3 (x, _, _) = x
             trd3 (_, _, x) = x
 
-    runProgramAsPlayer v prg = do
-        mo ← uses g_world (evalWorld (lastValue <$> cellAt v)) -- TODO not really correct
-        case mo of
-            Nothing → pure Normal
+    runProgramAsPlayer v prg =
+        doWorld (lastValue <$> cellAt v) >>= \case
+            Nothing → Normal <$> world
             Just o  → do
-                gs ← runObjectMonadForPlayer (v, o) prg 
+                gs ← runObjectMonadForPlayer (v, o) prg
                 doWorld updateVisible
                 pure gs
 
-    doRender r = do
-        rd ← use g_rendererData
-        GameM $ lift $ do
-            x ← runRenderer rd  r
-            C.render
-            pure x
 
-    doRenderData f = g_rendererData %= f
-
-    queryRenderData = use g_rendererData
+runGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m (a, GameState (GameM m))
+runGame = runStateT . runGameM
 
 
-runGame ∷ GameM a → Game → C.Curses (a, Game)
-runGame p = runStateT (runGameM p)
+evalGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m a
+evalGame = evalStateT . runGameM
 
 
-evalGame ∷ GameM a → Game → C.Curses a
-evalGame p = evalStateT (runGameM p)
-
-
-execGame ∷ GameM a → Game → C.Curses Game
-execGame p = execStateT (runGameM p)
+execGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m (GameState (GameM m))
+execGame = execStateT . runGameM
 
 --------------------------------------------------------------------------------
 
-runObjectMonadForPlayer ∷ (V2 Int, Object States) → Free (ObjectF States) a → GameM a
+runObjectMonadForPlayer ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Object States) → Free (ObjectF States) a → g (GameState g)
 runObjectMonadForPlayer t (Free (Position fn)) =
     runObjectMonadForPlayer t (fn (fst t))
 runObjectMonadForPlayer (cv, o) (Free (Move v n)) =
@@ -380,6 +468,18 @@ runObjectMonadForPlayer (cv, o) (Free (ChangeMat m n)) =
 runObjectMonadForPlayer (cv, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
     doWorld (setStatus s) *>
         runObjectMonadForPlayer (cv, o) n
+runObjectMonadForPlayer (_, o) (Free (DoTalk c _)) = do
+    w ← world
+    (Person pc) ← doWorld playerObject
+    changeGameState $ \_ → 
+        whenCharacter (\ch → Conversation w (pc :| [ch]) c) (Normal w) (view o_state o)
+    -- runObjectMonadForPlayer (cv, o) n
+runObjectMonadForPlayer (cv, o) (Free (OperateComputer _)) = do
+    w ← world
+    changeGameState $ \_ →
+        -- TODO actually find the position here -----.----   , and if there isn't one, don't do anything!
+        whenComputer (\cd → ComputerOperation w (cv, 1) cd) (Normal w) (view o_state o)
+    --runObjectMonadForPlayer (cv, o) n
 runObjectMonadForPlayer (cv, o) (Free (ScanRange r f fn)) = do
     points ← doWorld (interestingObjects cv r f)
     values ← doWorld (foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points)
@@ -391,6 +491,6 @@ runObjectMonadForPlayer (cv, o) (Free (AcquireTarget s fn)) =
     case s of
         Freeform    → runObjectMonadForPlayer (cv, o) (fn (V2 0 0))
         LineOfSight → runObjectMonadForPlayer (cv, o) (fn (V2 1 1))
-runObjectMonadForPlayer _ (Pure x) =
-    pure x
+runObjectMonadForPlayer _ (Pure _) =
+    Normal <$> world
 

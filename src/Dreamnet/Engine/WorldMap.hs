@@ -38,7 +38,7 @@ module Dreamnet.Engine.WorldMap
 import Safe                (atMay, lastMay)
 import Control.Lens        (makeLenses, view, use, uses, (^.), (%=))
 import Control.Monad       (filterM, foldM)
-import Control.Monad.State (State, MonadState, runState, get)
+import Control.Monad.State (State, MonadState, runState, get, gets)
 import Data.Bool           (bool)
 import Data.Monoid         ((<>))
 import Data.List           (delete)
@@ -126,7 +126,7 @@ newWorldMap w h x =
     , _wm_height  = h
     , _wm_data    = V.replicate (fromIntegral (w * h)) (pure x)
     , _wm_desc    = "Debug generated map!"
-    , _wm_spawns  = V.fromList $ [V2 0 0]
+    , _wm_spawns  = V.fromList [V2 0 0]
     }
 
 
@@ -156,7 +156,7 @@ fromTileMap tm t2o =
             where
                 squareSize = fromIntegral (width tm * height tm)
 
-        mergeIntoList ∷ V.Vector (V.Vector a) → Int → (Cell a)
+        mergeIntoList ∷ V.Vector (V.Vector a) → Int → Cell a
         mergeIntoList ls i = V.foldl' appendIfDifferent mempty ls
             where
                 appendIfDifferent (Cell []) v = Cell [v V.! i]
@@ -196,7 +196,7 @@ instance WorldMapReadAPI a (WorldMapM a) where
         where
             collectObjects l x = cellAt x >>= \o → pure $ bool l (x : l) (or $ ff <$> o)
 
-    oob v = flip outOfBounds v <$> get
+    oob = gets . flip outOfBounds
 
 
 instance WorldMapAPI a (WorldMapM a) where

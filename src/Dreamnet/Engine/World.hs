@@ -8,20 +8,7 @@
 
 module Dreamnet.Engine.World
 ( module Dreamnet.Engine.WorldMap
-
-, Symbol(Symbol)
-
-, Object(Object)
-, o_symbol
-, o_material
-, o_passable
-, o_seeThrough
-, o_height
-, o_state
-
-, InteractionType(..)
-, TargetSelectionStyle(..)
-, ObjectAPI(..)
+, module Dreamnet.Engine.ObjectAPI
 
 , WorldReadAPI(..)
 
@@ -36,7 +23,6 @@ module Dreamnet.Engine.World
 , evalWorld
 , execWorld
 
-, ObjectF(..)
 , runObjectMonadForAI
 ) where
 
@@ -44,110 +30,38 @@ module Dreamnet.Engine.World
 import Prelude hiding (interact, rem, map)
 import Safe           (fromJustNote)
 
-import Control.Lens               (makeLenses, (%=), (.=), use, uses, view,
+import Control.Lens               (makeLenses, (%=), (.=), (+=), use, uses, view,
                                    views, (.~))
 import Control.Monad              (when, (>=>), filterM)
 import Control.Monad.Free         (Free(..))
 import Control.Monad.State.Strict (MonadState, State, runState, evalState, execState)
 import Linear                     (V2(V2))
-import Data.Monoid                ((<>))
 import Data.Bool                  (bool)
 import Data.Foldable              (traverse_, for_)
 
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, replicate, head)
 
+import Dreamnet.Engine.ObjectAPI
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.WorldMap
 import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 
-newtype Symbol = Symbol Char
-               deriving (Eq, Show)
-
-instance Semigroup Symbol where
-    (Symbol ' ') <> (Symbol ch') = Symbol ch'
-    (Symbol ch)  <> (Symbol ' ') = Symbol ch
-    _            <> (Symbol ch') = Symbol ch'  -- TODO make correct, add char codes
-
-instance Monoid Symbol where
-    mempty = Symbol ' '
-
---------------------------------------------------------------------------------
-
-data Object a = Object {
-      _o_symbol      ∷ Symbol
-    , _o_material    ∷ String
-    , _o_passable    ∷ Bool
-    , _o_seeThrough  ∷ Bool
-    , _o_height      ∷ Word
-
-    , _o_state ∷ a
-    }
-    deriving (Eq, Show, Functor)
-makeLenses ''Object
-
-
-instance Applicative Object where
-    pure = Object mempty "" False False 0
-    (Object s m ps st h f) <*> (Object s' m' ps' st' h' x) =
-        Object (s <> s') (m <> m') (ps || ps') (st || st') (h + h') (f x)
-
-
-instance Monad Object where
-    (Object _ _ _ _ _ x)  >>= f = f x
-
-
---------------------------------------------------------------------------------
--- Object API and objects
-
-data InteractionType a = Examine
-                       | Operate
-                       | Talk
-                       | OperateOn   a
-                       | OperateWith a
-
--- TODO doesn't fit in the world, but in the Game (where Player exists)
-data TargetSelectionStyle = Freeform
-                          | LineOfSight
-
-
--- Note: remember not to add GAME actions or PLAYER actions, just WORLD actions
--- Note2: WHy?
--- Note3: Because, if it involves player actions, then those objects can't be
---        ran by NPC's to move simulation forward, because NPC's might end up
---        triggering UI windows and what not.
-class ObjectAPI a o | o → a where
-    position      ∷ o (V2 Int)
-    move          ∷ V2 Int → o ()
-    passable      ∷ o Bool
-    setPassable   ∷ Bool → o () -- Creates a state, creates and object. NO! ..... What?
-    seeThrough    ∷ o Bool
-    setSeeThrough ∷ Bool → o ()
-    canSee        ∷ V2 Int → o Bool
-    changeSymbol  ∷ Symbol → o ()
-    changeMat     ∷ String → o ()
-    message       ∷ String → o ()
-    scanRange     ∷ Word → (Object a → Bool) → o [(V2 Int, Object a)]
-    acquireTarget ∷ TargetSelectionStyle → o (V2 Int)
-
-    --interact      ∷ InteractionType a → V2 Int → Int → o ()
-    -- Keep adding primitives until you can describe all Map Objects as programs
-
---------------------------------------------------------------------------------
-
 class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
-    currentMap         ∷ w (WorldMap (Object o)) -- TODO not liking this
-    visibility         ∷ w (V.Vector v) -- TODO or this
-    playerPosition     ∷ w (V2 Int, Int)
-    playerObject       ∷ w o
-    teamPositions      ∷ w [(V2 Int, Int)]
-    teamObjects        ∷ w [o]
-    castVisibilityRay  ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
+    currentTurn       ∷ w Int
+    currentMap        ∷ w (WorldMap (Object o)) -- TODO not liking this
+    visibility        ∷ w (V.Vector v) -- TODO or this
+    playerPosition    ∷ w (V2 Int, Int)
+    playerObject      ∷ w o
+    teamPositions     ∷ w [(V2 Int, Int)]
+    teamObjects       ∷ w [o]
+    castVisibilityRay ∷ V2 Int → V2 Int → w [(V2 Int, Bool)]
 
 
 class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
+    increaseTurn    ∷ w ()
     status          ∷ w String
     setStatus       ∷ String → w ()
     changeObject    ∷ V2 Int → (Object o → w (Object o)) → w ()
@@ -176,7 +90,8 @@ replaceObject v oo no = changeObject v (\c → pure $ if c == oo
 --
 --   TODO because of various lookups, this might need to contain many more fields
 data World o v = World {
-      _w_player ∷ (V2 Int, Int)
+      _w_turn   ∷ Int
+    , _w_player ∷ (V2 Int, Int)
     , _w_team   ∷ [(V2 Int, Int)]
     , _w_map    ∷ WorldMap (Object o)
     , _w_vis    ∷ V.Vector v
@@ -192,16 +107,17 @@ newWorld m p =
                         modifyCell ppos (addToCell p)
                         subtract 1 . length <$> cellAt ppos
     in  World {
-          _w_player = (ppos, pix)
+          _w_turn   = 0
+        , _w_player = (ppos, pix)
         , _w_team   = []
         , _w_map    = map
-        , _w_vis    = V.replicate (fromIntegral $ (width m) * (height m)) mempty
+        , _w_vis    = V.replicate (fromIntegral $ width m * height m) mempty
         , _w_status = ""
         }
 
 
 castVisibilityRay' ∷ (Monad wm, WorldMapReadAPI (Object o) wm) ⇒ V2 Int → V2 Int → wm [(V2 Int, Bool)]
-castVisibilityRay' o d = do
+castVisibilityRay' o d =
     filterM (fmap not . oob) (bla o d) >>= traverse (\p → (p,) <$> isSeeThrough p)
     --fmap ((,) <$> id <*> isSeeThrough) $ filter (not . outOfBounds m) $ line o d
     where
@@ -235,6 +151,8 @@ instance WorldMapAPI (Object o) (WorldM o v) where
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
 instance WorldReadAPI o Visibility (WorldM o Visibility) where
+    currentTurn = use w_turn
+
     currentMap = use w_map
 
     visibility = use w_vis
@@ -256,6 +174,8 @@ instance WorldReadAPI o Visibility (WorldM o Visibility) where
 
 
 instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
+    increaseTurn = w_turn += 1
+
     status = use w_status
 
     setStatus s = w_status .= s
@@ -333,55 +253,8 @@ execWorld ∷ WorldM o v a → World o v → World o v
 execWorld wm = execState (runWorldM wm)
 
 --------------------------------------------------------------------------------
--- TODO this object monad really doesn't have to exist. Everything could be
---      implemented simply through WorldAPI.
-data ObjectF s a = Position (V2 Int → a)
-                 | Move (V2 Int) a
-                 | Passable (Bool → a)
-                 | SetPassable Bool a
-                 | SeeThrough (Bool → a)
-                 | SetSeeThrough Bool a
-                 | CanSee (V2 Int) (Bool → a)
-                 | ChangeSymbol Symbol a
-                 | ChangeMat String a
-                 | Message String a
-                 | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
-                 | AcquireTarget TargetSelectionStyle (V2 Int → a)
-                 -- | Interact (InteractionType s) (V2 Int) Int a
-                 deriving(Functor) -- TODO Derive binary can't work with functions
 
-
-instance ObjectAPI s (Free (ObjectF s)) where
-    position = Free $ Position Pure
-
-    move v = Free $ Move v (Pure ())
-
-    passable = Free $ Passable Pure
-
-    setPassable c = Free $ SetPassable c (Pure ())
-
-    seeThrough = Free $ SeeThrough Pure
-
-    setSeeThrough s = Free $ SetSeeThrough s (Pure ())
-
-    canSee v = Free $ CanSee v Pure
-
-    changeSymbol s = Free $ ChangeSymbol s (Pure ())
-
-    changeMat s = Free $ ChangeMat s (Pure ())
-
-    message m = Free $ Message m (Pure ())
-
-    scanRange r f = Free $ ScanRange r f Pure
-
-    acquireTarget s = Free $ AcquireTarget s Pure
-
-    --interact i v ix = Free $ Interact i v ix (Pure ())
-
---------------------------------------------------------------------------------
-
-
-runObjectMonadForAI ∷ (Eq o, Monad w, WorldAPI o v w) ⇒ (V2 Int, Object o) → Free (ObjectF o) a → w a
+runObjectMonadForAI ∷ (Show o, Eq o, Monad w, WorldAPI o v w) ⇒ (V2 Int, Object o) → Free (ObjectF o) a → w a
 runObjectMonadForAI (cv, o) (Free (Position fv)) =
     runObjectMonadForAI (cv, o) (fv cv)
 runObjectMonadForAI (cv, o) (Free (Move v n)) =
@@ -413,9 +286,15 @@ runObjectMonadForAI (cv, o) (Free (ChangeMat m n)) =
 runObjectMonadForAI (cv, o) (Free (Message m n)) =
     setStatus m *>
         runObjectMonadForAI (cv, o) n
+runObjectMonadForAI (cv, o) (Free (DoTalk _ n)) =
+    setStatus ("NPC " <> show o <> " is talking.") *>
+        runObjectMonadForAI (cv, o) n
+runObjectMonadForAI (cv, o) (Free (OperateComputer n)) =
+    setStatus ("Computer " <> show o <> " is being operated.") *>
+        runObjectMonadForAI (cv, o) n
 runObjectMonadForAI (cv, o) (Free (ScanRange r f fn)) = do
     points ← interestingObjects cv r f
-    values ← fmap (foldr onlyJust []) $ traverse (fmap lastValue . cellAt) points
+    values ← foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points
     runObjectMonadForAI (cv, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l

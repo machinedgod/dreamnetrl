@@ -25,8 +25,7 @@ import Data.Semigroup  ((<>))
 import qualified Data.Map as M (Map, fromList, singleton)
 
 import Dreamnet.Engine.Character   (SlotType(..))
-import Design.DesignAPI
-
+import Dreamnet.Game
 
 --------------------------------------------------------------------------------
 -- Dictionaries

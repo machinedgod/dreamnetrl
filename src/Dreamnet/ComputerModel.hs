@@ -4,7 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- | APIs for building and using computers
-module Design.ComputerModel
+module Dreamnet.ComputerModel
 ( ComputerAPI(..)
 
 , ComputerData(ComputerData)
@@ -64,7 +64,7 @@ instance ComputerAPI ComputerM where
 
 
 runComputer ∷ ComputerM a → ComputerData → (a, ComputerData)
-runComputer m cd = runState (runComputerM m) cd
+runComputer m = runState (runComputerM m)
 
 --------------------------------------------------------------------------------
 
@@ -96,7 +96,7 @@ command "load"  p = Just $ Load p
 command "run"   _ = Just Run
 command "poke"  p = Just $ Poke p
 command "peek"  p = Just $ Peek p
-command "quit"  _ = Just $ Quit
+command "quit"  _ = Just   Quit
 command _       _ = Nothing
 
 

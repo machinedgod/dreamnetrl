@@ -1,6 +1,5 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Engine.MapGenerator
@@ -86,10 +85,10 @@ stampBuilding x y tm = do
             where
                 replaceTile ∷ V2 Int → Char → Char
                 replaceTile v c =
-                    let (V2 x' y') = v - (V2 dx dy)
+                    let (V2 x' y') = v - V2 dx dy
                     in  if x' < 0 || x' >= sw || y' < 0 || y' >= sh
                             then c
-                            else views l_data (\slv → fromMaybe (error "Unreasonable coordinate!") $ slv V.!? (linCoord sl (V2 x' y'))) sl
+                            else views l_data (\slv → fromMaybe (error "Unreasonable coordinate!") $ slv V.!? linCoord sl (V2 x' y')) sl
 
 --------------------------------------------------------------------------------
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax, LambdaCase #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 module Design.GameCharacters
 ( randomCharacter
@@ -30,7 +31,7 @@ import qualified Data.Map as M (Map, fromList, lookup)
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Character
 
-import Design.DesignAPI
+import Dreamnet.Game
 import Design.Items
 
 --------------------------------------------------------------------------------
@@ -128,28 +129,26 @@ randomEquipment = pure $ Equipment em em em em em em em em em em em em em em
 randomCharacter ∷ (MonadRandom r) ⇒ r DreamnetCharacter
 randomCharacter = do
     (n, ln) ← randomName
-    nn      ← randomNickname
-    hnd     ← randomOrientation
-    equ     ← generateEquipment
     let msk = MeleeCombatSkills 0 0 0 0 0 0
     let rsk = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
     let tsk = ThrowingSkills 0 0 0 0 0
     let esk = EngineeringSkills 0 0 0 0 0 0
     let csk = CommunicationSkills 0 0 0 0 0 0 0
     let isk = InfiltrationSkills 0 0 0 0 0
-    desc    ← generateDescription msk rsk tsk esk csk isk
-    let convo = generateConvo
-
-    pure $ newCharacter
-        n ln
-        nn
-        hnd
-        desc
-        equ
-        facGenpop
-        convo
-        10
-        msk rsk tsk esk csk isk
+    newCharacter n ln
+        <$> randomNickname
+        <*> randomOrientation
+        <*> generateDescription msk rsk tsk esk csk isk
+        <*> generateEquipment
+        <*> pure facGenpop
+        <*> pure generateConvo
+        <*> pure 10
+        <*> pure msk
+        <*> pure rsk
+        <*> pure tsk
+        <*> pure esk
+        <*> pure csk
+        <*> pure isk
 
 
 generateDescription ∷ (MonadRandom r)
