@@ -106,7 +106,8 @@ newGame dd = do
                 p  = 2 `readBoolProperty` t
                 s  = 3 `readBoolProperty` t
                 h  = 5 `readWordProperty` t
-                st = Prop (1 `readStringProperty` t)
+                d  = 6 `readStringProperty` t
+                st = Prop (1 `readStringProperty` t) d
             in  Object (Symbol $ view t_char t) m p s h st
         objectFromTile t@(ttype → "Person") = 
             let m  = "blue"
@@ -209,6 +210,7 @@ class GameAPI g where
     currentTurn      ∷ g Word
     increaseTurn     ∷ g ()
     moveCamera       ∷ V2 Int → g ()
+    -- TODO USE this instead of manually calling curses
     nextEvent        ∷ C.Curses a → g a -- TODO type leak
     gameState        ∷ g GameState
     changeGameState  ∷ (GameState → g GameState) → g GameState

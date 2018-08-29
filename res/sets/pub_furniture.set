@@ -1,7 +1,7 @@
-▭,Prop,Booth seat,False,True,red plastic,1
-■,Prop,Booth table,False,True,wood,2
-□,Prop,Bar,False,True,wood,2
-o,Prop,Bar stool,False,True,red plastic,1
-c,Prop,Bar shelf,False,False,wood,3
-0,Prop,Round table,False,True,wood,2
-#,Prop,Chair,False,True,wood,1
+▭,Prop,Booth seat,False,True,red plastic,1,"Booth seat covered in red plastic."
+■,Prop,Booth table,False,True,wood,2,"Wooden booth table."
+□,Prop,Bar,False,True,wood,2,"Wooden bar."
+o,Prop,Bar stool,False,True,red plastic,1,"Old scratched wooden bar stool."
+c,Prop,Bar shelf,False,False,wood,3,"Wooden liquor shelf."
+0,Prop,Round table,False,True,wood,2,"Round table."
+#,Prop,Chair,False,True,wood,1,"Chair."

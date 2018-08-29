@@ -1,5 +1,4 @@
 {-# LANGUAGE UnicodeSyntax, NegativeLiterals, LambdaCase #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Engine.Input
@@ -29,6 +28,7 @@ data WorldEvent = Move (V2 Int)
                 | MoveCamera (V2 Int)
                 | Examine
                 | Operate
+                | ExamineHeld
                 | OperateHeld
                 | OperateHeldOn
                 | Talk
@@ -41,7 +41,7 @@ data WorldEvent = Move (V2 Int)
                 | LowerStance
                 | InventorySheet
                 | CharacterSheet
-                -- | SelectTeamMember  Int -- TODO replace with giving commands
+
                 | GiveCommand
 
                 | SwitchToHud
@@ -68,6 +68,9 @@ data InteractionEvent = PassThrough Char
 
 --------------------------------------------------------------------------------
 
+-- TODO for distinguishing between world and held, and maybe some other stuff,
+--      should I use 'stateful' keys like with vim? Eg. 'e' is examine,
+--      but '<leader>e' is examine held item?
 nextWorldEvent ∷ C.Curses WorldEvent
 nextWorldEvent = repeatUntilEvent worldEvent
     where
@@ -89,6 +92,7 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 'N')  = Just $ MoveCamera (V2  1  1)
         worldEvent (C.EventCharacter 'e')  = Just   Examine
         worldEvent (C.EventCharacter 'o')  = Just   Operate
+        worldEvent (C.EventCharacter 'E')  = Just   ExamineHeld
         worldEvent (C.EventCharacter 'f')  = Just   OperateHeld
         worldEvent (C.EventCharacter 'F')  = Just   OperateHeldOn
         worldEvent (C.EventCharacter 't')  = Just   Talk
@@ -147,7 +151,7 @@ nextTargetSelectionEvent = repeatUntilEvent targetEvent
         targetEvent _                      = Nothing
 
 
-nextAllowedCharEvent ∷ [Char] → C.Curses Char
+nextAllowedCharEvent ∷ String → C.Curses Char
 nextAllowedCharEvent ac = repeatUntilEvent charEvent
     where
         charEvent (C.EventCharacter c) = if c `elem` ac then Just c else Nothing
@@ -155,7 +159,7 @@ nextAllowedCharEvent ac = repeatUntilEvent charEvent
 
 
 repeatUntilEvent ∷ (C.Event → Maybe a) → C.Curses a
-repeatUntilEvent f = do
+repeatUntilEvent f =
     C.defaultWindow >>= fmap f . event >>= \case
         (Just e) → pure e
         _        → repeatUntilEvent f

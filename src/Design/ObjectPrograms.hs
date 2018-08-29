@@ -1,28 +1,30 @@
-{-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Design.ObjectPrograms
 where
 
-import Control.Lens     (view, views, (^.))
-import Data.Semigroup   ((<>))
-import Data.Bool        (bool)
-import Data.Functor     (($>))
+import Control.Lens       (view, views, (^.))
+import Control.Monad.Free (Free)
+import Data.Semigroup     ((<>))
+import Data.Bool          (bool)
+import Data.Functor       (($>))
+import Data.List.NonEmpty (NonEmpty(..))
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
-import Dreamnet.Engine.ConversationMonad
 
 import Design.ComputerModel
 import Design.DesignAPI
+import Design.GameCharacters
 
 --------------------------------------------------------------------------------
 
-genericProp ∷ (ObjectAPI s o, Monad o) ⇒ String → InteractionType s → o GameState
-genericProp n Examine =
-    message ("A " <> n) $> Normal
-genericProp _ _ =
+genericProp ∷ (ObjectAPI s o, Monad o) ⇒ String → String → InteractionType s → o GameState
+genericProp _ d Examine =
+    message d $> Normal
+genericProp _ _ _ =
     pure Normal
 
 
@@ -62,7 +64,7 @@ genericAmmo _ (OperateWith (Weapon wpi)) =
     message ("While you find its really difficult and time consuming, somehow you manage to insert the clip into " <> view wpi_name wpi <> " by ramming it over the clip.") $> Normal
 genericAmmo _ _ =
     pure Normal
-    
+
 
 
 genericThrowable ∷ (ObjectAPI States o, Monad o) ⇒ ThrownWeaponItem → InteractionType States → o GameState
@@ -87,10 +89,34 @@ genericConsumable ci ch Operate =
 genericConsumable _ _ _ =
     pure Normal
 
+
+conversation ∷ (Applicative o, ObjectAPI States o) ⇒ DreamnetCharacter → o GameState
+conversation me = pure $ Conversation (carla :| [me]) (view ch_conversation me)
+
+
+fakeConversation ∷ (Applicative o, ObjectAPI States o) ⇒ String → String → Free (ConversationF States) () → o GameState
+fakeConversation n d convo = conversation $ 
+    newCharacter
+        n n n
+        RightSide
+        d
+        (Equipment (Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing)(Slot Nothing))
+        facGenpop
+        convo
+        1
+        (MeleeCombatSkills 0 0 0 0 0 0)
+        (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
+        (ThrowingSkills 0 0 0 0 0)
+        (EngineeringSkills 0 0 0 0 0 0)
+        (CommunicationSkills 0 0 0 0 0 0 0)
+        (InfiltrationSkills 0 0 0 0 0)
+
+
+
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
-door ∷ (ObjectAPI s o, Monad o) ⇒ InteractionType s → o GameState
+door ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType States → o GameState
 door Examine =
     passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened." >> pure Normal
 door Operate = do
@@ -99,16 +125,10 @@ door Operate = do
     changeSymbol $ bool (Symbol '+') (Symbol '/') c
     pure Normal
 door Talk =
-    pure $ Conversation $
-        runConversationF_temp [ "Carla"
-                              , "Door" 
-                              ]
-                              doorConvo
-    where
-        doorConvo = do
-            talk 0   "Open sesame!"
-            reply    "..."
-            describe "Quite as expected, doors are deaf to your pleas."
+    fakeConversation "Door" "Common door" $ do
+        talk 0   "Open sesame!"
+        talk 1   "..."
+        describe "Quite as expected, doors are deaf to your pleas."
 door _ =
     pure Normal
 
@@ -121,7 +141,7 @@ lock Operate =
     message "Absentmindedly, you try and use your finger as a key, completely oblivious to the fact that this wouldn't work even back when your grandad was a little boy."
 lock Talk =
     message "\"Unlock, NOW!\""
-lock (OperateWith (Prop "key")) =
+lock (OperateWith (Prop "key" _)) =
     message "Unlocked!"
 lock (OperateWith _) =
     message "That won't work."
@@ -130,40 +150,30 @@ lock _ =
 
 
 
-computer ∷ (ObjectAPI s o, Monad o) ⇒ ComputerData → InteractionType s → o GameState
+computer ∷ (ObjectAPI States o, Monad o) ⇒ ComputerData → InteractionType States → o GameState
 computer _ Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there." $> Normal
 computer cd Operate =
     position >>= \p → pure (ComputerOperation (p, 1) cd)
 computer _ Talk =
-    pure $ Conversation $
-        runConversationF_temp [ "Carla"
-                              , "Computer" 
-                              ]
-                              computerConvo
-    where
-        computerConvo = do
-            talk 0   "*khm* LOGIN - CARLA..."
-            reply    "<electric buzz>"
-            reply    "I said, LOGIN - CARLA."
-            reply    "<electric buzz>"
-            describe "It doesn't take too long, but you figure out that this specific computer does not react to voice commands."
+    fakeConversation "Computer" "Computer" $ do
+        talk 0   "*khm* LOGIN - CARLA..."
+        talk 1   "<electric buzz>"
+        talk 0   "I said, LOGIN - CARLA."
+        talk 1   "<electric buzz>"
+        describe "It doesn't take too long, but you figure out that this specific computer does not react to voice commands."
 computer _ _ =
     pure Normal
 
 
 
-person ∷ (ObjectAPI s o, Monad o) ⇒ DreamnetCharacter → InteractionType s → o GameState
+person ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType States → o GameState
 person ch Examine =
     message (view ch_description ch) $> Normal
 person ch Operate =
     message ("Even you yourself are unsure about what exactly you're trying to pull off, but " <> view ch_name ch <> " meets your 'operation' attempts with suspicious look.") $> Normal
 person ch Talk =
-    pure $ Conversation $
-        runConversationF_temp [ "Carla_HARDCODED"
-                              , view ch_name ch
-                              ]
-                              (view ch_conversation ch)
+    conversation ch
 person _ _ =
     pure Normal
 
@@ -175,32 +185,22 @@ camera _ _ Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care." $> Normal
 camera f _ Operate = do
     os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
-    viso ← traverse (canSee . fst) os >>=
-               pure . fmap (snd . fst) . filter snd . zip os
+    viso ← fmap (snd . fst) . filter snd . zip os <$> traverse (canSee . fst) os
     -- traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length -- . filter id
     message $ "Camera alarm level: " <> show (length $ isFoe <$> viso)
     pure Normal
     where
         isFoe o = f /= views o_state (\(Person ch) → view ch_faction ch) o -- TODO Fix this with maybe monad
-camera _ _ _ = 
+camera _ _ _ =
     pure Normal
 
 
 
-mirror ∷ (ObjectAPI s o, Monad o) ⇒ DreamnetCharacter → InteractionType s → o GameState
+mirror ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType States → o GameState
 mirror ch Examine =
-    pure $ Conversation $
-        runConversationF_temp [ view ch_name ch
-                              , "Mirror " <> view ch_name ch
-                              ]
-                              (describe (view ch_description ch))
-    --message $ view ch_description ch
+    fakeConversation (view ch_name ch) (view ch_description ch) (describe (view ch_description ch))
 mirror ch Talk =
-    pure $ Conversation $
-        runConversationF_temp [ view ch_name ch
-                              , "Mirror " <> view ch_name ch
-                              ]
-                              (view ch_conversation ch)
+    conversation ch
 mirror _ _ =
     pure Normal
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, LambdaCase #-}
 
 module Design.GameCharacters
 ( randomCharacter
@@ -12,6 +12,8 @@ module Design.GameCharacters
 , randomOrientation
 
 , carla
+
+, facGenpop
 )
 where
 
@@ -22,7 +24,6 @@ import Control.Monad.Random (MonadRandom, getRandom, getRandomR)
 import Data.List            (intercalate)
 import Data.Maybe           (fromMaybe)
 import Data.Bool            (bool)
-import Data.Semigroup       ((<>))
 
 import qualified Data.Map as M (Map, fromList, lookup)
 
@@ -130,14 +131,14 @@ randomCharacter = do
     nn      ← randomNickname
     hnd     ← randomOrientation
     equ     ← generateEquipment
-    msk     ← pure (MeleeCombatSkills 0 0 0 0 0 0)
-    rsk     ← pure (RangedCombatSkills 0 0 0 0 0 0 0 0 0 0)
-    tsk     ← pure (ThrowingSkills 0 0 0 0 0)
-    esk     ← pure (EngineeringSkills 0 0 0 0 0 0)
-    csk     ← pure (CommunicationSkills 0 0 0 0 0 0 0)
-    isk     ← pure (InfiltrationSkills 0 0 0 0 0)
+    let msk = MeleeCombatSkills 0 0 0 0 0 0
+    let rsk = RangedCombatSkills 0 0 0 0 0 0 0 0 0 0
+    let tsk = ThrowingSkills 0 0 0 0 0
+    let esk = EngineeringSkills 0 0 0 0 0 0
+    let csk = CommunicationSkills 0 0 0 0 0 0 0
+    let isk = InfiltrationSkills 0 0 0 0 0
     desc    ← generateDescription msk rsk tsk esk csk isk
-    convo   ← pure generateConvo
+    let convo = generateConvo
 
     pure $ newCharacter
         n ln
@@ -229,9 +230,9 @@ carla = newCharacter
         -- TODO Carla talks to herself in the mirror and gets stat boost?
         convo = do
             talk 0 "Hi."
-            reply "Hi."
-            reply "We'll get through this, will we?"
-            reply "We will. You *can* do this. You *CAN*! No one can tell you otherwise. Stop the doubt, brace yourself and just keep on pushing."
+            talk 1 "Hi."
+            talk 0 "We'll get through this, will we?"
+            talk 1 "We will. You *can* do this. You *CAN*! No one can tell you otherwise. Stop the doubt, brace yourself and just keep on pushing."
 
 
 hideo ∷ DreamnetCharacter
@@ -301,48 +302,59 @@ delgado = newCharacter
             , "You wonder if this is a conscious effort to maintain illusion of superiority, or a subconscious defense mechanism. Either way, there's certain type of abstract beauty in there, and somewhere very, very far away in the depths of your own brain - you find yourself thinking about how does Major Phillipe Delgado look naked."
             ]
         equ = Equipment em em em em em em em em em em em em em em
+        carla   = talk 0
+        delgado = talk 1
         convo = do
             describe "As you approach this pile of muscles and scars, your eyes perceive this tiniest twitch, as if the bones were re-settling in joints. You realize that he spotted you the moment you entered, even if his back were turned to you, this is his probably decades of training and even more decades of experience doing their work: his body preparing to jump and twist your neck at the slightest wrong move."
-            talk 0 "Hey.. hi... you're Sargeant Delgado, right?"
+            carla    "Hey.. hi... you're Sargeant Delgado, right?"
             describe "He acts as if you don't exist, starring somewhere in the distance across the bar. He tips his beer and drinks of a silent gulp."
-            choice_ [ "Press on" |=> pressOn
-                    , "Back off" |=> pure ()
-                    ]
+            choice [ "Press on"
+                   , "Back off"
+                   ] >>= \case
+                0 → pressOn
+                _ → pure ()
         pressOn = do
-            talk 0 "Look, I have a run to do, and I need someone to watch my back. Word is, you're the best, so I want to do business."
-            reply "I work alone."
-            reply "Okay... okay... look, this is a two-person job. We split 50-50"
-            reply "80-20. What's the job?"
-            choice_ [ "Haggle"           |=> haggle
-                    , "Describe the job" |=> describeTheJob
-                    , "Seal the deal"    |=> sealTheDeal
-                    ]
+            carla   "Look, I have a run to do, and I need someone to watch my back. Word is, you're the best, so I want to do business."
+            delgado "I work alone."
+            carla   "Okay... okay... look, this is a two-person job. We split 50-50"
+            delgado "80-20. What's the job?"
+            choice [ "Haggle"
+                   , "Describe the job"
+                   , "Seal the deal"
+                   ] >>= \case
+                0 → haggle
+                1 → describeTheJob
+                _ → sealTheDeal
         haggle = do
-            talk 0 "I could go as far as 60-40, but that's it."
-            reply "80-20. Non negotiable. I don't run with lizards so consider this a special favor to you."
-            choice_ [ "Describe the job" |=> describeTheJob
-                    , "Seal the deal"    |=> sealTheDeal
-                    ]
+            carla   "I could go as far as 60-40, but that's it."
+            delgado "80-20. Non negotiable. I don't run with lizards so consider this a special favor to you."
+            choice [ "Describe the job"
+                   , "Seal the deal"
+                   ] >>= \case
+                0 → describeTheJob
+                _ → sealTheDeal
         describeTheJob = do
-            talk 0 "So, its basically in-and-out, industrial espionage type of thing. We go in, crack the safe, grab microdisk for the client and leave."
-            reply "And who is your client?"
-            reply "That's confidental and on a strict need-to-know basis."
-            choice_ [ "Haggle"           |=> haggle
-                    , "Seal the deal"    |=> sealTheDeal
-                    ]
+            carla   "So, its basically in-and-out, industrial espionage type of thing. We go in, crack the safe, grab microdisk for the client and leave."
+            delgado "And who is your client?"
+            carla   "That's confidental and on a strict need-to-know basis."
+            choice [ "Haggle"
+                   , "Seal the deal"
+                   ] >>= \case
+                0 → haggle
+                _ → sealTheDeal
         sealTheDeal = do
-            talk 0 "So, you in?"
+            carla    "So, you in?"
             describe "He eyes you, as if he's weighing a giant decision in his head."
-            reply "I bring my own hardware. Subdermal or dental comm implant is a must. Do you have access to a hack?"
-            reply "Er, my contact is currently on vacation."
-            reply "Go to 5th and Randall, get behind the building, say Delgado sent you. His name is Tom Sawyer... Tom Saw-yer, get it?"
+            delgado  "I bring my own hardware. Subdermal or dental comm implant is a must. Do you have access to a hack?"
+            carla    "Er, my contact is currently on vacation."
+            delgado  "Go to 5th and Randall, get behind the building, say Delgado sent you. His name is Tom Sawyer... Tom Saw-yer, get it?"
             describe "He laughs heartily at this"
-            talk 1 "Anyway, bring Cs and your own stims."
+            delgado  "Anyway, bring Cs and your own stims."
             describe "You see him scratching something on the napkin, then he hands it to you."
-            receiveItem 0 (Prop "Delgado's napkin")
-            talk 1 "Contact node. For when you're ready."
-            reply "Dude, thanks. We're in business!"
-            reply "Yea, yea, yea. Hack, node, job. Go."
+            receiveItem 0 (Prop "Delgado's napkin" "\"5th/Randall. Transdermal comm. Switch her up and you're dead metal.\"")
+            delgado  "Contact node. For when you're ready."
+            carla    "Dude, thanks. We're in business!"
+            delgado  "Yea, yea, yea. Hack, node, job. Go."
 
 
 raj ∷ DreamnetCharacter
@@ -458,10 +470,12 @@ johnny = newCharacter
         desc =
             "If he'd have asian facial features, he'd look like a textbook sarariman."
         equ = Equipment em em em em em em em em em em em em em em
+        carla  = talk 0
+        johnny = talk 1
         convo = do
-            talk 1 "Yea?"
-            name 0 >>= reply . ("Hey dude, I'm " <>)
-            reply "Who gives a shit? Now would you mind, we're in the middle of something."
+            johnny "Yea?"
+            carla  "Hey dude, I'm Carla."
+            johnny "Who gives a shit? Now would you mind, we're in the middle of something."
 
 
 sally ∷ DreamnetCharacter
@@ -484,10 +498,12 @@ sally = newCharacter
         desc =
             "Slim, well-built and gorgeous, this woman looks like she's packing serious hardware. Her scrawny short black hair falls just short of shiny mirrors where her eyes are supposed to be. Probably HUD augments."
         equ = Equipment em em em em em em em em em em em em em em
+        carla = talk 0
+        sally = talk 1
         convo = do
-            talk 1 "Mmmm, hello _there_ hot stuff."
-            reply "Hi, I am..."
-            reply "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?"
+            sally "Mmmm, hello _there_ hot stuff."
+            carla "Hi, I am..."
+            sally "Yeah, listen, not tonight sugar puffs, I'm in the middle of something, OK?"
 
 
 moe ∷ DreamnetCharacter
@@ -512,134 +528,160 @@ moe = newCharacter
             , "Its common knowledge that he used to run, but Devin told you bits and pieces of his past that make you feel tremendous respect towards this relic of the old age."
             ]
         equ = Equipment em em em em em em em em em em em em em em
+        carla = talk 0
+        moe   = talk 1
         convo = do
-            talk 0 "Hey Moe, how's it going?"
-            reply "Hey Cal, pissed and shitty, in other words - nothing new. What can I get you?"
+            carla "Hey Moe, how's it going?"
+            moe   "Hey Cal, pissed and shitty, in other words - nothing new. What can I get you?"
             mainBranch
-        mainBranch = choice_
-            [ "Ask about Devin" |=> devinBranch
-            , "News"            |=> bizBranch
-            , "Smalltalk"       |=> smalltalkBranch
-            , "Trade"           |=> tradeBranch
-            , "Leave"           |=> talk 0 "I'm actually in a bit of a hurry, so I gotta go. Later Moe..."
-            ]
+        mainBranch = choice
+            [ "Ask about Devin"
+            , "News"
+            , "Smalltalk"
+            , "Trade"
+            , "Leave"
+            ] >>= \case
+                0 → devinBranch
+                1 → bizBranch
+                2 → smalltalkBranch
+                3 → tradeBranch
+                _ → carla "I'm actually in a bit of a hurry, so I gotta go. Later Moe..."
         devinBranch = do
-            talk 0 "Hey, um, was Devin passing by?" 
-            reply "Devin, huh? Maybe... why?"
-            reply "Just looking for him, he said he had a job..."
-            reply "Free piece of advice, Cal, information is a commodity here. Just this once, I'll shoot this one for free: yes, the kid passed by, he left 2 hours ago, though."
-            reply "Hm, thanks, I guess..."
+            carla "Hey, um, was Devin passing by?"
+            moe   "Devin, huh? Maybe... why?"
+            carla "Just looking for him, he said he had a job..."
+            moe   "Free piece of advice, Cal, information is a commodity here. Just this once, I'll shoot this one for free: yes, the kid passed by, he left 2 hours ago, though."
+            carla "Hm, thanks, I guess..."
             mainBranch -- TODO willr ecurse infinitely when monad is ran!
         bizBranch = do
-            talk 0 "Heard anything new regarding the biz?" 
-            reply "No, I haven't heard anything new regarding 'the biz'. What are you, a moron? Don't walk into my bar talking shit you'll get us both arrested."
-            reply "Sorry I didn't mean to..."
-            reply "Yeah yeah yeah spare me... if you want some icecream, the credit scanner is right there."
-            choice_ [ "Ask about ice cream" |=> do
-                                                talk 0 "Ice cream? You sell ice cream?"
-                                                reply "Jesus you're green!"
-                                                reply "..."
-                                                reply "Listen, I'm going to go on a limb here: you want to try chocolate. That'll be 200c. Use the credit scanner over there."
-                                                reply "Right."
-                                                mainBranch -- TODO pressure on and provoke him?
-                    , "<back>"              |=> mainBranch -- TODO WILL RECURSE INFINITELY!
-                    ]
+            carla "Heard anything new regarding the biz?"
+            moe   "No, I haven't heard anything new regarding 'the biz'. What are you, a moron? Don't walk into my bar talking shit you'll get us both arrested."
+            carla "Sorry I didn't mean to..."
+            moe   "Yeah yeah yeah spare me... if you want some icecream, the credit scanner is right there."
+            choice [ "Ask about ice cream"
+                   , "<back>"
+                   ] >>= \case
+                0 → do
+                    carla "Ice cream? You sell ice cream?"
+                    moe   "Jesus you're green!"
+                    carla "..."
+                    moe   "Listen, I'm going to go on a limb here: you want to try chocolate. That'll be 200c. Use the credit scanner over there."
+                    carla "Right."
+                    mainBranch -- TODO pressure on and provoke him?
+                _ → mainBranch -- TODO WILL RECURSE INFINITELY!
         smalltalkBranch = do
-            talk 0 "So... what's new with you?"
-            reply "Absolutely fucking nothing! Why?"
+            carla "So... what's new with you?"
+            moe   "Absolutely fucking nothing! Why?"
             describe "While you'd love to know intimate details about his life, Moe looks like he might pull a shotgun on you if you keep pressing"
-            choice_ [ "Back off" |=> do
-                                     talk 0 "Uh, nothing, nothing, sorry..."
-                                     reply "Yeah, figured so myself. Liz."
-                                     mainBranch
-                    , "Press on" |=> do
-                                     talk 0 "I'm interested in your private life!"
-                                     reply "Now kid... you'll drop this, and I won't blow a gaping hole between your tits, that'll be much larger than your brain. Right?"
-                                     reply "Right."
-                                     reply "Good. Was there something else? If not, I'm kinda busy, if you get my drift."
-                                     mainBranch
-                    ]
-                            
+            choice [ "Back off"
+                   , "Press on"
+                   ] >>= \case
+                0 → do
+                     carla "Uh, nothing, nothing, sorry..."
+                     moe   "Yeah, figured so myself. Liz."
+                     mainBranch
+                _ → do
+                     carla "I'm interested in your private life!"
+                     moe   "Now kid... you'll drop this, and I won't blow a gaping hole between your tits, that'll be much larger than your brain. Right?"
+                     carla "Right."
+                     moe   "Good. Was there something else? If not, I'm kinda busy, if you get my drift."
+                     mainBranch
         tradeBranch = do
-            talk 0 "Listen, can you get me one..."
-            choice_ [ "Chocolate icecream" |=> icecream
-                    , "Beer"               |=> beer
-                    ]
+            carla "Listen, can you get me one..."
+            choice [ "Chocolate icecream"
+                   , "Beer"
+                   ] >>= \case
+                0 → icecream
+                _ → beer
         icecream = do
-            talk 0 "I'd like some of your chocolate icecream, please."
-            reply "Sure. 200c gets you two scoops. Now what do you want?"
-            choice_ [ "Icecream" |=> do
-                                     talk 0 "Well... icecream, no?"
-                                     describe "<Moe facepalms and sighs deeply>"
-                                     reply "Let me draw it to you, lizzie. People. Contacts. Jobs, or 'biz' if you'd like. Chocolate, you get to ask about people. Per scoop."
-                                     reply "Oh."
-                                     reply "Yeah, 'oh'. Now, what will it be? I'm busy here."
-                                     chocolateIcecream
-                    , "Choices?" |=> do
-                                     talk 0 "What are my choices?"
-                                     reply "Three people you see in the bar." 
-                                     chocolateIcecream
-                    ]
-        chocolateIcecream = do
-            choice_ [ "Dude on the bar" |=> do
-                                            talk 0 "Who's the dude at the bar?"
-                                            reply "That's Delgado. He's almost a part of the inventory."
-                                            reply "Some local drunk?"
-                                            reply "Watch your mouth! He's done jobs that'd make your skin crawl, and he's done more than you'll ever live to do. He is a vet. Got fucked up. Buy him few drinks, ask him. Once he starts about that old story, he never stops."
-                                            chocolateIcecream
-                    , "Dude at the table with a girl" |=> do
-                                                          talk 0 "Who is that dude over there at the table?"
-                                                          reply "Augmented information trader from up the sprawl. Word is he took a job and ended up carrying some encrypted yak crap up in that shitbox. Now, yaks are after their property - destruction of it, if you get my drift. He's laying low, looking for some mythical hacker who can take that shit out of his head. tldr - stay away from him, unless you want to end up sliced like a deli."
-                                                          chocolateIcecream
-                    , "Girl at the table with the dude" |=> do
-                                                            talk 0 "Who is the gal?"
-                                                            reply "Street muscle. She's wired up to the teeth, though, and top grade hardware, not some backstreet workshop shit. Your buddy Dev tried running a bioscan on her from the bar and failed a smoke test. Said 'er wetware fried his probe."
-                                                            reply "No kidding!"
-                                                            reply "No kidding."
-                                                            reply "Although, knowing Devin, it just ticked him off. He has a boner for peeking under the skirt. All more interesting when its not a five minute job."
-                                                            reply "Backed off this one, though. Gal walked over to the bar, ordered him a drink. Said her metal can pin ice breakers to an inch within 5 mile radius. Asked Dev politely to have a drink and asked if he likes olives. I put them in just to piss him, so the kid's looking at me and saying 'Um, no, I do not'."
-                                                            reply "So our gal over there says 'Well, please allow me', then slides some fred krueger slash wolverine steel from her finger. Both me and the kid gaping eyes, she pricks the olive and eats it, then walks away."
-                                                            reply "Shit!"
-                                                            reply "Her price range must be through the roof, but the jacko over there can probably handle it."
-                                                            chocolateIcecream
-                    , "Not right now" |=> do
-                                          talk 0  "Actually, not right now. I wanted to ask..."
-                                          mainBranch
-                    ]
-
+            carla "I'd like some of your chocolate icecream, please."
+            moe   "Sure. 200c gets you two scoops. Now what do you want?"
+            choice [ "Icecream"
+                   , "Choices?"
+                   ] >>= \case
+                0 → do
+                    carla    "Well... icecream, no?"
+                    describe "<Moe facepalms and sighs deeply>"
+                    moe      "Let me draw it to you, lizzie. People. Contacts. Jobs, or 'biz' if you'd like. Chocolate, you get to ask about people. Per scoop."
+                    carla    "Oh."
+                    moe      "Yeah, 'oh'. Now, what will it be? I'm busy here."
+                    chocolateIcecream
+                _ → do
+                    carla "What are my choices?"
+                    moe   "Three people you see in the bar."
+                    chocolateIcecream
+        chocolateIcecream =
+            choice [ "Dude on the bar"
+                   , "Dude at the table with a girl"
+                   , "Girl at the table with the dude"
+                   , "Not right now"
+                   ] >>= \case
+                0 → do
+                    carla "Who's the dude at the bar?"
+                    moe   "That's Delgado. He's almost a part of the inventory."
+                    carla "Some local drunk?"
+                    moe   "Watch your mouth! He's done jobs that'd make your skin crawl, and he's done more than you'll ever live to do. He is a vet. Got fucked up. Buy him few drinks, ask him. Once he starts about that old story, he never stops."
+                    chocolateIcecream
+                1 → do
+                    carla "Who is that dude over there at the table?"
+                    moe   "Augmented information trader from up the sprawl. Word is he took a job and ended up carrying some encrypted yak crap up in that shitbox. Now, yaks are after their property - destruction of it, if you get my drift. He's laying low, looking for some mythical hacker who can take that shit out of his head. tldr - stay away from him, unless you want to end up sliced like a deli."
+                    chocolateIcecream
+                2 → do
+                    carla "Who is the gal?"
+                    moe   "Street muscle. She's wired up to the teeth, though, and top grade hardware, not some backstreet workshop shit. Your buddy Dev tried running a bioscan on her from the bar and failed a smoke test. Said 'er wetware fried his probe."
+                    carla "No kidding!"
+                    moe   "No kidding."
+                    carla "Although, knowing Devin, it just ticked him off. He has a boner for peeking under the skirt. All more interesting when its not a five minute job."
+                    moe   "Backed off this one, though. Gal walked over to the bar, ordered him a drink. Said her metal can pin ice breakers to an inch within 5 mile radius. Asked Dev politely to have a drink and asked if he likes olives. I put them in just to piss him, so the kid's looking at me and saying 'Um, no, I do not'."
+                    moe   "So our gal over there says 'Well, please allow me', then slides some fred krueger slash wolverine steel from her finger. Both me and the kid gaping eyes, she pricks the olive and eats it, then walks away."
+                    carla "Shit!"
+                    moe   "Her price range must be through the roof, but the jacko over there can probably handle it."
+                    chocolateIcecream
+                _ → do
+                    carla "Actually, not right now. I wanted to ask..."
+                    mainBranch
         beer = do
-            talk 0 "Can I get a beer?"
-            reply "Sure. Skinny, fat or extra fat?"
-            choice_ [ "Skinny" |=> do
-                                   talk 0 "Skinny, please."
-                                   reply "Retro vibes today, eh? Sure, sure, skinny it is."
-                                   mainBranch
-                    , "Fat" |=> do
-                                talk 0 "Fat, please"
-                                reply "One fat draft, coming right up."
-                                mainBranch
-                    , "Extra fat" |=> do
-                                      talk 0 "Extra fat, please"
-                                      reply "Er, you sure? Its not even noon. Aiming to booze away until weekend?"
-                                      choice_ [ "Yes" |=> do
-                                                          talk 0 "Yeah, give me that extra fat."
-                                                          reply "Sure, sure. Extra fat coming right up."
-                                                          mainBranch
-                                              , "No" |=> do
-                                                         talk 0 "Actually, you're right, I changed my mind."
-                                                         stillWantBeer
-
-                                              ]
-                    , "What?" |=> do
-                                  talk 0 "Skinny? Fat? What do you mean?"
-                                  reply "Laced beer, Cal! Synthemesc. You've been living under the rock?"
-                                  reply "Yeah... sorry... I don't know what's up with me today..."
-                                  stillWantBeer
-                    , "Changed my mind" |=> mainBranch
-                    ]
+            carla "Can I get a beer?"
+            moe   "Sure. Skinny, fat or extra fat?"
+            choice [ "Skinny"
+                   , "Fat"
+                   , "Extra fat"
+                   , "What?"
+                   , "Changed my mind"
+                   ] >>= \case
+                0 → do
+                    carla "Skinny, please."
+                    moe   "Retro vibes today, eh? Sure, sure, skinny it is."
+                    mainBranch
+                1 → do
+                    carla "Fat, please"
+                    moe   "One fat draft, coming right up."
+                    mainBranch
+                2 → do
+                    carla "Extra fat, please"
+                    moe   "Er, you sure? Its not even noon. Aiming to booze away until weekend?"
+                    choice [ "Yes"
+                           , "No"
+                           ] >>= \case
+                        0 → do
+                            carla "Yeah, give me that extra fat."
+                            moe   "Sure, sure. Extra fat coming right up."
+                            mainBranch
+                        _ → do
+                            carla "Actually, you're right, I changed my mind."
+                            stillWantBeer
+                3 → do
+                    carla "Skinny? Fat? What do you mean?"
+                    moe   "Laced beer, Cal! Synthemesc. You've been living under the rock?"
+                    carla "Yeah... sorry... I don't know what's up with me today..."
+                    stillWantBeer
+                _ → mainBranch
         stillWantBeer = do
-            talk 1 "Still want beer?"
-            choice_ [ "Yeah" |=> beer
-                    , "Nope" |=> mainBranch
-                    ]
+            moe "Still want beer?"
+            choice [ "Yeah"
+                   , "Nope"
+                   ] >>= \case
+                0 → beer
+                _ → mainBranch
+
 

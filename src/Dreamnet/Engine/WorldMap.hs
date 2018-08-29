@@ -196,7 +196,7 @@ instance WorldMapReadAPI a (WorldMapM a) where
         where
             collectObjects l x = cellAt x >>= \o → pure $ bool l (x : l) (or $ ff <$> o)
 
-    oob = gets flip outOfBounds
+    oob v = flip outOfBounds v <$> get
 
 
 instance WorldMapAPI a (WorldMapM a) where

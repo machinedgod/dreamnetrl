@@ -64,7 +64,6 @@ executable dreamnetrl
                         Dreamnet.Dreamnet
                         Dreamnet.Engine.Character
                         Dreamnet.Engine.Conversation
-                        Dreamnet.Engine.ConversationMonad
                         Dreamnet.Engine.CoordVector
                         Dreamnet.Engine.Input
                         Dreamnet.Engine.TileMap

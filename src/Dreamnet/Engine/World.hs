@@ -173,6 +173,8 @@ replaceObject v oo no = changeObject v (\c → pure $ if c == oo
 -- | Type variables
 --   v: visibility data
 --   c: character data
+--
+--   TODO because of various lookups, this might need to contain many more fields
 data World o v = World {
       _w_player ∷ (V2 Int, Int)
     , _w_team   ∷ [(V2 Int, Int)]
@@ -277,7 +279,7 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
 
     changePlayer f = do
         (pp, ix) ← playerPosition
-        cellAt pp >>= \c → for_ (valueAt ix c) $ \o → do
+        cellAt pp >>= \c → for_ (valueAt ix c) $ \o →
             replaceObject pp o (f o)
 
     joinTeam _ = pure ()

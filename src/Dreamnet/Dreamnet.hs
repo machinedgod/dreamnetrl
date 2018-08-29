@@ -10,9 +10,11 @@ module Dreamnet.Dreamnet
 , launchDreamnet
 ) where
 
+import Prelude            hiding (head, (!!))
 import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
 import Control.Lens              (view, views, (%~), (^.), set)
 import Control.Monad             (void, (>=>))
+import Control.Monad.Free        (Free(Free))
 import Control.Monad.Trans       (lift)
 import Control.Monad.Reader      (MonadReader)
 import Control.Monad.State       (execState, modify)
@@ -23,6 +25,7 @@ import Data.Functor              (($>))
 import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
+import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
 import Data.Maybe                (fromMaybe, fromJust)
 import Linear                    (V2(V2))
 
@@ -32,7 +35,7 @@ import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
 
 import Dreamnet.Game
 
-import Dreamnet.Engine.ConversationMonad
+import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
 import qualified Dreamnet.Engine.Input as Input
@@ -89,32 +92,30 @@ dreamnet dd = C.runCurses $ do
 
 loopTheLoop ∷ ∀ g. (GameAPI g, Monad g) ⇒ DesignData → g ()
 loopTheLoop dd = do
+    rf ← render <$> gameState <*> world <*> currentTurn
+    doRender rf
     doWorld (setStatus "")
-    w  ← world
-    t  ← currentTurn
-    gs ← gameState
-    doRender (render gs w t)
-    gs' ← changeGameState gameStateFlow
-    case gs' of
+    changeGameState gameStateFlow >>= \case
         Quit → pure ()
         _    → loopTheLoop dd
     where
         gameStateFlow ∷ GameState → g GameState
-        gameStateFlow Quit                        = pure Quit
-        gameStateFlow Normal                      = nextEvent Input.nextWorldEvent       >>= processNormal dd
-        gameStateFlow (Examination d)             = nextEvent Input.nextUiEvent          >>= processExamination d
-        gameStateFlow (HudTeam i)                 = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
-        gameStateFlow HudMessages                 = nextEvent Input.nextUiEvent          >>= processHudMessages
-        gameStateFlow (HudWatch t b)              = nextEvent Input.nextUiEvent          >>= processHudWatch t b
-        gameStateFlow (Conversation cn)           = nextEvent Input.nextUiEvent          >>= processConversation cn
-        gameStateFlow InventoryUI                 = nextEvent Input.nextUiEvent          >>= processInventoryUI
-        gameStateFlow (SkillsUI  ch)              = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
-        gameStateFlow (EquipmentUI ch)            = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
-        gameStateFlow (ComputerOperation p cd)    = nextEvent Input.nextInteractionEvent >>= processComputerOperation p cd
+        gameStateFlow Quit                     = pure Quit
+        gameStateFlow Normal                   = nextEvent Input.nextWorldEvent       >>= processNormal dd
+        gameStateFlow (Examination d)          = nextEvent Input.nextUiEvent          >>= processExamination d
+        gameStateFlow (HudTeam i)              = nextEvent Input.nextUiEvent          >>= processHudTeam dd i
+        gameStateFlow HudMessages              = nextEvent Input.nextUiEvent          >>= processHudMessages
+        gameStateFlow (HudWatch t b)           = nextEvent Input.nextUiEvent          >>= processHudWatch t b
+        gameStateFlow (Conversation ps cn)     = nextEvent Input.nextUiEvent          >>= processConversation ps cn
+        gameStateFlow InventoryUI              = nextEvent Input.nextUiEvent          >>= processInventoryUI
+        gameStateFlow (SkillsUI  ch)           = nextEvent Input.nextUiEvent          >>= processSkillsUI ch
+        gameStateFlow (EquipmentUI ch)         = nextEvent Input.nextUiEvent          >>= processEquipmentUI ch
+        gameStateFlow (ComputerOperation p cd) = nextEvent Input.nextInteractionEvent >>= processComputerOperation p cd
+        gameStateFlow TacticalOverlay          = pure Normal
 
 
 fromCharacter ∷ (DreamnetCharacter → a) → a → Object States → a
-fromCharacter f d = stateQuery . view o_state 
+fromCharacter f d = stateQuery . view o_state
     where
         stateQuery (Person ch) = f ch
         stateQuery _           = d
@@ -268,8 +269,8 @@ processNormal _ Input.Examine = do
                             gs@(Examination d) → do
                                 examineUpdateUi d
                                 pure gs
-                            gs@(Conversation n) → do
-                                conversationUpdateUi n
+                            gs@(Conversation ps cn) → do
+                                conversationUpdateUi (view ch_nickName <$> ps) cn
                                 pure gs
                             gs →
                                 pure gs
@@ -286,6 +287,17 @@ processNormal _ Input.Operate = do
         Just (v, o) →
             doWorld playerObject >>=
                 \(Person ch) → runProgramAsPlayer v (programForState ch (view o_state o) Operate)
+processNormal _ Input.ExamineHeld = do
+    mres ← runMaybeT $ do
+        ho  ← lift (doWorld playerObject)
+                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
+        pp  ← lift $ doWorld (fst <$> playerPosition)
+        pch ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        lift $ runProgramAsPlayer pp (programForState pch ho Examine);
+    maybe
+        (doWorld (setStatus "You aren't carrying anything in your hands.") $> Normal)
+        pure
+        mres
 processNormal _ Input.OperateHeld = do
     increaseTurn -- TODO as much as the device wants!
     mres ← runMaybeT $ do
@@ -336,8 +348,8 @@ processNormal _ Input.Talk = do
                 whenCharacter
                     (\ch → runProgramAsPlayer v (programForState ch (view o_state o) Talk))
                     (pure Normal) >>= \case
-                        c@(Conversation n) → do
-                            conversationUpdateUi n
+                        c@(Conversation ps cn) → do
+                            conversationUpdateUi (view ch_name <$> ps) cn
                             pure c
                         g →
                             pure g
@@ -353,7 +365,7 @@ processNormal _ Input.GiveCommand = do
         then do
             ch ← askChoice (zip3 choiceChs (view ch_name <$> teamChars) teamChars)
             -- TODO upgrade to data
-            let actionList = [ "Move" 
+            let actionList = [ "Move"
                              , "Operate"
                              ]
             ac ← askChoice (zip3 choiceChs (show <$> actionList) actionList)
@@ -438,59 +450,77 @@ processHudWatch _ _ Input.Back =
     pure Normal
 
 
-processConversation ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
-processConversation cn@TalkNode{} e =
-    processConversationFlow cn e
-processConversation cn@ChoiceNode{} e =
-    processConversationChoice cn e
-processConversation cn@DescriptionNode{} e = 
-    processConversationFlow cn e
-processConversation End _ =
+processConversation ∷ (GameAPI g, Monad g) ⇒ NonEmpty DreamnetCharacter → Free (ConversationF States) () → Input.UIEvent → g GameState
+processConversation ps (Free (CName i fn)) e =
+    let name = view ch_name $ ps !! i
+    in  processConversation ps (fn name) e
+processConversation ps (Free (CLastname i fn)) e =
+    let lastname = view ch_lastName $ ps !! i
+    in  processConversation ps (fn lastname) e
+processConversation ps (Free (CNick i fn)) e =
+    let nick = view ch_lastName $ ps !! i
+    in  processConversation ps (fn nick) e
+
+processConversation ps cn@(Free CTalk{}) Input.MoveUp =
+    doRenderData (doScroll scrollUp) $> Conversation ps cn
+processConversation ps cn@(Free CTalk{}) Input.MoveDown =
+    doRenderData (doScroll scrollDown) $> Conversation ps cn
+processConversation ps (Free (CTalk _ _ n)) Input.SelectChoice =
+    conversationUpdateUi (view ch_nickName <$> ps) n $> Conversation ps n
+processConversation ps cn@(Free CTalk{}) _ =
+    pure $ Conversation ps cn
+
+processConversation ps cn@(Free CDescribe{}) Input.MoveUp =
+    doRenderData (doScroll scrollUp) $> Conversation ps cn
+processConversation ps cn@(Free CDescribe{}) Input.MoveDown =
+    doRenderData (doScroll scrollDown) $> Conversation ps cn
+processConversation ps (Free (CDescribe _ n)) Input.SelectChoice =
+    conversationUpdateUi (view ch_nickName <$> ps) n $> Conversation ps n
+processConversation ps cn@(Free CDescribe{}) _ =
+    pure $ Conversation ps cn
+
+processConversation ps cn@(Free CReceiveItem{}) Input.MoveUp =
+    doRenderData (doScroll scrollUp) $> Conversation ps cn
+processConversation ps cn@(Free CReceiveItem{}) Input.MoveDown =
+    doRenderData (doScroll scrollDown) $> Conversation ps cn
+processConversation ps (Free (CReceiveItem _ o n)) Input.SelectChoice = do
+    -- TODO incorrect, only player now receives items!
+    doWorld $ changePlayer $ withCharacter (pickUp o)
+    conversationUpdateUi (view ch_nickName <$> ps) n $> Conversation ps n
+processConversation ps cn@(Free CReceiveItem{}) _ =
+    pure $ Conversation ps cn
+
+--processConversation participants (Free (CChoice cs fn)) e =
+--    Conversation . fn <$> askChoice (zip3 choiceChs cs [0..])
+processConversation ps cn@(Free CChoice{}) Input.MoveUp =
+    doRenderData (doChoice selectPrevious) $> Conversation ps cn
+processConversation ps cn@(Free CChoice{}) Input.MoveDown =
+    doRenderData (doChoice selectNext) $> Conversation ps cn
+processConversation ps (Free (CChoice _ fn)) Input.SelectChoice = do
+    cs ← view (rd_choiceData.cd_currentSelection) <$> queryRenderData
+    conversationUpdateUi (view ch_nickName <$> ps) (fn cs) $> Conversation ps (fn cs)
+processConversation ps cn@(Free CChoice{}) _ =
+    pure $ Conversation ps cn
+
+processConversation _ _ _ =
     pure Normal
 
 
-processConversationFlow ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
-processConversationFlow cn Input.MoveUp = do
-    doRenderData (doScroll scrollUp)
-    pure $ Conversation cn
-processConversationFlow cn Input.MoveDown = do
-    doRenderData (doScroll scrollDown)
-    pure $ Conversation cn
-processConversationFlow cn Input.SelectChoice = do
-    let cn' = advance cn
-    conversationUpdateUi cn'
-    pure $ Conversation cn'
-processConversationFlow cn _ =
-    pure $ Conversation cn
-
-
-processConversationChoice ∷ (GameAPI g, Monad g) ⇒ ConversationNode → Input.UIEvent → g GameState
-processConversationChoice cn Input.MoveUp = do
-    doRenderData (doChoice selectPrevious)
-    pure $ Conversation cn
-processConversationChoice cn Input.MoveDown = do
-    doRenderData (doChoice selectNext)
-    pure $ Conversation cn
-processConversationChoice cn Input.SelectChoice = do
-    cs ← fmap (view (rd_choiceData.cd_currentSelection)) queryRenderData 
-    let cn' = pick cn (fromIntegral cs)
-    conversationUpdateUi cn'
-    pure $ Conversation cn'
-processConversationChoice cn _ =
-    pure $ Conversation cn
-
-
-conversationUpdateUi ∷ (GameAPI g, Monad g) ⇒ ConversationNode → g ()
-conversationUpdateUi (ChoiceNode os _) = do
+conversationUpdateUi ∷ (GameAPI g, Monad g, Show o) ⇒ NonEmpty String → Free (ConversationF o) a → g ()
+conversationUpdateUi _ (Free (CChoice os _)) = do
     (p, s) ← (,) <$> positionFor 0 <*> conversationSize
     doRenderData (setChoice (newChoiceData p s os))
-conversationUpdateUi (TalkNode t i nms _) = do
+conversationUpdateUi nms (Free (CTalk i t _)) = do
     (p, s) ← (,) <$> positionFor i <*> conversationSize
-    doRenderData (setScroll (newScrollData p s (nms `atMay` fromIntegral i) t))
-conversationUpdateUi (DescriptionNode txt _) = do
+    doRenderData (setScroll (newScrollData p s (toList nms `atMay` i) t))
+conversationUpdateUi _ (Free (CDescribe t _)) = do
     (p, s) ← (,) <$> positionFor 8 <*> conversationSize
-    doRenderData (setScroll (newScrollData p s Nothing txt))
-conversationUpdateUi _ =
+    doRenderData (setScroll (newScrollData p s Nothing t))
+conversationUpdateUi nms (Free (CReceiveItem i o _)) = do
+    (p, s) ← (,) <$> positionFor 8 <*> conversationSize
+    let t = nms !! i <> " received " <> show o
+    doRenderData (setScroll (newScrollData p s Nothing t))
+conversationUpdateUi _ _ =
     pure ()
 
 
@@ -499,23 +529,23 @@ examineUpdateUi = doRenderData . setScroll . newScrollData (V2 2 1) (V2 60 20) N
 
 
 programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o GameState
-programForState _  (Prop "Door")      it = door it
-programForState ch (Prop "Mirror")    it = mirror ch it
-programForState ch (Prop "Newspaper") it = mirror ch it
-programForState _  (Prop n)           it = genericProp n it
-programForState _  (Camera f l)       it = camera f l it
-programForState _  (Person ch)        it = person ch it
-programForState _  (Computer cd)      it = computer cd it
-programForState _  (Clothes wi)       it = genericClothes wi it
-programForState _  (Weapon wpi)       it = genericWeapon wpi it
-programForState _  (Ammo ami)         it = genericAmmo ami it
-programForState _  (Throwable twi)    it = genericThrowable twi it
-programForState ch (Consumable ci)    it = genericConsumable ci ch it
-programForState _  Empty              _  = pure Normal
+programForState _  (Prop "Door" _)      it = door it
+programForState ch (Prop "Mirror" _)    it = mirror ch it
+programForState ch (Prop "Newspaper" _) it = mirror ch it
+programForState _  (Prop n d)           it = genericProp n d it
+programForState _  (Camera f l)         it = camera f l it
+programForState _  (Person ch)          it = person ch it
+programForState _  (Computer cd)        it = computer cd it
+programForState _  (Clothes wi)         it = genericClothes wi it
+programForState _  (Weapon wpi)         it = genericWeapon wpi it
+programForState _  (Ammo ami)           it = genericAmmo ami it
+programForState _  (Throwable twi)      it = genericThrowable twi it
+programForState ch (Consumable ci)      it = genericConsumable ci ch it
+programForState _  Empty                _  = pure Normal
 
 
-positionFor ∷ (GameAPI g, Functor g) ⇒ Word → g (V2 Integer)
-positionFor (fromIntegral → i) = doRender $
+positionFor ∷ (GameAPI g, Functor g) ⇒ Int → g (V2 Integer)
+positionFor i = doRender $
     (\s → fromMaybe (positions s `at` 0) $ (`atMay` i) $ positions s) <$> mainSize
     where
         positions ∷ (Integer, Integer) → [V2 Integer]
@@ -667,7 +697,7 @@ render Normal w t = do
                 v = evalWorld visibility w
             in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
 render (Examination _) _ _ = do
-    updateUi clear 
+    updateUi clear
     drawInformation >>= updateUi
 render (ComputerOperation _ cd) _ _ =
     updateUi $ do
@@ -685,27 +715,40 @@ render (HudWatch _ _) w t = do
     drawTeamHud (completeTeam w) Nothing >>= updateHud
     drawStatus False (evalWorld status w) >>= updateHud
     drawWatch True t >>= updateHud
-render (Conversation (ChoiceNode _ _)) _ _ = do
+
+render (Conversation _ (Free CChoice{})) _ _ = do
     updateUi clear
     drawChoice >>= updateUi
-render (Conversation _) _ _ = do
+render (Conversation _ (Free CTalk{})) _ _ = do
     updateUi clear
     drawInformation >>= updateUi
+render (Conversation _ (Free CDescribe{})) _ _ = do
+    updateUi clear
+    drawInformation >>= updateUi
+render (Conversation _ (Free CReceiveItem{})) _ _ = do
+    updateUi clear
+    drawInformation >>= updateUi
+render Conversation{} _ _ =
+    pure ()
+
 render InventoryUI _ _ = do
-    updateUi clear 
+    updateUi clear
     drawInformation >>= updateUi
 render (SkillsUI ch) _ _ = do
-    updateUi clear 
+    updateUi clear
     drawCharacterSheet ch >>= updateUi
 render (EquipmentUI ch) _ _ = do
-    updateUi clear 
+    updateUi clear
     drawEquipmentDoll ch >>= updateUi
+render TacticalOverlay _ _ =
+    pure ()
 render Quit _ _ =
     pure ()
 
 
+
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
-completeTeam w = 
+completeTeam w =
     let p = flip evalWorld w $ playerPosition >>= \(pp, ix) →
                                fmap (fromJustNote "complTeam" . valueAt ix) (cellAt pp)
     in  [(\(Person chp) → chp) (p ^. o_state)]

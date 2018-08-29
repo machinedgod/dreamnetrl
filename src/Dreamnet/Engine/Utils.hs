@@ -13,11 +13,10 @@ module Dreamnet.Engine.Utils
 import Control.Lens               (use, (%=), _1, _2)
 import Control.Monad              (unless)
 import Control.Monad.State.Strict (State, execState)
-import Data.Bool                  (bool)
 import Data.List                  (unfoldr)
-import Data.Foldable              (foldr', foldl')
+import Data.Foldable              (foldl')
 import Data.Monoid                ((<>), mempty)
-import Linear                     (V2(V2), normalize, distance, (^*), (^+^))
+import Linear                     (V2(V2), distance)
 
 import qualified Data.Set as S (Set, empty, singleton, fromList, toList, insert,
                                 filter, member, union, null, map)
@@ -25,6 +24,7 @@ import qualified Data.Set as S (Set, empty, singleton, fromList, toList, insert,
 --------------------------------------------------------------------------------
 
 -- TODO BUGGY!
+{-
 line ∷ V2 Int → V2 Int → [V2 Int]
 line v1 v2 = let v1f       = fmap fromIntegral v1 ∷ V2 Float
                  v2f       = fmap fromIntegral v2 ∷ V2 Float
@@ -41,6 +41,7 @@ line v1 v2 = let v1f       = fmap fromIntegral v1 ∷ V2 Float
                                               then v : l
                                               else l) [] xs
              in  uniq $ enough $ fmap (v1^+^) $ toCoord <$> [0, step..fromIntegral steps]
+-}
 
 
 -- | See <http://roguebasin.roguelikedevelopment.org/index.php/Digital_lines>.
@@ -122,17 +123,16 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
 
 lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
 lines' l lf sep xs =
-    let (ln, r) = line'' l lf sep xs
+    let (ln, r) = foldl' foo (mempty, []) xs
     in  if null r && ln == mempty
           then error "Phrase longer than limit (cannot be separated by separator!)"
           else if null r
             then ln : []
             else ln : lines' l lf sep r
     where
-        line'' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → (a, [a])
-        line'' l lf sep = foldl' (\(f, b) x → if b /= mempty
-                                                then (f, b <> [x])
-                                                else if lf (f <> sep <> x) < l
-                                                  then (f <> sep <> x, b)
-                                                  else (f, [x])) (mempty, [])
+        foo (f, b) x
+            | b /= mempty = (f, b <> [x])
+            | otherwise   = if lf (f <> sep <> x) < l
+                              then (f <> sep <> x, b)
+                              else (f, [x])
 

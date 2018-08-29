@@ -11,12 +11,12 @@ import Control.Lens       (makeLenses, view)
 import Control.Monad.Free (Free)
 import Linear             (V2)
 import Data.Maybe         (isJust)
-import Data.Semigroup     ((<>))
+import Data.List.NonEmpty (NonEmpty)
 
 import qualified Data.Map as M (Map)
 
-import Dreamnet.Engine.Character            (SlotType(..), Character, ch_name)
-import Dreamnet.Engine.ConversationMonad    (ConversationF, ConversationNode(..))
+import Dreamnet.Engine.Character
+import Dreamnet.Engine.Conversation
 
 import Design.ComputerModel
 
@@ -86,14 +86,14 @@ data AmmoItem = AmmoItem {
 makeLenses ''AmmoItem
 
 
-data ThrownWeaponItem = ThrownWeaponItem {
+newtype ThrownWeaponItem = ThrownWeaponItem {
       _twi_name ∷ String
     }
     deriving (Eq)
 makeLenses ''ThrownWeaponItem
 
 
-data ConsumableItem = ConsumableItem {
+newtype ConsumableItem = ConsumableItem {
       _ci_name ∷ String
     }
     deriving(Eq)
@@ -117,7 +117,7 @@ newtype Faction = Faction String
 --
 -- So for example, Camera could utilize some generic 'perception' program that
 -- somehow signals some other object, that's set up with switches?
-data States = Prop        String
+data States = Prop        String String
             | Camera      Faction Word
             | Person      DreamnetCharacter
             | Computer    ComputerData
@@ -131,7 +131,7 @@ data States = Prop        String
             
 
 instance Show States where
-    show (Prop s)        = "A " <> s
+    show (Prop n _)      = n -- TODO better naming
     show (Camera _ _)    = "A camera."
     show (Person ch)     = view ch_name ch
     show (Computer _)    = "A computer"
@@ -159,11 +159,12 @@ data GameState = Quit
                | HudTeam            Int
                | HudMessages
                | HudWatch           Int Int
-               | Conversation       ConversationNode
+               | Conversation       (NonEmpty DreamnetCharacter) (Free (ConversationF States) ())
                | InventoryUI
                -- | InventoryUI        [String]
                | SkillsUI           DreamnetCharacter
                | EquipmentUI        DreamnetCharacter
+               | TacticalOverlay
 
 --------------------------------------------------------------------------------
 
