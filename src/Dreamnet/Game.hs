@@ -28,7 +28,10 @@ module Dreamnet.Game
 , ConsumableItem(..), ci_name
 
 , Faction(..)
-, States(..), withCharacter, whenCharacter, whenComputer, maybeCharacter
+, States(..), _Prop, _Camera, _Person, _Computer, _Clothes, _Weapon, _Ammo,
+  _Throwable, _Consumable, withCharacter, whenCharacter, whenComputer,
+  whenClothes, maybeCharacter
+
 
 , DreamnetCharacter
 , DreamnetWorld
@@ -36,7 +39,8 @@ module Dreamnet.Game
 , DistantTargetSelection(..)
 , lineOfSight
 
-, TargetActivationF(TargetActivationF, runWithTarget)
+, TargetActivationF(runWithTarget)
+, ChoiceActivationF(runWithChoice)
 , GameAPI(..)
 , GameState(..)
 , DesignData(..)
@@ -47,29 +51,24 @@ module Dreamnet.Game
 , runGame
 , evalGame
 , execGame
-
 ) where
 
-import Safe                       (fromJustNote)
-import Control.Lens               (makeLenses, view, (.~))
+import Control.Lens               (makeLenses, makePrisms, view, (.~), Prism')
 import Control.Monad.Trans        (MonadTrans, lift)
 import Control.Monad.Free         (Free(Free, Pure))
 import Control.Monad.State        (MonadState, StateT, runStateT, evalStateT,
                                    execStateT, get, gets, put, modify)
 import Data.Maybe                 (isJust)
-import Data.List                  (find)
 import Data.List.NonEmpty         (NonEmpty((:|)))
 import Linear                     (V2(V2))
 
 import qualified Data.Map    as M (Map)
-import qualified UI.NCurses  as C (Curses)
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
 
-import qualified Dreamnet.Engine.Input       as I
 import qualified Dreamnet.Rendering.Renderer as R
 
 import Dreamnet.ComputerModel
@@ -159,6 +158,10 @@ newtype Faction = Faction String
                 deriving (Eq, Show)
 
 
+type DreamnetCharacter = Character States (Free (ConversationF States) ()) Faction
+type DreamnetWorld     = World States Visibility
+
+
 -- TODO Not happy with this development!
 -- NOTE this *could* be a record of lists instead, eg.
 -- cameras :: [(Faction, Word)], props :: [String], etc
@@ -181,6 +184,7 @@ data States = Prop        String String
             | Throwable   ThrownWeaponItem
             | Consumable  ConsumableItem
             deriving(Eq)
+makePrisms ''States
 
 
 instance Show States where
@@ -215,6 +219,15 @@ whenComputer ∷ (ComputerData →  a) →  a → States →  a
 whenComputer f _ (Computer cd) = f cd
 whenComputer _ d _             = d
 
+
+whenClothes ∷ (∀ b. WearableItem b → a) → a → States → a
+whenClothes f _ (Clothes wi) = f wi
+whenClothes _ d _            = d
+
+
+_clothes ∷ Prism' States (WearableItem a)
+_clothes = undefined
+
 --------------------------------------------------------------------------------
 
 maybeCharacter ∷ States → Maybe DreamnetCharacter
@@ -222,10 +235,6 @@ maybeCharacter (Person ch) = Just ch
 maybeCharacter _           = Nothing
 
 --------------------------------------------------------------------------------
-
-type DreamnetCharacter = Character States (Free (ConversationF States) ()) Faction
-type DreamnetWorld     = World States Visibility
-
 
 data DesignData = DesignData {
       _dd_characters      ∷ M.Map String DreamnetCharacter
@@ -251,21 +260,21 @@ lineOfSight isVisibleF = Distant (Filtered isVisibleF)
 --------------------------------------------------------------------------------
 
 newtype TargetActivationF g = TargetActivationF {
-      runWithTarget ∷  (GameAPI g) ⇒ V2 Int → Int → g (GameState g)
+      runWithTarget ∷ (GameAPI g) ⇒ V2 Int → Int → g (GameState g)
+    }
+
+newtype ChoiceActivationF g = ChoiceActivationF {
+      runWithChoice ∷ (GameAPI g) ⇒ Int → g (GameState g)
     }
 
 
 class GameAPI g where
-    -- TODO USE this instead of manually calling curses
-    nextEvent          ∷ C.Curses a → g a -- TODO type leak
     gameState          ∷ g (GameState g)
     changeGameState    ∷ (GameState g → GameState g) → g (GameState g)
     world              ∷ g DreamnetWorld
     doWorld            ∷ WorldM States Visibility a → g a -- TODO why not WorldApi???
     withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → Int → g (GameState g)) → g (GameState g)
-    -- TODO offer abort!
-    -- TODO move into a state
-    askChoice          ∷ [(Char, String, a)] → g a
+    withChoice         ∷ [(Char, String)] → ((Monad g) ⇒ Int → g (GameState g)) → g (GameState g)
     runProgramAsPlayer ∷ V2 Int → Free (ObjectF States) () → g (GameState g)
 
 --------------------------------------------------------------------------------
@@ -288,6 +297,7 @@ data GameState g = Quit               DreamnetWorld
 
                  | TargetSelectionAdjactened  DreamnetWorld (V2 Int) Int (TargetActivationF g)
                  | TargetSelectionDistant     DreamnetWorld (V2 Int) Int (TargetActivationF g)
+                 | ChoiceSelection            DreamnetWorld [(Char, String)] Int (ChoiceActivationF g)
 
 --------------------------------------------------------------------------------
 
@@ -323,7 +333,7 @@ instance (R.RenderAPI m, Monad m) ⇒ R.RenderAPI (GameM m) where
 
     doChoice = lift . R.doChoice
 
-    withChoice = lift . R.withChoice
+    withChoiceData = lift . R.withChoiceData
 
     currentChoice = lift R.currentChoice
 
@@ -337,9 +347,7 @@ instance (R.RenderAPI m, Monad m) ⇒ R.RenderAPI (GameM m) where
 
 
 
-instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
-    nextEvent = lift . I.liftCursesEvent
-
+instance (Monad m) ⇒ GameAPI (GameM m) where
     gameState = get
 
     changeGameState f = modify f >> get
@@ -360,6 +368,7 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
         
         (TargetSelectionAdjactened w _ _ _) → w
         (TargetSelectionDistant w _ _ _)    → w
+        (ChoiceSelection w _ _ _)           → w
 
     doWorld m = do
         (x, w') ← runWorld m <$> world
@@ -379,6 +388,7 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
 
             (TargetSelectionAdjactened _ t i f) → TargetSelectionAdjactened w' t i f
             (TargetSelectionDistant _ t i f)    → TargetSelectionDistant w' t i f
+            (ChoiceSelection _ xs i f)          → ChoiceSelection w' xs i f
         pure x
 
     withTarget Adjactened f = do
@@ -395,25 +405,11 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
         put gs
         pure gs
 
-    askChoice lst = do
-        --doRender $ updateUi $ RenderAction $ do
-        --    C.clear
-        --    C.resizeWindow (genericLength lst + 4) 30 -- TODO Enough to fit all
-        --    C.moveWindow 10 10 -- TODO Center
-        --    C.drawBorder (Just $ C.Glyph '│' [])
-        --                 (Just $ C.Glyph '│' [])
-        --                 (Just $ C.Glyph '─' [])
-        --                 (Just $ C.Glyph '─' [])
-        --                 (Just $ C.Glyph '╭' [])
-        --                 (Just $ C.Glyph '╮' [])
-        --                 (Just $ C.Glyph '╰' [])
-        --                 (Just $ C.Glyph '╯' [])
-        --    traverse_ (\(i, (ch, str, _)) → drawString (2 ∷ Int) (i + 2) (ch : " - " <> str)) $ zip [0..] lst
-        t ← nextEvent $ I.nextAllowedCharEvent  (fst3 $ unzip3 lst)
-        pure $ trd3 $ fromJustNote "Picking up correct choice from askChoice" $ find ((== t) . fst3) lst
-        where
-            fst3 (x, _, _) = x
-            trd3 (_, _, x) = x
+    withChoice lst f = do
+        w  ← world
+        let gs = ChoiceSelection w lst 0 (ChoiceActivationF f)
+        put gs
+        pure gs
 
     runProgramAsPlayer v prg =
         doWorld (lastValue <$> cellAt v) >>= \case
@@ -424,15 +420,15 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
                 pure gs
 
 
-runGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m (a, GameState (GameM m))
+runGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m (a, GameState (GameM m))
 runGame = runStateT . runGameM
 
 
-evalGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m a
+evalGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m a
 evalGame = evalStateT . runGameM
 
 
-execGame ∷ (I.MonadInput m) ⇒ GameM m a → GameState (GameM m) → m (GameState (GameM m))
+execGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m (GameState (GameM m))
 execGame = execStateT . runGameM
 
 --------------------------------------------------------------------------------

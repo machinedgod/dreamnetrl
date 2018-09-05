@@ -14,7 +14,7 @@ module Dreamnet.Dreamnet
 
 import Prelude            hiding (head, (!!))
 import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
-import Control.Lens              (view, views, (%~), (^.), set)
+import Control.Lens              (view, views, (%~), (^.), set, _Just, preview)
 import Control.Monad             (void, (>=>))
 import Control.Monad.Free        (Free(Free))
 import Control.Monad.Trans       (lift)
@@ -24,7 +24,7 @@ import Control.Monad.IO.Class    (MonadIO)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
-import Data.List                 (genericLength)
+import Data.List                 (genericLength, elemIndex)
 import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
 import Data.Foldable             (traverse_)
 import Data.Maybe                (fromMaybe, fromJust)
@@ -52,7 +52,7 @@ import Design.Items
 --------------------------------------------------------------------------------
 
 choiceChs ∷ String
-choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM" -- q is not added to be able to back out
+choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM"
 
 --------------------------------------------------------------------------------
 
@@ -99,18 +99,21 @@ dreamnet dd = C.runCurses $ do
                 _      → loopTheLoop g' r'
 
         gameStateFlow (Quit w)                             = pure (Quit w)
-        gameStateFlow (Normal _)                           = processNormal dd                        =<< nextEvent Input.nextWorldEvent
-        gameStateFlow (Examination _ d)                    = processExamination d                    =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudTeam _ i)                        = processHudTeam dd i                     =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudMessages _)                      = processHudMessages                      =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudWatch _ t b)                     = processHudWatch t b                     =<< nextEvent Input.nextUiEvent
-        gameStateFlow (Conversation _ ps cn)               = processConversation ps cn               =<< nextEvent Input.nextUiEvent
-        gameStateFlow (ComputerOperation _ p cd)           = processComputerOperation p cd           =<< nextEvent Input.nextInteractionEvent
-        gameStateFlow (InventoryUI _)                      = processInventoryUI                      =<< nextEvent Input.nextUiEvent
-        gameStateFlow (SkillsUI _ ch)                      = processSkillsUI ch                      =<< nextEvent Input.nextUiEvent
-        gameStateFlow (EquipmentUI _ ch)                   = processEquipmentUI ch                   =<< nextEvent Input.nextUiEvent
-        gameStateFlow (TargetSelectionAdjactened _ tp i f) = processAdjactenedTargetSelection tp i f =<< nextEvent Input.nextTargetSelectionEvent
-        gameStateFlow (TargetSelectionDistant _ tp i f)    = processDistantTargetSelection tp i f    =<< nextEvent Input.nextTargetSelectionEvent
+        gameStateFlow (Normal _)                           = processNormal dd                        =<< lift (lift Input.nextWorldEvent)
+        gameStateFlow (Examination _ d)                    = processExamination d                    =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (HudTeam _ i)                        = processHudTeam dd i                     =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (HudMessages _)                      = processHudMessages                      =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (HudWatch _ t b)                     = processHudWatch t b                     =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (Conversation _ ps cn)               = processConversation ps cn               =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (ComputerOperation _ p cd)           = processComputerOperation p cd           =<< lift (lift Input.nextInteractionEvent)
+        gameStateFlow (InventoryUI _)                      = processInventoryUI                      =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (SkillsUI _ ch)                      = processSkillsUI ch                      =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (EquipmentUI _ ch)                   = processEquipmentUI ch                   =<< lift (lift Input.nextUiEvent)
+        gameStateFlow (TargetSelectionAdjactened _ tp i f) = processAdjactenedTargetSelection tp i f =<< lift (lift Input.nextTargetSelectionEvent)
+        gameStateFlow (TargetSelectionDistant _ tp i f)    = processDistantTargetSelection tp i f    =<< lift (lift Input.nextTargetSelectionEvent)
+        gameStateFlow (ChoiceSelection _ xs i f)           = processChoiceSelection xs i f           =<< lift (lift (Input.nextChoiceEvent (fst $ unzip xs)))
+
+
 
 
 newGame ∷ DesignData → C.Curses (GameState g)
@@ -267,39 +270,54 @@ processNormal _ Input.Get = do
         Normal <$> world
 processNormal _ Input.Wear = do
     -- TODO equipping stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
-    (side, slot) ← askChoice
-        [ ('h', "Head",        (Nothing,  Head))
-        , ('t', "Torso",       (Nothing,  Torso))
-        , ('T', "Back",        (Nothing,  Back))
-        , ('b', "Belt",        (Nothing,  Belt))
-        , ('a', "Left arm",    (Just LeftSide,  Arm))
-        , ('A', "Right arm",   (Just RightSide, Arm))
-        , ('h', "Left thigh",  (Just LeftSide,  Thigh))
-        , ('H', "Right thigh", (Just RightSide, Thigh))
-        , ('s', "Left shin",   (Just LeftSide,  Shin))
-        , ('S', "Right shin",  (Just RightSide, Shin))
-        , ('f', "Left foot",   (Just LeftSide,  Foot))
-        , ('F', "Right foot",  (Just RightSide, Foot))
-        ]
-    doWorld $ do
-        changePlayer $ o_state %~ withCharacter (tryWear side slot <*> slotWrapperItem . primaryHandSlot)
-        increaseTurn
-    Normal <$> world
+    withChoice xs $ \i → do
+        let (side, slot) = vs `at` i
+        doWorld $ do
+            changePlayer $ o_state %~ withCharacter (tryWear side slot <*> slotWrapperItem . primaryHandSlot)
+            increaseTurn
+        Normal <$> world
     where
         tryWear side slot ch (Just i) = flip execState ch $ do
             modify (modifySlotContent (Just RightSide) Hand (const Nothing))
             modify (modifySlotContent side slot (const (Just i)))
         tryWear _ _ ch _  = ch
+        xs = [ ('h', "Head")
+             , ('t', "Torso")
+             , ('T', "Back")
+             , ('b', "Belt")
+             , ('a', "Left arm")
+             , ('A', "Right arm")
+             , ('h', "Left thigh")
+             , ('H', "Right thigh")
+             , ('s', "Left shin")
+             , ('S', "Right shin")
+             , ('f', "Left foot")
+             , ('F', "Right foot")
+             ]
+        vs = [ (Nothing, Head)
+             , (Nothing, Torso)
+             , (Nothing, Back)
+             , (Nothing, Belt)
+             , (Just LeftSide,  Arm)
+             , (Just RightSide, Arm)
+             , (Just LeftSide,  Thigh)
+             , (Just RightSide, Thigh)
+             , (Just LeftSide,  Shin)
+             , (Just RightSide, Shin)
+             , (Just LeftSide,  Foot)
+             , (Just RightSide, Foot)
+             ]
 processNormal _ Input.StoreIn = do
     -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
     containerList ← doWorld $ do
-        p ← playerPosition >>= \(pp, ix) → valueAt ix <$> cellAt pp
-        pure $ whenCharacter equippedContainers [] $ view o_state (fromJustNote "storeIn" p)
-    sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
-    doWorld $ do
-        changePlayer $ o_state %~ withCharacter (tryStore sw <*> slotWrapperItem . primaryHandSlot)
-        increaseTurn
-    Normal <$> world
+        pp ← playerPosition >>= fmap . valueAt . snd <*> cellAt . fst
+        pure $ whenCharacter equippedContainers [] $ view o_state (fromJustNote "storeIn" pp)
+    let xs = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
+    withChoice xs $ \i →  do
+        doWorld $ do
+            changePlayer $ o_state %~ withCharacter (tryStore (containerList `at` i) <*> slotWrapperItem . primaryHandSlot)
+            increaseTurn
+        Normal <$> world
     where
         appendToContainer ∷ States → Maybe States → Maybe States
         appendToContainer i (Just (Clothes wi)) = Just $ Clothes (wi_storedItems %~ (++[i]) $ wi)
@@ -309,20 +327,24 @@ processNormal _ Input.StoreIn = do
             modify (modifySlotContent (Just RightSide) Hand (const Nothing))
             modify (modifySlotContent (slotWrapperOrientation sw) (slotWrapperType sw) (appendToContainer i))
         tryStore _ ch _ = ch
+
 processNormal _ Input.PullFrom = do
     -- TODO make this single-step choice (show containers and items as tree)
     containerList ← doWorld $ do
-        p ← playerPosition >>= \(pp, ix) → valueAt ix <$> cellAt pp
-        pure $ whenCharacter equippedContainers [] $ view o_state (fromJustNote "storeIn" p)
-    sw ← askChoice (zip3 choiceChs ((\(SlotWrapper (Slot (Just (Clothes wi)))) → view wi_name wi) <$> containerList) containerList)
-
-    let itemList = (\(Just (Clothes wi)) → view wi_storedItems wi) (slotWrapperItem sw)
-    item ← askChoice (zip3 choiceChs (show <$> itemList) itemList)
-    doWorld $ do
-        changePlayer $ o_state %~ withCharacter (execState (pullFrom sw item))
-        -- TODO pulling stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
-        increaseTurn
-    Normal <$> world
+        pp ← playerPosition >>= fmap . valueAt . snd <*> cellAt . fst
+        pure $ whenCharacter equippedContainers [] $ view o_state (fromJustNote "storeIn" pp)
+    let xs = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
+    withChoice xs $ \i → 
+        let sw       = containerList `at` i
+            itemList = view (_Just._Clothes.wi_storedItems) (slotWrapperItem sw)
+            xs2      = zip choiceChs (show <$> itemList)
+        in  withChoice xs2 $ \i2 → do
+            doWorld $ do
+                let item = itemList `at` i2
+                changePlayer $ o_state %~ withCharacter (execState (pullFrom sw item))
+                -- TODO pulling stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
+                increaseTurn
+            Normal <$> world
     where
         pullFrom sw item = do
             ch ← get
@@ -447,18 +469,18 @@ processNormal _ Input.GiveCommand = do
     teamChars ← doWorld (fmap (fromJust . maybeCharacter) <$> teamObjects)
     if not (null teamChars)
         then do
-            ch ← askChoice (zip3 choiceChs (view ch_name <$> teamChars) teamChars)
-            -- TODO upgrade to data
-            let actionList = [ "Move"
-                             , "Operate"
-                             ]
-            ac ← askChoice (zip3 choiceChs (show <$> actionList) actionList)
-            doWorld $
-                setStatus ("Ordering " <> view ch_name ch <> " to " <> ac)
-        else
+            let xs = zip choiceChs (view ch_name <$> teamChars)
+            withChoice xs $ \i →
+                -- TODO upgrade to data
+                let xs2 = zip choiceChs ["Move", "Operate"]
+                in  withChoice xs2 $ \i2 → do
+                    doWorld $
+                        setStatus ("Ordering " <> view ch_name (teamChars `at` i) <> " to " <> (snd $ xs2 `at` i2))
+                    Normal <$> world
+        else do
             doWorld $
                 setStatus "You currently have no team."
-    Normal <$> world
+            Normal <$> world
 processNormal _ Input.SwitchToHud =
     HudTeam <$> world <*> pure 0
 
@@ -737,6 +759,14 @@ processDistantTargetSelection _  _ _ Input.CancelTargeting  = Normal <$> world
 
 --------------------------------------------------------------------------------
 
+processChoiceSelection ∷ (GameAPI g, Monad g) ⇒ [(Char, String)] → Int → ChoiceActivationF g → Input.ChoiceEvent → g (GameState g)
+processChoiceSelection _ _ _ Input.CancelChoice = Normal <$> world
+processChoiceSelection xs i f (Input.ChoiceCharacter c)
+    | c == (fst $ xs `at` i) = runWithChoice f i
+    | otherwise              = ChoiceSelection <$> world <*> pure xs <*> pure (fromJust . elemIndex c . fst . unzip $ xs) <*> pure f
+        
+--------------------------------------------------------------------------------
+
 maxCellIndex ∷ (GameAPI g) ⇒ V2 Int → g Int
 maxCellIndex v = doWorld (subtract 1 . length . cellValues <$> cellAt v)
 
@@ -876,7 +906,28 @@ render (TargetSelectionDistant w tp i _) = do
     green ← style s_colorGreen
     renderCellContentsToStatus w tp i
     updateMain $ draw' tp 'X' [C.AttributeColor green]
-
+render (ChoiceSelection _ xs i _) = do
+    green ← style s_colorGreen
+    white ← style s_colorWhite
+    updateUi $ RenderAction $ do
+        C.clear
+        C.resizeWindow (genericLength xs + 4) 30 -- TODO Enough to fit all
+        C.moveWindow 10 10 -- TODO Center
+        C.drawBorder (Just $ C.Glyph '│' [])
+                     (Just $ C.Glyph '│' [])
+                     (Just $ C.Glyph '─' [])
+                     (Just $ C.Glyph '─' [])
+                     (Just $ C.Glyph '╭' [])
+                     (Just $ C.Glyph '╮' [])
+                     (Just $ C.Glyph '╰' [])
+                     (Just $ C.Glyph '╯' [])
+        traverse_ (drawLine green white) $ zip [0..] xs
+    where
+        drawLine chl cnohl (l, (ch, str)) = do
+            if l == i
+                then C.setColor chl
+                else C.setColor cnohl
+            drawString (2 ∷ Int) (l + 2) (ch : " - " <> str)
 
 
 renderWorld ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
@@ -911,8 +962,8 @@ renderCellContentsToStatus w v i = do
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]
 completeTeam w =
-    let p = flip evalWorld w $ playerPosition >>= \(pp, ix) →
-                               fmap (fromJustNote "complTeam" . valueAt ix) (cellAt pp)
+    let p = flip evalWorld w $ playerPosition >>= \t → 
+                               fromJustNote "complTeam" . valueAt (snd t) <$> cellAt (fst t)
     in  [(\(Person chp) → chp) (p ^. o_state)]
     {-
     let t = flip evalWorld w $ team >>= 

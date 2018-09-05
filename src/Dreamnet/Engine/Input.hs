@@ -2,18 +2,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Dreamnet.Engine.Input
-( MonadInput(..)
-, WorldEvent(..)
-, UIEvent(..)
-, TargetEvent(..)
-, InteractionEvent(..)
+( WorldEvent(..), nextWorldEvent
 
-, nextWorldEvent
-, nextUiEvent
-, nextInteractionEvent
+, UIEvent(..), nextUiEvent
 
-, nextTargetSelectionEvent
-, nextAllowedCharEvent
+, TargetEvent(..), nextTargetSelectionEvent
+
+, ChoiceEvent(..), nextChoiceEvent
+
+, InteractionEvent(..), nextInteractionEvent
 ) where
 
 
@@ -23,11 +20,6 @@ import Linear     (V2(V2))
 import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
                                   Key(KeyBackspace, KeyBackTab))
-
---------------------------------------------------------------------------------
-
-class (Monad m) ⇒ MonadInput m where
-    liftCursesEvent ∷ C.Curses a → m a
 
 --------------------------------------------------------------------------------
 
@@ -75,6 +67,11 @@ data TargetEvent = MoveReticule (V2 Int)
                  | PreviousTarget
                  | ConfirmTarget
                  | CancelTargeting
+                 deriving (Eq, Show)
+
+
+data ChoiceEvent = ChoiceCharacter Char
+                 | CancelChoice
                  deriving (Eq, Show)
 
 
@@ -172,11 +169,12 @@ nextTargetSelectionEvent = repeatUntilEvent targetEvent
         targetEvent _                                = Nothing
 
 
-nextAllowedCharEvent ∷ String → C.Curses Char
-nextAllowedCharEvent ac = repeatUntilEvent charEvent
+nextChoiceEvent ∷ String → C.Curses ChoiceEvent
+nextChoiceEvent ac = repeatUntilEvent charEvent
     where
-        charEvent (C.EventCharacter c) = if c `elem` ac then Just c else Nothing
-        charEvent _                    = Nothing
+        charEvent (C.EventCharacter 'q') = Just CancelChoice
+        charEvent (C.EventCharacter c)   = if c `elem` ac then Just (ChoiceCharacter c) else Nothing
+        charEvent _                      = Nothing
 
 
 repeatUntilEvent ∷ (C.Event → Maybe a) → C.Curses a

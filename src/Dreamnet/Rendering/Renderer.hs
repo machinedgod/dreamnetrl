@@ -52,8 +52,7 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.Engine.Input       (MonadInput(..))
-import Dreamnet.Engine.Utils       (lines')
+import Dreamnet.Engine.Utils (lines')
 import Dreamnet.Engine.Character   
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Visibility
@@ -260,23 +259,23 @@ newtype RenderAction a = RenderAction { runAction ∷ C.Update a }
 
 
 class RenderAPI r where
-    updateMain    ∷ RenderAction () → r ()
-    updateHud     ∷ RenderAction () → r ()
-    updateUi      ∷ RenderAction () → r ()
-    screenSize    ∷ r (Integer, Integer)
-    mainSize      ∷ r (Integer, Integer)
-    hudSize       ∷ r (Integer, Integer)
-    setScroll     ∷ ScrollData → r ()
-    doScroll      ∷ (ScrollData → ScrollData) → r ()
-    withScroll    ∷ (ScrollData → a) → r a
-    setChoice     ∷ ChoiceData → r ()
-    doChoice      ∷ (ChoiceData → ChoiceData) → r ()
-    withChoice    ∷ (ChoiceData → a) → r a
-    currentChoice ∷ r Int
-    moveCamera    ∷ V2 Int → r ()
-    camera        ∷ r Camera
-    style         ∷ Lens' Styles a → r a
-    flush         ∷ r ()
+    updateMain     ∷ RenderAction () → r ()
+    updateHud      ∷ RenderAction () → r ()
+    updateUi       ∷ RenderAction () → r ()
+    screenSize     ∷ r (Integer, Integer)
+    mainSize       ∷ r (Integer, Integer)
+    hudSize        ∷ r (Integer, Integer)
+    setScroll      ∷ ScrollData → r ()
+    doScroll       ∷ (ScrollData → ScrollData) → r ()
+    withScroll     ∷ (ScrollData → a) → r a
+    setChoice      ∷ ChoiceData → r ()
+    doChoice       ∷ (ChoiceData → ChoiceData) → r ()
+    withChoiceData ∷ (ChoiceData → a) → r a
+    currentChoice  ∷ r Int
+    moveCamera     ∷ V2 Int → r ()
+    camera         ∷ r Camera
+    style          ∷ Lens' Styles a → r a
+    flush          ∷ r ()
 
 --------------------------------------------------------------------------------
 
@@ -287,10 +286,6 @@ newtype RendererM m a = RendererM { runRendererM ∷ StateT RendererEnvironment 
 
 instance MonadTrans RendererM where
     lift = RendererM . lift
-
-
-instance MonadInput (RendererM C.Curses) where
-    liftCursesEvent = RendererM . lift
 
 
 instance RenderAPI (RendererM C.Curses) where
@@ -316,7 +311,7 @@ instance RenderAPI (RendererM C.Curses) where
 
     doChoice f = rd_choiceData %= f
 
-    withChoice = uses rd_choiceData
+    withChoiceData = uses rd_choiceData
 
     currentChoice = use (rd_choiceData.cd_currentSelection)
 
@@ -807,10 +802,10 @@ drawInformation = do
 
 drawChoice ∷ (RenderAPI r, Monad r) ⇒ r (RenderAction ())
 drawChoice = do
-    (V2 x y) ← withChoice (view cd_position)
-    (V2 w h) ← withChoice (view cd_size)
-    os       ← withChoice (view cd_options)
-    cs       ← withChoice (view cd_currentSelection)
+    (V2 x y) ← withChoiceData (view cd_position)
+    (V2 w h) ← withChoiceData (view cd_size)
+    os       ← withChoiceData (view cd_options)
+    cs       ← withChoiceData (view cd_currentSelection)
     pure $ RenderAction $ do
         C.resizeWindow h w
         C.moveWindow y x
