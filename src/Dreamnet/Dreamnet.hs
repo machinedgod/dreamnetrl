@@ -9,13 +9,12 @@
 module Dreamnet.Dreamnet
 ( defaultDesignData
 , launchDreamnet
-, render
 ) where
 
 
 import Prelude            hiding (head, (!!))
 import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
-import Control.Lens              (view, views, (%~), (^.), set, (+~), (-~))
+import Control.Lens              (view, views, (%~), (^.), set)
 import Control.Monad             (void, (>=>))
 import Control.Monad.Free        (Free(Free))
 import Control.Monad.Trans       (lift)
@@ -27,6 +26,7 @@ import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.List                 (genericLength)
 import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
+import Data.Foldable             (traverse_)
 import Data.Maybe                (fromMaybe, fromJust)
 import Linear                    (V2(V2), _x, _y)
 
@@ -98,19 +98,19 @@ dreamnet dd = C.runCurses $ do
                 Quit _ → pure ()
                 _      → loopTheLoop g' r'
 
-        gameStateFlow (Quit w)                           = pure (Quit w)
-        gameStateFlow (Normal _)                         = processNormal dd                      =<< nextEvent Input.nextWorldEvent
-        gameStateFlow (Examination _ d)                  = processExamination d                  =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudTeam _ i)                      = processHudTeam dd i                   =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudMessages _)                    = processHudMessages                    =<< nextEvent Input.nextUiEvent
-        gameStateFlow (HudWatch _ t b)                   = processHudWatch t b                   =<< nextEvent Input.nextUiEvent
-        gameStateFlow (Conversation _ ps cn)             = processConversation ps cn             =<< nextEvent Input.nextUiEvent
-        gameStateFlow (ComputerOperation _ p cd)         = processComputerOperation p cd         =<< nextEvent Input.nextInteractionEvent
-        gameStateFlow (InventoryUI _)                    = processInventoryUI                    =<< nextEvent Input.nextUiEvent
-        gameStateFlow (SkillsUI _ ch)                    = processSkillsUI ch                    =<< nextEvent Input.nextUiEvent
-        gameStateFlow (EquipmentUI _ ch)                 = processEquipmentUI ch                 =<< nextEvent Input.nextUiEvent
-        gameStateFlow (TargetSelectionAdjactened _ pp f) = processAdjactenedTargetSelection pp f =<< nextEvent Input.nextTargetSelectionEvent
-        gameStateFlow (TargetSelectionDistant _ tp f)    = processDistantTargetSelection tp f    =<< nextEvent Input.nextUiEvent
+        gameStateFlow (Quit w)                             = pure (Quit w)
+        gameStateFlow (Normal _)                           = processNormal dd                        =<< nextEvent Input.nextWorldEvent
+        gameStateFlow (Examination _ d)                    = processExamination d                    =<< nextEvent Input.nextUiEvent
+        gameStateFlow (HudTeam _ i)                        = processHudTeam dd i                     =<< nextEvent Input.nextUiEvent
+        gameStateFlow (HudMessages _)                      = processHudMessages                      =<< nextEvent Input.nextUiEvent
+        gameStateFlow (HudWatch _ t b)                     = processHudWatch t b                     =<< nextEvent Input.nextUiEvent
+        gameStateFlow (Conversation _ ps cn)               = processConversation ps cn               =<< nextEvent Input.nextUiEvent
+        gameStateFlow (ComputerOperation _ p cd)           = processComputerOperation p cd           =<< nextEvent Input.nextInteractionEvent
+        gameStateFlow (InventoryUI _)                      = processInventoryUI                      =<< nextEvent Input.nextUiEvent
+        gameStateFlow (SkillsUI _ ch)                      = processSkillsUI ch                      =<< nextEvent Input.nextUiEvent
+        gameStateFlow (EquipmentUI _ ch)                   = processEquipmentUI ch                   =<< nextEvent Input.nextUiEvent
+        gameStateFlow (TargetSelectionAdjactened _ tp i f) = processAdjactenedTargetSelection tp i f =<< nextEvent Input.nextTargetSelectionEvent
+        gameStateFlow (TargetSelectionDistant _ tp i f)    = processDistantTargetSelection tp i f    =<< nextEvent Input.nextTargetSelectionEvent
 
 
 newGame ∷ DesignData → C.Curses (GameState g)
@@ -248,8 +248,8 @@ processNormal _ Input.LowerStance = do
         o_state %~ withCharacter (ch_stance %~ succSafe)
     Normal <$> world
 processNormal _ Input.Get = do
-    withTarget Adjactened $ \v → do
-        doWorld $ lastValue <$> cellAt v >>= \case
+    withTarget Adjactened $ \v i → do
+        doWorld $ valueAt i <$> cellAt v >>= \case
             Nothing → do
                 setStatus "There's nothing here."
             Just o  → do
@@ -335,8 +335,8 @@ processNormal _ Input.PullFrom = do
                          (slotWrapperType sw)
                          (\(Just (Clothes wi)) → Just $ Clothes $ wi_storedItems %~ filter (item /=) $ wi)
 processNormal _ Input.Examine = do
-    withTarget (Distant (Range 30)) $ \v → do
-        gs ← doWorld (lastValue <$> cellAt v) >>= \case
+    withTarget (Distant (Range 30)) $ \v i → do
+        gs ← doWorld (valueAt i <$> cellAt v) >>= \case
             Nothing →  do
                 doWorld $ do
                     setStatus "There's nothing here."
@@ -357,8 +357,8 @@ processNormal _ Input.Examine = do
     where
         program o ch = programForState ch (view o_state o) Examine
 processNormal _ Input.Operate = do
-    withTarget Adjactened $ \v →
-        doWorld (lastValue <$> cellAt v) >>= \case
+    withTarget Adjactened $ \v i →
+        doWorld (valueAt i <$> cellAt v) >>= \case
             Nothing →  do
                 doWorld (setStatus "There's nothing here.")
                 Normal <$> world
@@ -404,8 +404,8 @@ processNormal _ Input.OperateHeldOn = do
             --      can either show UI for the player, or use "brain"/Simulation to select
             --      one for the NPC's
             -- Also, the range should be item's range
-            withTarget (Distant (Range 30)) $ \v → 
-                doWorld (lastValue <$> cellAt v) >>= \case
+            withTarget (Distant (Range 30)) $ \v i → 
+                doWorld (valueAt i <$> cellAt v) >>= \case
                     Nothing → do
                         doWorld (setStatus "Nothing there.")
                         Normal <$> world
@@ -421,8 +421,8 @@ processNormal _ Input.OperateHeldOn = do
                                 (Normal <$> world)
                         -- TODO which of the game states should take precedence?
 processNormal _ Input.Talk = do
-    gs ← withTarget Adjactened $ \v → 
-        doWorld (lastValue <$> cellAt v) >>= \case
+    gs ← withTarget Adjactened $ \v i → 
+        doWorld (valueAt i <$> cellAt v) >>= \case
             Nothing → do
                 doWorld $ do
                     setStatus "Trying to talk to someone, but there's no one there."
@@ -715,22 +715,31 @@ processEquipmentUI ch _ =
 
 --------------------------------------------------------------------------------
 
-processAdjactenedTargetSelection ∷ (GameAPI g, Monad g) ⇒ V2 Int → TargetActivationF g → V2 Int → g (GameState g)
-processAdjactenedTargetSelection pp f t = runWithTarget f (pp + t)
+processAdjactenedTargetSelection ∷ (GameAPI g, Monad g) ⇒ V2 Int → Int → TargetActivationF g → Input.TargetEvent → g (GameState g)
+processAdjactenedTargetSelection _  i f (Input.MoveReticule v) = TargetSelectionAdjactened <$> world <*> pure v <*> pure i <*> pure f
+processAdjactenedTargetSelection tp i f Input.LowerTarget      = TargetSelectionAdjactened <$> world <*> pure tp <*> pure (max 0 (i - 1)) <*> pure f
+processAdjactenedTargetSelection tp i f Input.HigherTarget     = TargetSelectionAdjactened <$> world <*> pure tp <*> (min (i + 1) <$> (maxCellIndex . (tp+) . fst =<< doWorld playerPosition)) <*> pure f
+processAdjactenedTargetSelection tp i f Input.NextTarget       = TargetSelectionAdjactened <$> world <*> pure tp <*> pure i <*> pure f
+processAdjactenedTargetSelection tp i f Input.PreviousTarget   = TargetSelectionAdjactened <$> world <*> pure tp <*> pure i <*> pure f
+processAdjactenedTargetSelection tp i f Input.ConfirmTarget    = doWorld (fst <$> playerPosition) >>= \v → runWithTarget f (tp + v) i
+processAdjactenedTargetSelection _  _ _ Input.CancelTargeting  = Normal <$> world
 
 --------------------------------------------------------------------------------
 
-processDistantTargetSelection ∷ (GameAPI g, Monad g) ⇒ V2 Int → TargetActivationF g → Input.UIEvent → g (GameState g)
-processDistantTargetSelection tp f Input.TabNext      = TargetSelectionDistant <$> world <*> pure tp <*> pure f -- TODO select next target 'smart'
-processDistantTargetSelection tp f Input.TabPrevious  = TargetSelectionDistant <$> world <*> pure tp <*> pure f -- TODO select next target 'smart'
-processDistantTargetSelection tp f Input.MoveLeft     = TargetSelectionDistant <$> world <*> pure (_x -~ 1 $ tp) <*> pure f
-processDistantTargetSelection tp f Input.MoveDown     = TargetSelectionDistant <$> world <*> pure (_y +~ 1 $ tp) <*> pure f
-processDistantTargetSelection tp f Input.MoveUp       = TargetSelectionDistant <$> world <*> pure (_y -~ 1 $ tp) <*> pure f
-processDistantTargetSelection tp f Input.MoveRight    = TargetSelectionDistant <$> world <*> pure (_x +~ 1 $ tp) <*> pure f
-processDistantTargetSelection _ _  Input.Back         = Normal <$> world
-processDistantTargetSelection tp f Input.SelectChoice = runWithTarget f tp
+processDistantTargetSelection ∷ (GameAPI g, Monad g) ⇒ V2 Int → Int → TargetActivationF g → Input.TargetEvent → g (GameState g)
+processDistantTargetSelection tp i f (Input.MoveReticule v) = TargetSelectionDistant <$> world <*> pure (tp + v) <*> pure i <*> pure f
+processDistantTargetSelection tp i f Input.LowerTarget      = TargetSelectionDistant <$> world <*> pure tp <*> pure (max 0 (i - 1)) <*> pure f
+processDistantTargetSelection tp i f Input.HigherTarget     = TargetSelectionDistant <$> world <*> pure tp <*> (min (i + 1) <$> maxCellIndex tp) <*> pure f
+processDistantTargetSelection tp i f Input.NextTarget       = TargetSelectionDistant <$> world <*> pure tp <*> pure i <*> pure f
+processDistantTargetSelection tp i f Input.PreviousTarget   = TargetSelectionDistant <$> world <*> pure tp <*> pure i <*> pure f
+processDistantTargetSelection tp i f Input.ConfirmTarget    = runWithTarget f tp i
+processDistantTargetSelection _  _ _ Input.CancelTargeting  = Normal <$> world
 
 --------------------------------------------------------------------------------
+
+maxCellIndex ∷ (GameAPI g) ⇒ V2 Int → g Int
+maxCellIndex v = doWorld (subtract 1 . length . cellValues <$> cellAt v)
+
 
 equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
 equippedContainers = filter containers . equippedSlots
@@ -787,46 +796,39 @@ render ∷ (RenderAPI r, Monad r) ⇒ GameState g → r ()
 render (Quit _) =
     pure ()
 render (Normal w) = do
-    renderWorld
-    drawTeamHud (completeTeam w) Nothing >>= updateHud
-    drawStatus False (evalWorld status w) >>= updateHud
-    drawWatch False (evalWorld currentTurn w) >>= updateHud
-    where
-        renderWorld ∷ (RenderAPI r, Monad r) ⇒ r ()
-        renderWorld =
-            let m = evalWorld currentMap w
-                d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
-                v = evalWorld visibility w
-            in  drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v >>= updateMain
+    renderWorld w
+    updateHud =<< drawTeamHud (completeTeam w) Nothing
+    updateHud =<< drawStatus False (evalWorld status w)
+    updateHud =<< drawWatch False (evalWorld currentTurn w)
 render (Examination _ _) = do
     updateUi clear
-    drawInformation >>= updateUi
+    updateUi =<< drawInformation
 
 render (HudTeam w i) = do
-    drawTeamHud (completeTeam w) (Just i) >>= updateHud
-    drawStatus False (evalWorld status w) >>= updateHud
-    drawWatch False (evalWorld currentTurn w) >>= updateHud
+    updateHud =<< drawTeamHud (completeTeam w) (Just i)
+    updateHud =<< drawStatus False (evalWorld status w)
+    updateHud =<< drawWatch False (evalWorld currentTurn w)
 render (HudMessages w) = do
-    drawTeamHud (completeTeam w) Nothing >>= updateHud
-    drawStatus True (evalWorld status w) >>= updateHud
-    drawWatch False (evalWorld currentTurn w) >>= updateHud
+    updateHud =<< drawTeamHud (completeTeam w) Nothing
+    updateHud =<< drawStatus True (evalWorld status w)
+    updateHud =<< drawWatch False (evalWorld currentTurn w)
 render (HudWatch w _ _) = do
-    drawTeamHud (completeTeam w) Nothing >>= updateHud
-    drawStatus False (evalWorld status w) >>= updateHud
-    drawWatch True (evalWorld currentTurn w) >>= updateHud
+    updateHud =<< drawTeamHud (completeTeam w) Nothing
+    updateHud =<< drawStatus False (evalWorld status w)
+    updateHud =<< drawWatch True (evalWorld currentTurn w)
 
 render (Conversation _ _ (Free CChoice{})) = do
     updateUi clear
-    drawChoice >>= updateUi
+    updateUi =<< drawChoice
 render (Conversation _ _ (Free CTalk{})) = do
     updateUi clear
-    drawInformation >>= updateUi 
+    updateUi =<< drawInformation
 render (Conversation _ _ (Free CDescribe{})) = do
     updateUi clear
-    drawInformation >>= updateUi
+    updateUi =<< drawInformation
 render (Conversation _ _ (Free CReceiveItem{})) = do
     updateUi clear
-    drawInformation >>= updateUi
+    updateUi =<< drawInformation
 render Conversation{} =
     pure ()
 
@@ -837,25 +839,74 @@ render (ComputerOperation _ _ cd) =
 
 render (InventoryUI _) = do
     updateUi clear
-    drawInformation >>= updateUi
+    updateUi =<< drawInformation
 render (SkillsUI _ ch) = do
     updateUi clear
-    drawCharacterSheet ch >>= updateUi
+    updateUi =<< drawCharacterSheet ch
 render (EquipmentUI _ ch) = do
     updateUi clear
-    drawEquipmentDoll ch >>= updateUi
+    updateUi =<< drawEquipmentDoll ch
 
-render (TargetSelectionAdjactened _ pp _) = updateMain $ 
-    RenderAction $
-        (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) pp
-            [ "yku"
-            , "h.l"
-            , "bjn"
-            ]
-render (TargetSelectionDistant w tp _) = do
-    render (Normal w)
-    --redColorId ← use (g_rendererData.rd_styles.s_colorRed)
-    updateMain $ draw' tp 'X' [] -- [ C.AttributeColor redColorId ]
+render (TargetSelectionAdjactened w tp i _) = do
+    let pp = evalWorld playerPosition w
+    white ← style s_colorWhite
+    green ← style s_colorGreen
+    renderCellContentsToStatus w (fst pp + tp) i
+    updateMain $ do
+        RenderAction $ do
+            C.setColor white
+            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) (fst pp)
+                [ "yku"
+                , "h.l"
+                , "bjn"
+                ]
+        draw' (fst pp + tp) (charForVec tp) [C.AttributeColor green]
+    where
+        charForVec (V2 -1 -1) = 'y'
+        charForVec (V2  0 -1) = 'k'
+        charForVec (V2  1 -1) = 'u'
+        charForVec (V2 -1  0) = 'h'
+        charForVec (V2  1  0) = 'l'
+        charForVec (V2 -1  1) = 'b'
+        charForVec (V2  0  1) = 'j'
+        charForVec (V2  1  1) = 'n'
+        charForVec _          = '.'
+render (TargetSelectionDistant w tp i _) = do
+    renderWorld w
+    green ← style s_colorGreen
+    renderCellContentsToStatus w tp i
+    updateMain $ draw' tp 'X' [C.AttributeColor green]
+
+
+
+renderWorld ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
+renderWorld w =
+    let m = evalWorld currentMap w
+        d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
+        v = evalWorld visibility w
+    in  updateMain =<< drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v
+
+
+
+renderCellContentsToStatus ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → V2 Int → Int → r ()
+renderCellContentsToStatus w v i = do
+    white ← style s_colorWhite
+    green ← style s_colorGreen
+
+    let cellContents = evalWorld (cellContentsString <$> cellAt v) w
+    updateHud (f cellContents white green)
+    where
+        cellContentsString = fmap (show . view o_state) . cellValues
+        f xs h noh = clearStatus *> statusOrigin >>= \(start,padding,_) → RenderAction $
+            traverse_ (\(y, s) → drawStringWithHighlight start y s (y == i + padding) h noh) $ zip [padding..] xs
+        drawStringWithHighlight x y s h colh colnoh = do
+            C.moveCursor (fromIntegral y) (fromIntegral x)
+            if h
+                then C.setColor colnoh
+                else C.setColor colh
+            C.drawString s
+
+
 
 
 completeTeam ∷ World States Visibility → [DreamnetCharacter]

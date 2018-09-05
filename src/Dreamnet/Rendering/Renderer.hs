@@ -8,42 +8,27 @@
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
 
 module Dreamnet.Rendering.Renderer
-( newScrollData
-, newScrollData'
-, scrollUp
-, scrollDown
+( newScrollData, newScrollData', scrollUp, scrollDown
 
-, newChoiceData
-, selectNext
-, selectPrevious
+, newChoiceData, selectNext, selectPrevious
+
+, s_unknown, s_visibilityUnknown, s_visibilityKnown, s_colorBlack, s_colorRed,
+  s_colorGreen, s_colorYellow, s_colorBlue, s_colorMagenta, s_colorCyan,
+  s_colorWhite
 
 , Camera
-, RendererEnvironment
-, newRenderEnvironment
+, RendererEnvironment, newRenderEnvironment
 
 , RenderAction(RenderAction)
 , RenderAPI(..)
 
-, RendererM
-, runRenderer
-, evalRenderer
-, execRenderer
+, RendererM, runRenderer, evalRenderer, execRenderer
 
-, draw'
-, draw
-, drawString
-, drawList
+, draw', draw, drawString, drawList
 
-, clear
-, drawMap
-, drawTeamHud
-, drawStatus
-, drawWatch
-, drawCharacterSheet
-, drawEquipmentDoll
-, drawInformation
-, drawChoice
-, drawComputer
+, clear, drawMap, drawTeamHud, clearStatus, drawStatus, statusOrigin, drawWatch,
+  drawCharacterSheet, drawEquipmentDoll, drawInformation, drawChoice,
+  drawComputer
 ) where
 
 
@@ -545,15 +530,18 @@ drawWatch sel turns = do
                ]
 
 
+clearStatus ∷ RenderAction ()
+clearStatus = statusOrigin >>= \(start,padding,len) → RenderAction $ do
+    drawList start padding $
+        replicate 5 $
+            genericReplicate len ' '
+
+
 drawStatus ∷ (RenderAPI r, Monad r) ⇒ Bool → String → r (RenderAction ())
 drawStatus sel msg = do
     green ← style s_colorGreen
     white ← style s_colorWhite
-    pure $ RenderAction $ do
-        let start       = teamBoxesLength
-            padding     = 4
-        len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
-
+    pure $ clearStatus *> statusOrigin >>= \(start,padding,len) → RenderAction $ do
         C.setColor $ if sel
                         then green
                         else white
@@ -561,16 +549,20 @@ drawStatus sel msg = do
         draw (fromIntegral start + len `div` 2) 3 '▲'
         draw (fromIntegral start + len `div` 2) 9 '▼' 
 
-        -- Clear
-        drawList start padding $
-            replicate 5 $
-                genericReplicate len ' '
-
         -- Message
         let lns = if null msg
                     then []
                     else lines' (fromIntegral len) length " " (words msg)
         drawList start padding lns
+
+
+statusOrigin ∷ RenderAction (Int, Int, Int)
+statusOrigin = RenderAction $ do
+    let start   = teamBoxesLength
+        padding = 4
+    len ← subtract (start + watchLength + padding) . fromIntegral . snd <$> C.windowSize
+    pure (start, padding, len)
+
 
 
 drawCharacterSheet ∷ (RenderAPI r, Monad r, Show f) ⇒ Character i c f → r (RenderAction ())

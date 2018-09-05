@@ -31,6 +31,7 @@ module Dreamnet.Game
 , States(..), withCharacter, whenCharacter, whenComputer, maybeCharacter
 
 , DreamnetCharacter
+, DreamnetWorld
 , TargetSelectionType(..)
 , DistantTargetSelection(..)
 , lineOfSight
@@ -250,7 +251,7 @@ lineOfSight isVisibleF = Distant (Filtered isVisibleF)
 --------------------------------------------------------------------------------
 
 newtype TargetActivationF g = TargetActivationF {
-      runWithTarget ∷  (GameAPI g) ⇒ V2 Int → g (GameState g)
+      runWithTarget ∷  (GameAPI g) ⇒ V2 Int → Int → g (GameState g)
     }
 
 
@@ -261,7 +262,7 @@ class GameAPI g where
     changeGameState    ∷ (GameState g → GameState g) → g (GameState g)
     world              ∷ g DreamnetWorld
     doWorld            ∷ WorldM States Visibility a → g a -- TODO why not WorldApi???
-    withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → g (GameState g)) → g (GameState g)
+    withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → Int → g (GameState g)) → g (GameState g)
     -- TODO offer abort!
     -- TODO move into a state
     askChoice          ∷ [(Char, String, a)] → g a
@@ -285,8 +286,8 @@ data GameState g = Quit               DreamnetWorld
                  | SkillsUI     DreamnetWorld DreamnetCharacter
                  | EquipmentUI  DreamnetWorld DreamnetCharacter
 
-                 | TargetSelectionAdjactened  DreamnetWorld (V2 Int) (TargetActivationF g)
-                 | TargetSelectionDistant     DreamnetWorld (V2 Int) (TargetActivationF g)
+                 | TargetSelectionAdjactened  DreamnetWorld (V2 Int) Int (TargetActivationF g)
+                 | TargetSelectionDistant     DreamnetWorld (V2 Int) Int (TargetActivationF g)
 
 --------------------------------------------------------------------------------
 
@@ -357,8 +358,8 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
         (SkillsUI w _)    → w
         (EquipmentUI w _) → w
         
-        (TargetSelectionAdjactened w _ _) → w
-        (TargetSelectionDistant w _ _)    → w
+        (TargetSelectionAdjactened w _ _ _) → w
+        (TargetSelectionDistant w _ _ _)    → w
 
     doWorld m = do
         (x, w') ← runWorld m <$> world
@@ -376,21 +377,21 @@ instance (I.MonadInput m) ⇒ GameAPI (GameM m) where
             (SkillsUI _ ch)    → SkillsUI w' ch
             (EquipmentUI _ ch) → EquipmentUI w' ch
 
-            (TargetSelectionAdjactened _ t f) → TargetSelectionAdjactened w' t f
-            (TargetSelectionDistant _ t f)    → TargetSelectionDistant w' t f
+            (TargetSelectionAdjactened _ t i f) → TargetSelectionAdjactened w' t i f
+            (TargetSelectionDistant _ t i f)    → TargetSelectionDistant w' t i f
         pure x
 
     withTarget Adjactened f = do
         w  ← world
         pp ← doWorld (fst <$> playerPosition)
-        let gs = TargetSelectionAdjactened w pp (TargetActivationF f)
+        let gs = TargetSelectionAdjactened w pp 0 (TargetActivationF f)
         put gs
         pure gs
 
     withTarget (Distant _) f = do
         w  ← world
         pp ← doWorld (fst <$> playerPosition)
-        let gs = TargetSelectionDistant w pp (TargetActivationF f)
+        let gs = TargetSelectionDistant w pp 0 (TargetActivationF f)
         put gs
         pure gs
 

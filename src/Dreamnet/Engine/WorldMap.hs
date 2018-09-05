@@ -10,7 +10,7 @@ module Dreamnet.Engine.WorldMap
 ( module Dreamnet.Engine.TileMap
 
 , Range
-, Cell
+, Cell(cellValues)
 , valueAt
 , lastValue
 , replaceInCell
@@ -60,7 +60,7 @@ type Range = Word
 
 --------------------------------------------------------------------------------
 
-newtype Cell a = Cell [a]
+newtype Cell a = Cell { cellValues ∷ [a] }
                deriving (Functor, Applicative, Monad, Semigroup, Monoid, Foldable, Traversable)
 
 

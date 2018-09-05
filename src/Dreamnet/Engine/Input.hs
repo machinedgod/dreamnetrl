@@ -5,6 +5,7 @@ module Dreamnet.Engine.Input
 ( MonadInput(..)
 , WorldEvent(..)
 , UIEvent(..)
+, TargetEvent(..)
 , InteractionEvent(..)
 
 , nextWorldEvent
@@ -65,6 +66,16 @@ data UIEvent = MoveUp
              | SelectChoice
              | Back
              deriving (Eq, Show)
+
+
+data TargetEvent = MoveReticule (V2 Int)
+                 | HigherTarget
+                 | LowerTarget
+                 | NextTarget
+                 | PreviousTarget
+                 | ConfirmTarget
+                 | CancelTargeting
+                 deriving (Eq, Show)
 
 
 data InteractionEvent = PassThrough Char
@@ -141,20 +152,24 @@ nextInteractionEvent = repeatUntilEvent interactionEvent
         interactionEvent _                                  = Nothing
 
 
-nextTargetSelectionEvent ∷ C.Curses (V2 Int)
+nextTargetSelectionEvent ∷ C.Curses TargetEvent
 nextTargetSelectionEvent = repeatUntilEvent targetEvent
     where
-        -- TODO upgrade to have an 'Abort' event too
-        targetEvent (C.EventCharacter '.') = Just (V2  0  0)
-        targetEvent (C.EventCharacter 'h') = Just (V2 -1  0)
-        targetEvent (C.EventCharacter 'j') = Just (V2  0  1)
-        targetEvent (C.EventCharacter 'k') = Just (V2  0 -1)
-        targetEvent (C.EventCharacter 'l') = Just (V2  1  0)
-        targetEvent (C.EventCharacter 'y') = Just (V2 -1 -1)
-        targetEvent (C.EventCharacter 'u') = Just (V2  1 -1)
-        targetEvent (C.EventCharacter 'b') = Just (V2 -1  1)
-        targetEvent (C.EventCharacter 'n') = Just (V2  1  1)
-        targetEvent _                      = Nothing
+        targetEvent (C.EventCharacter 'h')           = Just $ MoveReticule (V2 -1  0)
+        targetEvent (C.EventCharacter 'j')           = Just $ MoveReticule (V2  0  1)
+        targetEvent (C.EventCharacter 'k')           = Just $ MoveReticule (V2  0 -1)
+        targetEvent (C.EventCharacter 'l')           = Just $ MoveReticule (V2  1  0)
+        targetEvent (C.EventCharacter 'y')           = Just $ MoveReticule (V2 -1 -1)
+        targetEvent (C.EventCharacter 'u')           = Just $ MoveReticule (V2  1 -1)
+        targetEvent (C.EventCharacter 'b')           = Just $ MoveReticule (V2 -1  1)
+        targetEvent (C.EventCharacter 'n')           = Just $ MoveReticule (V2  1  1)
+        targetEvent (C.EventCharacter 'H')           = Just   LowerTarget
+        targetEvent (C.EventCharacter 'L')           = Just   HigherTarget
+        targetEvent (C.EventCharacter '\t')          = Just   NextTarget
+        targetEvent (C.EventSpecialKey C.KeyBackTab) = Just   PreviousTarget
+        targetEvent (C.EventCharacter '\n')          = Just   ConfirmTarget
+        targetEvent (C.EventCharacter 'q')           = Just   CancelTargeting
+        targetEvent _                                = Nothing
 
 
 nextAllowedCharEvent ∷ String → C.Curses Char

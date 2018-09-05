@@ -63,6 +63,7 @@ class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v w
 class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
     increaseTurn    ∷ w ()
     status          ∷ w String
+    -- TODO consider nuking this and using rendering of the state to display info
     setStatus       ∷ String → w ()
     changeObject    ∷ V2 Int → (Object o → w (Object o)) → w ()
     modifyObjectAt  ∷ V2 Int → Int → (Object o → w (Object o)) → w ()
