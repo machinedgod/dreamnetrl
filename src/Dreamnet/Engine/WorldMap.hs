@@ -10,28 +10,16 @@ module Dreamnet.Engine.WorldMap
 ( module Dreamnet.Engine.TileMap
 
 , Range
-, Cell(cellValues)
-, valueAt
-, lastValue
-, replaceInCell
-, addToCell
-, deleteFromCell
-, isEmpty
+, Cell(cellValues), valueAt, lastValue, replaceInCell, addToCell,
+  deleteFromCell, isEmpty
 
 , WorldMapReadAPI(..)
 , WorldMapAPI(..)
 
-, WorldMap
 -- TODO convert to API
-, wm_data
-, wm_spawns
-, newWorldMap
-, fromTileMap
+, WorldMap, wm_data, wm_spawns, newWorldMap, fromTileMap
 
-, WorldMapM
-, runWorldMap
-, evalWorldMap
-, execWorldMap
+, WorldMapM, runWorldMap, evalWorldMap, execWorldMap
 ) where
 
 
@@ -53,6 +41,7 @@ import qualified Data.Map            as M  (lookup)
 
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.TileMap
+import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 
@@ -62,6 +51,10 @@ type Range = Word
 
 newtype Cell a = Cell { cellValues ∷ [a] }
                deriving (Functor, Applicative, Monad, Semigroup, Monoid, Foldable, Traversable)
+
+
+instance (VisibleAPI a) ⇒ VisibleAPI (Cell a) where
+    isSeeThrough = and . fmap isSeeThrough . cellValues
 
 
 valueAt ∷ Int → Cell a → Maybe a
@@ -94,6 +87,7 @@ class WorldMapReadAPI a wm | wm → a where
     cellAt             ∷ V2 Int → wm (Cell a)
     interestingObjects ∷ V2 Int → Range → (a → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
     oob                ∷ V2 Int → wm Bool
+    castRay            ∷ V2 Int → Int → V2 Int → Int → wm [(V2 Int, Bool)]
 
 
 class (WorldMapReadAPI a wm) ⇒ WorldMapAPI a wm | wm → a where
@@ -184,7 +178,7 @@ execWorldMap wmm = snd . runWorldMap wmm
 
 --------------------------------------------------------------------------------
 
-instance WorldMapReadAPI a (WorldMapM a) where
+instance (VisibleAPI a) ⇒ WorldMapReadAPI a (WorldMapM a) where
     desc = use wm_desc
 
     -- TODO partial function! :-O
@@ -198,8 +192,13 @@ instance WorldMapReadAPI a (WorldMapM a) where
 
     oob = gets . flip outOfBounds
 
+    castRay s sh t th = traverse findHits =<< filterM (fmap not . oob) (bla s t)
+        where
+            findHits p = (p,) . ((||) <$> pure (sh > th) <*> isSeeThrough) <$> cellAt p
 
-instance WorldMapAPI a (WorldMapM a) where
+
+
+instance (VisibleAPI a) ⇒ WorldMapAPI a (WorldMapM a) where
     modifyCell v f = do
         m ← get
         wm_data %= V.modify (modifyInPlace m)

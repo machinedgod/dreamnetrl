@@ -22,11 +22,12 @@ module Dreamnet.Engine.ObjectAPI
 , ObjectF(..)
 ) where
 
-import Dreamnet.Engine.Conversation
-
-import Control.Lens       (makeLenses)
+import Control.Lens       (makeLenses, view)
 import Control.Monad.Free (Free(..))
 import Linear             (V2)
+
+import Dreamnet.Engine.Conversation
+import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 
@@ -66,6 +67,9 @@ instance Monad Object where
     (Object _ _ _ _ _ x)  >>= f = f x
 
 
+instance VisibleAPI (Object a) where
+    isSeeThrough = view o_seeThrough
+
 --------------------------------------------------------------------------------
 -- Object API and objects
 
@@ -86,7 +90,7 @@ data TargetSelectionStyle = Freeform
 --        ran by NPC's to move simulation forward, because NPC's might end up
 --        triggering UI windows and what not.
 class ObjectAPI s o | o → s where
-    position        ∷ o (V2 Int)
+    position        ∷ o (V2 Int, Int)
     move            ∷ V2 Int → o ()
     passable        ∷ o Bool
     setPassable     ∷ Bool → o () -- Creates a state, creates and object. NO! ..... What?
@@ -110,7 +114,7 @@ class ObjectAPI s o | o → s where
 --------------------------------------------------------------------------------
 -- TODO this object monad really doesn't have to exist. Everything could be
 --      implemented simply through WorldAPI.
-data ObjectF s a = Position (V2 Int → a)
+data ObjectF s a = Position ((V2 Int, Int) → a)
                  | Move (V2 Int) a
                  | Passable (Bool → a)
                  | SetPassable Bool a

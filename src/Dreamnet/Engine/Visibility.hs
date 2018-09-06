@@ -2,9 +2,11 @@
 
 module Dreamnet.Engine.Visibility
 ( Visibility(..)
+, VisibleAPI(..)
 ) where
 
-import Data.Bool (bool)
+
+import Data.Bool                  (bool)
 
 --------------------------------------------------------------------------------
 
@@ -18,3 +20,9 @@ instance Semigroup Visibility where
 
 instance Monoid Visibility where
     mempty = Unknown
+
+--------------------------------------------------------------------------------
+
+class VisibleAPI v where
+    isSeeThrough ∷ v → Bool
+

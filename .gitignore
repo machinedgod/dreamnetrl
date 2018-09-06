@@ -12,4 +12,5 @@ ctags
 *.dot
 *.swp
 **/*.set
+res/apartmentblock.positioned
 .stack-work

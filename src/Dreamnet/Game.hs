@@ -54,22 +54,25 @@ module Dreamnet.Game
 ) where
 
 import Safe                       (fromJustNote)
-import Control.Lens               (makeLenses, makePrisms, view, (.~), Prism')
+import Control.Lens               (makeLenses, makePrisms, view, preview, (.~), _Just)
 import Control.Monad.Trans        (MonadTrans, lift)
 import Control.Monad.Free         (Free(Free, Pure))
 import Control.Monad.State        (MonadState, StateT, runStateT, evalStateT,
                                    execStateT, get, gets, put, modify)
+import Data.Bool                  (bool)
 import Data.Maybe                 (isJust)
 import Data.List                  (elemIndex)
 import Data.List.NonEmpty         (NonEmpty((:|)))
 import Linear                     (V2(V2))
 
 import qualified Data.Map    as M (Map)
+import qualified Data.Set    as S (fromList)
 
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
+import Dreamnet.Engine.Utils
 
 import qualified Dreamnet.Rendering.Renderer as R
 
@@ -226,10 +229,6 @@ whenClothes ∷ (∀ b. WearableItem b → a) → a → States → a
 whenClothes f _ (Clothes wi) = f wi
 whenClothes _ d _            = d
 
-
-_clothes ∷ Prism' States (WearableItem a)
-_clothes = undefined
-
 --------------------------------------------------------------------------------
 
 maybeCharacter ∷ States → Maybe DreamnetCharacter
@@ -277,7 +276,11 @@ class GameAPI g where
     doWorld            ∷ WorldM States Visibility a → g a -- TODO why not WorldApi???
     withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → Int → g (GameState g)) → g (GameState g)
     withChoice         ∷ [(Char, String)] → ((Monad g) ⇒ Int → g (GameState g)) → g (GameState g)
-    runProgramAsPlayer ∷ V2 Int → Free (ObjectF States) () → g (GameState g)
+    runProgramAsPlayer ∷ V2 Int → Int → Free (ObjectF States) () → g (GameState g)
+    -- TODO redo this, to be a function, and calculate on demand, not prefront
+    updateVisible      ∷ g ()
+    -- TODO not really happy with 'update*' anything. Provide a primitive!
+    --updateAi ∷ w ()
 
 --------------------------------------------------------------------------------
 
@@ -413,14 +416,45 @@ instance (Monad m) ⇒ GameAPI (GameM m) where
         put gs
         pure gs
 
-    runProgramAsPlayer v prg =
-        doWorld (lastValue <$> cellAt v) >>= \case
+    runProgramAsPlayer v i prg =
+        doWorld (valueAt i <$> cellAt v) >>= \case
             Nothing → Normal <$> world
             Just o  → do
-                gs ← runObjectMonadForPlayer (v, o) prg
-                doWorld updateVisible
+                gs ← runObjectMonadForPlayer (v, i, o) prg
+                updateVisible
                 pure gs
 
+    updateVisible = do
+        pp  ← doWorld playerPosition >>= addStanceHeight
+        tps ← doWorld teamPositions >>= traverse addStanceHeight
+
+        raysForAll ← traverse pointsForOne (pp : tps)
+        doWorld $ setVisibility (S.fromList $ mconcat raysForAll)
+        
+        -- NOTE resolving 'x' causes lag
+        where
+            pointsForOne ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m [V2 Int]
+            pointsForOne (p, h) =
+                let points = circle 20 p
+                    rays   = traverse (\t → doWorld (castRay p h t 0)) points
+                in  mconcat . fmap (fmap fst . visibleAndOneExtra) <$> rays
+
+            visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
+            visibleAndOneExtra l =
+                let front = takeWhile ((==True) . snd) l
+                    rem   = dropWhile ((==True) . snd) l
+                in  bool (head rem : front) front (null rem)
+
+            addStanceHeight ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m (V2 Int, Int)
+            addStanceHeight (v, i) = (v,) . max 4 . (+i) . stanceToHeight . fromJustNote "updateVisible!" . preview (_Just.o_state._Person.ch_stance) . valueAt i <$> doWorld (cellAt v)
+
+            stanceToHeight Upright = 3
+            stanceToHeight Crouch  = 2
+            stanceToHeight Prone   = 1
+
+    --updateAi = do
+    --    m ← use w_map
+    --    use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
 
 runGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m (a, GameState (GameM m))
 runGame = runStateT . runGameM
@@ -435,82 +469,82 @@ execGame = execStateT . runGameM
 
 --------------------------------------------------------------------------------
 
-runObjectMonadForPlayer ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Object States) → Free (ObjectF States) a → g (GameState g)
-runObjectMonadForPlayer t (Free (Position fn)) =
-    runObjectMonadForPlayer t (fn (fst t))
-runObjectMonadForPlayer (cv, o) (Free (Move v n)) =
+runObjectMonadForPlayer ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Int, Object States) → Free (ObjectF States) a → g (GameState g)
+runObjectMonadForPlayer (cv, h, o) (Free (Position fn)) =
+    runObjectMonadForPlayer (cv, h, o) (fn (cv, h))
+runObjectMonadForPlayer (cv, h, o) (Free (Move v n)) =
     doWorld (moveObject cv o v) *>
-        runObjectMonadForPlayer (v, o) n
-runObjectMonadForPlayer t (Free (Passable fn)) =
-    runObjectMonadForPlayer t (fn $ view o_passable (snd t))
-runObjectMonadForPlayer (cv, o) (Free (SetPassable b n)) =
+        runObjectMonadForPlayer (v, h, o) n
+runObjectMonadForPlayer (cv, h, o) (Free (Passable fn)) =
+    runObjectMonadForPlayer (cv, h, o) (fn $ view o_passable o)
+runObjectMonadForPlayer (cv, h, o) (Free (SetPassable b n)) =
     let no = o_passable .~ b $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, no) n
-runObjectMonadForPlayer t (Free (SeeThrough fn)) =
-    runObjectMonadForPlayer t (fn $ view o_seeThrough (snd t))
-runObjectMonadForPlayer (cv, o) (Free (SetSeeThrough b n)) =
+            runObjectMonadForPlayer (cv, h, no) n
+runObjectMonadForPlayer (cv, h, o) (Free (SeeThrough fn)) =
+    runObjectMonadForPlayer (cv, h, o) (fn $ view o_seeThrough o)
+runObjectMonadForPlayer (cv, h, o) (Free (SetSeeThrough b n)) =
     let no = o_seeThrough .~ b $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, no) n
-runObjectMonadForPlayer (cv, o) (Free (CanSee v fn)) =
-    doWorld (castVisibilityRay cv v) >>=
-        runObjectMonadForPlayer (cv, o) . fn . and . fmap snd
-runObjectMonadForPlayer (cv, o) (Free (ChangeSymbol s n)) =
+            runObjectMonadForPlayer (cv, h, no) n
+runObjectMonadForPlayer (cv, h, o) (Free (CanSee v fn)) =
+    doWorld (castRay cv h v 0) >>= -- TODO add object height!
+        runObjectMonadForPlayer (cv, h, o) . fn . and . fmap snd
+runObjectMonadForPlayer (cv, h, o) (Free (ChangeSymbol s n)) =
     let no = o_symbol .~ s $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, no) n
-runObjectMonadForPlayer (cv, o) (Free (ChangeMat m n)) =
+            runObjectMonadForPlayer (cv, h, no) n
+runObjectMonadForPlayer (cv, h, o) (Free (ChangeMat m n)) =
     let no = o_material .~ m $ o
     in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, no) n
-runObjectMonadForPlayer (cv, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
+            runObjectMonadForPlayer (cv, h, no) n
+runObjectMonadForPlayer (cv, h, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
     doWorld (setStatus s) *>
-        runObjectMonadForPlayer (cv, o) n
-runObjectMonadForPlayer (_, o) (Free (DoTalk c _)) = do
+        runObjectMonadForPlayer (cv, h, o) n
+runObjectMonadForPlayer (_, _, o) (Free (DoTalk c _)) = do
     w ← world
     (Person pc) ← doWorld playerObject
     changeGameState $ \_ → 
         whenCharacter (\ch → Conversation w (pc :| [ch]) c) (Normal w) (view o_state o)
-    -- runObjectMonadForPlayer (cv, o) n
-runObjectMonadForPlayer (cv, o) (Free (OperateComputer _)) = do
+    -- runObjectMonadForPlayer (cv, h, o) n
+runObjectMonadForPlayer (cv, _, o) (Free (OperateComputer _)) = do
     w ← world
     changeGameState $ \_ →
         -- TODO actually find the position here -----.----   , and if there isn't one, don't do anything!
         whenComputer (\cd → ComputerOperation w (cv, 1) cd) (Normal w) (view o_state o)
-    --runObjectMonadForPlayer (cv, o) n
-runObjectMonadForPlayer (cv, o) (Free (ScanRange r f fn)) = do
+    --runObjectMonadForPlayer (cv, h, o) n
+runObjectMonadForPlayer (cv, h, o) (Free (ScanRange r f fn)) = do
     points ← doWorld (interestingObjects cv r f)
     values ← doWorld (foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points)
-    runObjectMonadForPlayer (cv, o) (fn (zip points values))
+    runObjectMonadForPlayer (cv, h, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
-runObjectMonadForPlayer (cv, o) (Free (AcquireTarget s fn)) =
+runObjectMonadForPlayer (cv, h, o) (Free (AcquireTarget s fn)) =
     case s of
-        Freeform    → runObjectMonadForPlayer (cv, o) (fn (V2 0 0))
-        LineOfSight → runObjectMonadForPlayer (cv, o) (fn (V2 1 1))
-runObjectMonadForPlayer (cv, o) (Free (SpawnNewObject v s n)) = do
+        Freeform    → runObjectMonadForPlayer (cv, h, o) (fn (V2 0 0))
+        LineOfSight → runObjectMonadForPlayer (cv, h, o) (fn (V2 1 1))
+runObjectMonadForPlayer (cv, h, o) (Free (SpawnNewObject v s n)) = do
     doWorld $
         modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
-    runObjectMonadForPlayer (cv, o) n
-runObjectMonadForPlayer (cv, o) (Free (RemoveObject v i n)) = do
+    runObjectMonadForPlayer (cv, h, o) n
+runObjectMonadForPlayer (cv, h, o) (Free (RemoveObject v i n)) = do
     doWorld $ do
         x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
         modifyCell v (deleteFromCell x)
-    runObjectMonadForPlayer (cv, o) n
-runObjectMonadForPlayer (cv, o) (Free (FindObject s fn)) = do
+    runObjectMonadForPlayer (cv, h, o) n
+runObjectMonadForPlayer (cv, h, o) (Free (FindObject s fn)) = do
     xs ← doWorld $ do
         pp ← fst <$> playerPosition
         interestingObjects pp 60 ((s==) . view o_state)
     if null xs
-        then runObjectMonadForPlayer (cv, o) (fn Nothing)
+        then runObjectMonadForPlayer (cv, h, o) (fn Nothing)
         else do
             let v = head xs
             cellvs ← doWorld (cellValues <$> cellAt v)
             let mi = s `elemIndex` (view o_state <$> cellvs)
             let r = (v,) <$> mi
-            runObjectMonadForPlayer (cv, o) (fn r)
+            runObjectMonadForPlayer (cv, h, o) (fn r)
 runObjectMonadForPlayer _ (Pure _) =
     Normal <$> world
 

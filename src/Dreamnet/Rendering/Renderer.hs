@@ -476,7 +476,7 @@ drawTeamHud team mayix = do
 
         stanceChar ∷ Stance → Char
         stanceChar Upright = '^'
-        stanceChar Crouch  = '~'
+        stanceChar Crouch  = ':'
         stanceChar Prone   = '_'
 
 

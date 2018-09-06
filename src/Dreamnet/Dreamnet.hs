@@ -229,8 +229,8 @@ processNormal _ Input.Quit =
 processNormal _ (Input.Move v) = do
     doWorld $ do
         movePlayer v
-        updateVisible
         increaseTurn
+    updateVisible
     Normal <$> world
 processNormal _ (Input.MoveCamera v) = do
     moveCamera v
@@ -238,9 +238,9 @@ processNormal _ (Input.MoveCamera v) = do
 processNormal _ Input.Wait = do
     doWorld $ do
         setStatus "Waiting..."
-        updateVisible
         increaseTurn
     --runProgramAsPlayer v (operationProgramForSymbol (view o_symbol o) $ AiTick)
+    updateVisible
     Normal <$> world
 processNormal _ Input.HigherStance = do
     doWorld $ changePlayer $
@@ -369,7 +369,7 @@ processNormal _ Input.Examine = do
                 if onHerself
                     then Examination <$> world <*> doWorld desc
                     else doWorld (increaseTurn *> playerObject) >>=
-                            whenCharacter (runProgramAsPlayer v . program o) (Normal <$> world)
+                            whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
         case gs of
             (Examination _ d) → let examineUpdateUi = setScroll . newScrollData (V2 2 1) (V2 60 20) Nothing
                                 in  examineUpdateUi d
@@ -386,16 +386,16 @@ processNormal _ Input.Operate = do
                 Normal <$> world
                               -- .-- TODO as much as operation program wants!
             Just o → doWorld (increaseTurn *> playerObject) >>=
-                        whenCharacter (runProgramAsPlayer v . program o) (Normal <$> world)
+                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
     where
         program o ch = programForState ch (view o_state o) Operate
 processNormal _ Input.ExamineHeld = do
     mres ← runMaybeT $ do
         ho  ← lift (doWorld playerObject)
                     >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
-        pp  ← lift $ doWorld (fst <$> playerPosition)
-        pch ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
-        lift $ runProgramAsPlayer pp (programForState pch ho Examine)
+        (pp, ph) ← lift $ doWorld playerPosition
+        pch      ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        lift $ runProgramAsPlayer pp ph (programForState pch ho Examine)
     maybe
         (doWorld (setStatus "You aren't carrying anything in your hands.") >> Normal <$> world)
         pure
@@ -404,9 +404,9 @@ processNormal _ Input.OperateHeld = do
     mres ← runMaybeT $ do
         ho  ← lift (doWorld playerObject)
                     >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
-        pp  ← lift $ doWorld (fst <$> playerPosition)
-        pch ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
-        lift $ runProgramAsPlayer pp (programForState pch ho Operate)
+        (pp, ph) ← lift $ doWorld playerPosition
+        pch      ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        lift $ runProgramAsPlayer pp ph (programForState pch ho Operate)
     maybe
         -- TODO as much as the device wants!
         (doWorld (increaseTurn  *> setStatus "You aren't carrying anything in your hands.") >> Normal <$> world)
@@ -434,11 +434,11 @@ processNormal _ Input.OperateHeldOn = do
                     Just o  → do
                         let so = view o_state o
                         -- TODO refactor, make cleaner
-                        pp ← doWorld (fst <$> playerPosition)
+                        (pp, ph) ← doWorld playerPosition
                         doWorld playerObject >>=
                             whenCharacter (\ch → do {
-                                 void $ runProgramAsPlayer pp (programForState ch ho (OperateOn so));
-                                 runProgramAsPlayer v  (programForState ch so (OperateWith ho));
+                                 void $ runProgramAsPlayer pp ph (programForState ch ho (OperateOn so));
+                                 runProgramAsPlayer v i (programForState ch so (OperateWith ho));
                                 })
                                 (Normal <$> world)
                         -- TODO which of the game states should take precedence?
@@ -451,7 +451,7 @@ processNormal _ Input.Talk = do
                     increaseTurn
                 Normal <$> world
             Just o → doWorld (increaseTurn *> playerObject) >>=
-                        whenCharacter (runProgramAsPlayer v . program o) (Normal <$> world)
+                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
     case gs of
         (Conversation _ ps cn) → conversationUpdateUi (view ch_name <$> ps) cn
         _ → pure ()
