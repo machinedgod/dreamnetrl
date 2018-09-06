@@ -33,15 +33,21 @@ genericClothes _ _ =
 
 
 
-genericWeapon ∷ (ObjectAPI States o, Applicative o) ⇒ WeaponItem → InteractionType States → o ()
+genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType States → o ()
 genericWeapon wpi Examine =
     message (wpi ^. wpi_description)
 genericWeapon wpi Operate =
     message ("This weapon has these settings: " <> show (wpi ^. wpi_settings))
 genericWeapon _ Talk =
-    message "You smirk as you think fondly of a vintage show you watched as a kid, with a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
-genericWeapon _ (OperateOn s) =
-    message ("Boom boom! " <> show s <> " is dead!")
+    message "You smirk as you think fondly of a vintage show you watched as a kid, starring a policeman that used to talk to his gun. You don't think you're nearly cool enough to pull it off, so you put your weapon down."
+genericWeapon _ (OperateOn s) = do
+    mv ← findObject s
+    case mv of
+        Just v → do
+            uncurry removeObject v
+            message ("Boom boom! " <> show s <> " is dead!")
+        Nothing →
+            message ("Well, there's nothing there?")
 genericWeapon wpi (OperateWith (Ammo ami)) =
     message ("You reload the " <> view wpi_name wpi <> " with ammo clip: " <> view ami_name ami)
 genericWeapon _ _ =

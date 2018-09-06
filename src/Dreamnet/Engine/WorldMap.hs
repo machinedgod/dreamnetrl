@@ -92,7 +92,7 @@ isEmpty (Cell l) = null l
 class WorldMapReadAPI a wm | wm → a where
     desc               ∷ wm String
     cellAt             ∷ V2 Int → wm (Cell a)
-    interestingObjects ∷ V2 Int → Range → (a → Bool) → wm [V2 Int]
+    interestingObjects ∷ V2 Int → Range → (a → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
     oob                ∷ V2 Int → wm Bool
 
 

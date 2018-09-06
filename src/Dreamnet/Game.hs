@@ -1,4 +1,4 @@
-{-# LANGUAGE UnicodeSyntax, LambdaCase, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax, LambdaCase, TupleSections, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -53,12 +53,14 @@ module Dreamnet.Game
 , execGame
 ) where
 
+import Safe                       (fromJustNote)
 import Control.Lens               (makeLenses, makePrisms, view, (.~), Prism')
 import Control.Monad.Trans        (MonadTrans, lift)
 import Control.Monad.Free         (Free(Free, Pure))
 import Control.Monad.State        (MonadState, StateT, runStateT, evalStateT,
                                    execStateT, get, gets, put, modify)
 import Data.Maybe                 (isJust)
+import Data.List                  (elemIndex)
 import Data.List.NonEmpty         (NonEmpty((:|)))
 import Linear                     (V2(V2))
 
@@ -488,6 +490,27 @@ runObjectMonadForPlayer (cv, o) (Free (AcquireTarget s fn)) =
     case s of
         Freeform    → runObjectMonadForPlayer (cv, o) (fn (V2 0 0))
         LineOfSight → runObjectMonadForPlayer (cv, o) (fn (V2 1 1))
+runObjectMonadForPlayer (cv, o) (Free (SpawnNewObject v s n)) = do
+    doWorld $
+        modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
+    runObjectMonadForPlayer (cv, o) n
+runObjectMonadForPlayer (cv, o) (Free (RemoveObject v i n)) = do
+    doWorld $ do
+        x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
+        modifyCell v (deleteFromCell x)
+    runObjectMonadForPlayer (cv, o) n
+runObjectMonadForPlayer (cv, o) (Free (FindObject s fn)) = do
+    xs ← doWorld $ do
+        pp ← fst <$> playerPosition
+        interestingObjects pp 60 ((s==) . view o_state)
+    if null xs
+        then runObjectMonadForPlayer (cv, o) (fn Nothing)
+        else do
+            let v = head xs
+            cellvs ← doWorld (cellValues <$> cellAt v)
+            let mi = s `elemIndex` (view o_state <$> cellvs)
+            let r = (v,) <$> mi
+            runObjectMonadForPlayer (cv, o) (fn r)
 runObjectMonadForPlayer _ (Pure _) =
     Normal <$> world
 

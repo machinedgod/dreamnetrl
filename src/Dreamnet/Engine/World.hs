@@ -38,6 +38,7 @@ import Control.Monad.State.Strict (MonadState, State, runState, evalState, execS
 import Linear                     (V2(V2))
 import Data.Bool                  (bool)
 import Data.Foldable              (traverse_, for_)
+import Data.List                  (elemIndex)
 
 import qualified Data.Set    as S  (fromList, member)
 import qualified Data.Vector as V  (Vector, imap, replicate, head)
@@ -304,6 +305,24 @@ runObjectMonadForAI (cv, o) (Free (AcquireTarget s fn)) =
     case s of
         Freeform    → runObjectMonadForAI (cv, o) (fn (V2 0 0))
         LineOfSight → runObjectMonadForAI (cv, o) (fn (V2 1 1))
+runObjectMonadForAI (cv, o) (Free (SpawnNewObject v s n)) = do
+    modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
+    runObjectMonadForAI (cv, o) n
+runObjectMonadForAI (cv, o) (Free (RemoveObject v i n)) = do
+    x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
+    modifyCell v (deleteFromCell x)
+    runObjectMonadForAI (cv, o) n
+runObjectMonadForAI (cv, o) (Free (FindObject s fn)) = do
+    pp ← fst <$> playerPosition
+    xs ← interestingObjects pp 60 ((s==) . view o_state)
+    if null xs
+        then runObjectMonadForAI (cv, o) (fn Nothing)
+        else do
+            let v = head xs
+            cellvs ← cellValues <$> cellAt v
+            let mi = s `elemIndex` (view o_state <$> cellvs)
+            let r = (v,) <$> mi
+            runObjectMonadForAI (cv, o) (fn r)
 runObjectMonadForAI _ (Pure x) =
     pure x
 

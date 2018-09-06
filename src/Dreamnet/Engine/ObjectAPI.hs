@@ -100,6 +100,9 @@ class ObjectAPI s o | o → s where
     operateComputer ∷ o ()
     scanRange       ∷ Word → (Object s → Bool) → o [(V2 Int, Object s)]
     acquireTarget   ∷ TargetSelectionStyle → o (V2 Int)
+    spawnNewObject  ∷ V2 Int → s → o ()
+    removeObject    ∷ V2 Int → Int → o ()
+    findObject      ∷ s → o (Maybe (V2 Int, Int))
 
     --interact      ∷ InteractionType a → V2 Int → Int → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
@@ -121,8 +124,11 @@ data ObjectF s a = Position (V2 Int → a)
                  | OperateComputer a
                  | ScanRange Word (Object s → Bool) ([(V2 Int, Object s)] → a)
                  | AcquireTarget TargetSelectionStyle (V2 Int → a)
+                 | SpawnNewObject (V2 Int) s a
+                 | RemoveObject (V2 Int) Int a
+                 | FindObject s (Maybe (V2 Int, Int) → a)
                  -- | Interact (InteractionType s) (V2 Int) Int a
-                 deriving(Functor) -- TODO Derive binary can't work with functions
+                 deriving(Functor)
 
 
 instance ObjectAPI s (Free (ObjectF s)) where
@@ -153,6 +159,12 @@ instance ObjectAPI s (Free (ObjectF s)) where
     scanRange r f = Free $ ScanRange r f Pure
 
     acquireTarget s = Free $ AcquireTarget s Pure
+
+    spawnNewObject v s = Free $ SpawnNewObject v s (Pure ())
+
+    removeObject v i = Free $ RemoveObject v i (Pure ())
+
+    findObject s = Free $ FindObject s Pure
 
     --interact i v ix = Free $ Interact i v ix (Pure ())
 
