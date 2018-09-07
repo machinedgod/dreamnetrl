@@ -44,7 +44,7 @@ import qualified Data.Set    as S (Set, member, map)
 
 import Dreamnet.Engine.ObjectAPI
 import Dreamnet.Engine.WorldMap
-import Dreamnet.Engine.Visibility
+import Dreamnet.Engine.Visibility hiding (height)
 
 --------------------------------------------------------------------------------
 

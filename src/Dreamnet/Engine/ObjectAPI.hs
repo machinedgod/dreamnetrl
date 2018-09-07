@@ -49,7 +49,7 @@ data Object a = Object {
     , _o_material    ∷ String
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
-    , _o_height      ∷ Word
+    , _o_height      ∷ Int
 
     , _o_state ∷ a
     }
@@ -69,6 +69,7 @@ instance Monad Object where
 
 instance VisibleAPI (Object a) where
     isSeeThrough = view o_seeThrough
+    height       = view o_height
 
 --------------------------------------------------------------------------------
 -- Object API and objects

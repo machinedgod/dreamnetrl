@@ -5,7 +5,6 @@ module Design.GameCharacters
 ( randomCharacter
 
 , characters
-, characterForName
 , characterDictionary
 
 -- DEBUG
@@ -23,10 +22,9 @@ import Safe                 (at)
 import Control.Lens         (view)
 import Control.Monad.Random (MonadRandom, getRandom, getRandomR)
 import Data.List            (intercalate)
-import Data.Maybe           (fromMaybe)
 import Data.Bool            (bool)
 
-import qualified Data.Map as M (Map, fromList, lookup)
+import qualified Data.Map as M (Map, fromList)
 
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Character
@@ -182,10 +180,6 @@ characterDictionary ∷ [DreamnetCharacter] → M.Map String DreamnetCharacter
 characterDictionary chs = M.fromList $ toNamedTuple <$> chs
     where
         toNamedTuple = (,) <$> view ch_name <*> id
-
-
-characterForName ∷ String → M.Map String DreamnetCharacter → DreamnetCharacter
-characterForName n = fromMaybe (error "No character with that name!") . M.lookup n
 
 --------------------------------------------------------------------------------
 

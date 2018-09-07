@@ -5,37 +5,23 @@
 module Dreamnet.Engine.TileMap
 ( module Dreamnet.Engine.CoordVector
 
-, Tile(Tile)
-, t_char
-, t_data
+, Tile(Tile), t_char, t_data
 
-, ttype
-, readBoolProperty
-, readWordProperty
-, readStringProperty
+, ttype, readBoolProperty, readWordProperty, readIntProperty, readStringProperty
 
-, TileLayer
-, l_data
-, newTileLayer
+, TileLayer, l_data, newTileLayer
 
-, Tileset
-, TileMap
-, m_layers
-, m_tileset
-, m_positioned
-, m_desc
-, newTileMap
-, tileAt
-, changeTile
-, findAll
+, Tileset, TileMap, m_layers, m_tileset, m_positioned, m_desc, newTileMap,
+  tileAt, changeTile, findAll
 
 , loadTileMap
 ) where
 
 import Safe
 
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Lens           (makeLenses, view, (^.), (.~), element)
+import Control.Monad          ((<=<))
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Semigroup         ((<>))
 import Data.Maybe             (fromMaybe)
 import Data.List              (elemIndex)
@@ -65,16 +51,24 @@ ttype = fromMaybe (error "Tile type not set!") . (V.!? 0) . view t_data
 {-# INLINE ttype #-}
 
 
-readBoolProperty ∷ Int → Tile → Bool
-readBoolProperty i = maybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") (readNote "Failed to read Bool property ") . (V.!? i) . view t_data
+readBoolProperty ∷ Int → Tile → Maybe Bool
+readBoolProperty i = readMay <=< (V.!? i) . view t_data
+{-# INLINE readBoolProperty #-}
 
 
-readWordProperty ∷ Int → Tile → Word
-readWordProperty i = maybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") (readNote "Failed to read Word property ") . (V.!? i) . view t_data
+readWordProperty ∷ Int → Tile → Maybe Word
+readWordProperty i = readMay <=< (V.!? i) . view t_data
+{-# INLINE readWordProperty #-}
 
 
-readStringProperty ∷ Int → Tile → String
-readStringProperty i = fromMaybe (error $ "Tile property ix:" <> show i <> " doesn't exist!") . (V.!? i) . view t_data
+readIntProperty ∷ Int → Tile → Maybe Int
+readIntProperty i = readMay <=< (V.!? i) . view t_data
+{-# INLINE readIntProperty #-}
+
+
+readStringProperty ∷ Int → Tile → Maybe String
+readStringProperty i = (V.!? i) . view t_data
+{-# INLINE readStringProperty #-}
 
 --------------------------------------------------------------------------------
 
@@ -84,7 +78,6 @@ data TileLayer = TileLayer {
     , _l_data       ∷ V.Vector Char
     }
     deriving(Show)
-
 makeLenses ''TileLayer
 
 instance CoordVector TileLayer where

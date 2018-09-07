@@ -24,6 +24,7 @@ import Control.Monad.IO.Class    (MonadIO)
 import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
 import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
+import Data.Bool                 (bool)
 import Data.List                 (genericLength, elemIndex)
 import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
 import Data.Foldable             (traverse_)
@@ -37,7 +38,8 @@ import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
 import Dreamnet.Engine.Conversation
-import Dreamnet.Engine.Visibility
+import Dreamnet.Engine.Visibility hiding (height)
+import qualified Dreamnet.Engine.Visibility as Visibility (height)
 import Dreamnet.Engine.Character
 import qualified Dreamnet.Engine.Input as Input
 
@@ -120,105 +122,131 @@ newGame ∷ DesignData → C.Curses (GameState g)
 newGame dd = do
     sm  ← loadTileMap (view dd_dev_startingMap dd)
     pure $ Normal $ newWorld
-                       (fromTileMap sm  objectFromTile)
-                       (playerPerson ("Carla" `characterForName` view dd_characters dd))
+                    (either error id $ fromTileMap sm objectFromTile)
+                    (playerPerson carla)
+                    --(playerPerson ("Carla" `M.lookup` view dd_characters dd))
     where
         -- 1) This *could* all be just a single thing. Object type really does not matter here.
         -- 2) Actually, it does, because Object carries a specific state, later used by object programs
-        objectFromTile ∷ Tile → Object States
-        objectFromTile t@(ttype → "Base") =
-            let m  = "concrete"
-                p  = 1 `readBoolProperty` t
-                s  = 2 `readBoolProperty` t
-                h  = 0
+        objectFromTile ∷ Tile → Either String (Object States)
+        objectFromTile t@(ttype → "Base") = Object sy "concrete" <$> t `readPassable` 1 <*> t `readSeeThrough` 2 <*> (bool 4 0 <$> t `readPassable` 1) <*> pure st
+            where
+                sy = Symbol $ view t_char t
                 st = (Prop "Floor" "A floor")
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Prop") =
-            let m  = 4 `readStringProperty` t
-                p  = 2 `readBoolProperty` t
-                s  = 3 `readBoolProperty` t
-                h  = 5 `readWordProperty` t
-                st = Prop (1 `readStringProperty` t) (6 `readStringProperty` t)
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Person") = 
-            let m  = "blue"
+
+        objectFromTile t@(ttype → "Prop") = Object sy <$> m <*> t `readPassable` 2 <*> t `readSeeThrough` 3 <*> h <*> st
+            where
+                sy = Symbol $ view t_char t
+                m  = maybeToEither "Material property missing on 'Prop' tile, ix: 4" (4 `readStringProperty` t)
+                h  = maybeToEither "Height property missing on 'Prop' tile, ix: 5" (5 `readIntProperty` t)
+                st = Prop
+                        <$> maybeToEither "Name property missing on 'Prop' tile, ix: 1" (1 `readStringProperty` t)
+                        <*> maybeToEither "Description property missing on 'Prop' tile, ix: 6" (6 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Person") = Object sy m p s h <$> st
+            where
+                sy = Symbol '@'
+                m  = "blue"
                 p  = False
                 s  = True
                 h  = 3
-                st = Person $ characterForName (1 `readStringProperty` t) (view dd_characters dd)
-            in  Object (Symbol '@') m p s h st
+                st = pure . Person
+                        =<< (\n → maybeToEither ("No character with name '" <> n <> "' defined.") (n `M.lookup` view dd_characters dd))
+                        =<< maybeToEither "Name property missing for 'Person' tile, ix: 1" (1 `readStringProperty` t)
+
         objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!)
             objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
-        objectFromTile t@(ttype → "Camera") =
-            let m  = "green light"
+
+        objectFromTile t@(ttype → "Camera") = Object sy m p s h <$> st
+            where
+                sy = Symbol $ view t_char t
+                m  = "green light"
                 p  = True
                 s  = True
                 h  = 1
-                st = Camera (Faction $ 1 `readStringProperty` t) 0
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Computer") =
-            let m  = "metal"
+                st = (`Camera` 0) . Faction
+                        <$> maybeToEither "Faction property missing for 'Camera' tile, ix: 1" (1 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Computer") = pure $ Object sy m p s h st
+            where
+                sy = Symbol $ view t_char t
+                m  = "metal"
                 p  = False
                 s  = True
                 h  = 1
-                st = Computer (ComputerData "" [])
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Clothes") = 
-            let m   = "cloth"
+                st = Computer (ComputerData "" []) -- TODO define some data!
+
+        objectFromTile t@(ttype → "Clothes") = Object sy m p s h <$> st
+            where
+                sy  = Symbol $ view t_char t
+                m   = "cloth"
                 p   = True
                 s   = True
                 h   = 0
-                cid = 1 `readStringProperty` t
-                st  = Clothes $
-                        fromMaybe (error $ "WearableItem " <> cid <> " isn't defined!") $
-                            M.lookup cid clothesDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Weapon") = 
-            let m   = "metal"
+                st  = pure . Clothes
+                        =<< (\cid → maybeToEither ("WearableItem " <> cid <> " isn't defined!") (cid `M.lookup` clothesDict))
+                        =<< maybeToEither "Clothes name property missing for 'Clothes' tile, ix: 1" (1 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Weapon") = Object sy m p s h <$> st
+            where
+                sy  = Symbol $ view t_char t
+                m   = "metal"
                 p   = True
                 s   = True
                 h   = 0
-                wid = 1 `readStringProperty` t
-                st  = Weapon $
-                        fromMaybe (error $ "WeaponItem " <> wid <> " isn't defined!") $
-                            M.lookup wid weaponsDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Ammo") = 
-            let m   = "metal"
+                st  = pure . Weapon
+                        =<< (\wid → maybeToEither ("WeaponItem " <> wid <> " isn't defined!") (M.lookup wid weaponsDict))
+                        =<< maybeToEither "Weapon name property missing for 'Weapon' tile, ix: 1" (1 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Ammo") = Object sy m p s h <$> st
+            where
+                sy  = Symbol $ view t_char t
+                m   = "metal"
                 p   = True
                 s   = True
                 h   = 0
-                aid = 1 `readStringProperty` t
-                st  = Ammo $
-                        fromMaybe (error $ "AmmoItem " <> aid <> " isn't defined!") $
-                            M.lookup aid ammoDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Throwable") = 
-            let m   = "metal"
+                st  = pure . Ammo
+                        =<< (\aid → maybeToEither ("AmmoItem " <> aid <> " isn't defined!") (M.lookup aid ammoDict))
+                        =<< maybeToEither "Ammo name property missing for 'Ammo' tile, ix: 1" (1 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Throwable") = Object sy m p s h <$> st
+            where
+                sy  = Symbol $ view t_char t
+                m   = "metal"
                 p   = True
                 s   = True
                 h   = 0
-                tid = 1 `readStringProperty` t
-                st  = Throwable $
-                        fromMaybe (error $ "ThrowableItem " <> tid <> " isn't defined!") $
-                            M.lookup tid throwableDict
-            in  Object (Symbol $ view t_char t) m p s h st
-        objectFromTile t@(ttype → "Consumable") = 
-            let m   = "red"
+                st  = pure . Throwable
+                        =<< (\tid → maybeToEither ("ThrowableItem " <> tid <> " isn't defined!") (tid `M.lookup` throwableDict))
+                        =<< maybeToEither "Throwable name property missing for 'Throwable' tile, ix: 1" (1 `readStringProperty` t)
+
+        objectFromTile t@(ttype → "Consumable") = Object sy m p s h <$> st
+            where
+                sy  = Symbol $ view t_char t
+                m   = "red"
                 p   = True
                 s   = True
                 h   = 0
-                tid = 1 `readStringProperty` t
-                st  = Consumable $
-                        fromMaybe (error $ "ConsumableItem " <> tid <> " isn't defined!") $
-                            M.lookup tid consumableDict
-            in  Object (Symbol $ view t_char t) m p s h st
+                st  = pure . Consumable 
+                        =<< (\cid → maybeToEither ("ConsumableItem " <> cid <> " isn't defined!") $ cid `M.lookup` consumableDict)
+                        =<< maybeToEither "Consumable name property missing for 'Consumable' tile, ix: 1" (1 `readStringProperty` t)
+
         objectFromTile t =
-            error $ "Can't convert Tile type into Object: " <> show t
+            Left $ "Can't convert Tile type into Object: " <> show t
         -- TODO Errrrrr, this should be done through the tileset???
 
         playerPerson ∷ DreamnetCharacter → Object States
         playerPerson = Object (Symbol '@') "metal" False True 3 . Person
+
+        maybeToEither ∷ a → Maybe b → Either a b
+        maybeToEither d Nothing  = Left d
+        maybeToEither _ (Just x) = Right x
+
+        readPassable ∷ Tile → Int → Either String Bool
+        readPassable t i = maybeToEither ("Passable property missing on tile '" <> ttype t <> "', ix: " <> show i) (i `readBoolProperty` t)
+
+        readSeeThrough ∷ Tile → Int → Either String Bool
+        readSeeThrough t i = maybeToEither ("SeeThrough property missing on tile '" <> ttype t <> "', ix: " <> show i) (i `readBoolProperty` t)
 
 --------------------------------------------------------------------------------
 
@@ -245,10 +273,12 @@ processNormal _ Input.Wait = do
 processNormal _ Input.HigherStance = do
     doWorld $ changePlayer $
         o_state %~ withCharacter (ch_stance %~ predSafe)
+    updateVisible
     Normal <$> world
 processNormal _ Input.LowerStance = do
     doWorld $ changePlayer $
         o_state %~ withCharacter (ch_stance %~ succSafe)
+    updateVisible
     Normal <$> world
 processNormal _ Input.Get = do
     withTarget Adjactened $ \v i → do
@@ -463,8 +493,8 @@ processNormal _ Input.InventorySheet = do
     --itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fromJustNote "invsheet" . valueAt ix <$> cellAt pp)) <$> world
     setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
     InventoryUI <$> world
-processNormal dd Input.CharacterSheet =
-    SkillsUI <$> world <*> pure (characterForName "Carla" (view dd_characters dd))
+processNormal _ Input.CharacterSheet =
+    SkillsUI <$> world <*> pure carla
 processNormal _ Input.GiveCommand = do
     teamChars ← doWorld (fmap (fromJust . maybeCharacter) <$> teamObjects)
     if not (null teamChars)
@@ -576,14 +606,14 @@ processHudWatch _ _ Input.Back =
 
 processConversation ∷ (GameAPI g, RenderAPI g, Monad g) ⇒ NonEmpty DreamnetCharacter → Free (ConversationF States) () → Input.UIEvent → g (GameState g)
 processConversation ps (Free (CName i fn)) e =
-    let name = view ch_name $ ps !! i
-    in  processConversation ps (fn name) e
+    let cname = view ch_name $ ps !! i
+    in  processConversation ps (fn cname) e
 processConversation ps (Free (CLastname i fn)) e =
-    let lastname = view ch_lastName $ ps !! i
-    in  processConversation ps (fn lastname) e
+    let clastname = view ch_lastName $ ps !! i
+    in  processConversation ps (fn clastname) e
 processConversation ps (Free (CNick i fn)) e =
-    let nick = view ch_lastName $ ps !! i
-    in  processConversation ps (fn nick) e
+    let cnick = view ch_lastName $ ps !! i
+    in  processConversation ps (fn cnick) e
 
 processConversation ps cn@(Free CTalk{}) Input.MoveUp = do
     doScroll scrollUp
@@ -947,7 +977,7 @@ renderCellContentsToStatus w v i = do
     let cellContents = evalWorld (cellContentsString <$> cellAt v) w
     updateHud (f cellContents white green)
     where
-        cellContentsString = fmap (show . view o_state) . cellValues
+        cellContentsString = fmap (\c → show (view o_state c) <> ", " <> show (Visibility.height c)) . cellValues
         f xs h noh = clearStatus *> statusOrigin >>= \(start,padding,_) → RenderAction $
             traverse_ (\(y, s) → drawStringWithHighlight start y s (y == i + padding) h noh) $ zip [padding..] xs
         drawStringWithHighlight x y s h colh colnoh = do

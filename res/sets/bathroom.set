@@ -1,5 +1,5 @@
-t,Prop,Toilet,False,True,ceramics,1,"Vacuum toilet."
-s,Prop,Sink,False,True,ceramics,1,"Sink."
+t,Prop,Toilet,False,False,ceramics,1,"Vacuum toilet."
+s,Prop,Sink,False,False,ceramics,1,"Sink."
 !,Prop,Shower,True,True,metal,3,"Shower."
-w,Prop,Washer,False,True,metal,2,"Ultrasound clothes washing machine."
+w,Prop,Washer,False,False,metal,2,"Ultrasound clothes washing machine."
 m,Prop,Mirror,False,False,metal,1,"Mirror, mirror, on the wall..."

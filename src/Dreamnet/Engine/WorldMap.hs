@@ -33,7 +33,7 @@ import Data.List           (delete)
 import Data.Maybe          (fromMaybe)
 import Linear              (V2(V2))
 
-import qualified Data.Vector         as V  (Vector, (!), (!?), imap, replicate, fromList, head,
+import qualified Data.Vector         as V  (Vector, (!), (!?), imapM, replicate, fromList, head,
                                             foldl', modify)
 import qualified Data.Vector.Mutable as MV (write, read)
 import qualified Data.Map            as M  (lookup)
@@ -41,7 +41,8 @@ import qualified Data.Map            as M  (lookup)
 
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.TileMap
-import Dreamnet.Engine.Visibility
+import Dreamnet.Engine.Visibility hiding (height)
+import qualified Dreamnet.Engine.Visibility as Visibility (height)
 
 --------------------------------------------------------------------------------
 
@@ -55,6 +56,7 @@ newtype Cell a = Cell { cellValues ∷ [a] }
 
 instance (VisibleAPI a) ⇒ VisibleAPI (Cell a) where
     isSeeThrough = and . fmap isSeeThrough . cellValues
+    height = maximum . fmap Visibility.height . cellValues
 
 
 valueAt ∷ Int → Cell a → Maybe a
@@ -124,25 +126,24 @@ newWorldMap w h x =
     }
 
 
-fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → a) → WorldMap a
-fromTileMap tm t2o =
-    WorldMap {
-      _wm_width   = width tm
-    , _wm_height  = height tm
-    , _wm_data    = let mapData           = transposeAndMerge $ layerToObject (tm^.m_tileset) <$> (tm^.m_layers)
-                        maybeObjects  i   = coordLin tm i `M.lookup` (tm^.m_positioned)
-                        addPositioned i o = maybe o ((o<>) . Cell . fmap t2o) (maybeObjects i)
-                    in  V.imap addPositioned mapData
-    , _wm_desc    = tm^.m_desc
-    , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
-    }
+fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → Either String a) → Either String (WorldMap a)
+fromTileMap tm t2o = do
+    let maybeObjects  i   = coordLin tm i `M.lookup` (tm^.m_positioned)
+        addPositioned i o = maybe (Right o) (\os → (o<>) . Cell <$> traverse t2o os) (maybeObjects i)
+    mapData ←  V.imapM addPositioned =<< transposeAndMerge <$> traverse (layerToObject (tm^.m_tileset)) (tm^.m_layers)
+    pure $ WorldMap { _wm_width   = width tm
+                    , _wm_height  = height tm
+                    , _wm_data    = mapData
+                    , _wm_desc    = tm^.m_desc
+                    , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
+                    }
     where
-        layerToObject ∷ Tileset → TileLayer → V.Vector a
-        layerToObject ts tl = charToObject ts <$> (tl^.l_data)
+        layerToObject ∷ Tileset → TileLayer → Either String (V.Vector a)
+        layerToObject ts tl = traverse (charToObject ts) (tl^.l_data)
 
-        charToObject ∷ Tileset → Char → a
+        charToObject ∷ Tileset → Char → Either String a
         charToObject ts c = let maybeTile = c `M.lookup` ts
-                                err       = error ("Char " <> [c] <> " doesn't exist in the tileset!")
+                                err       = error ("Char " <> [c] <> " doesn't exist in the tileset!") -- No no no, use alternative
                             in  maybe err t2o maybeTile
 
         transposeAndMerge ∷ V.Vector (V.Vector a) → V.Vector (Cell a)
@@ -192,9 +193,12 @@ instance (VisibleAPI a) ⇒ WorldMapReadAPI a (WorldMapM a) where
 
     oob = gets . flip outOfBounds
 
-    castRay s sh t th = traverse findHits =<< filterM (fmap not . oob) (bla s t)
+    castRay s sh t _ = traverse findHits =<< filterM (fmap not . oob) (drop 1 $ bla s t) -- Dropping originating V2 
         where
-            findHits p = (p,) . ((||) <$> pure (sh > th) <*> isSeeThrough) <$> cellAt p
+            findHits p = do
+                c ← cellAt p
+                let goesThrough = isSeeThrough c || Visibility.height c < sh  -- && Visibility.height c < th
+                pure (p, goesThrough)
 
 
 

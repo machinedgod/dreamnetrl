@@ -436,7 +436,7 @@ instance (Monad m) ⇒ GameAPI (GameM m) where
             pointsForOne ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m [V2 Int]
             pointsForOne (p, h) =
                 let points = circle 20 p
-                    rays   = traverse (\t → doWorld (castRay p h t 0)) points
+                    rays   = traverse (\t → doWorld (castRay p h t 3)) points
                 in  mconcat . fmap (fmap fst . visibleAndOneExtra) <$> rays
 
             visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
@@ -445,12 +445,17 @@ instance (Monad m) ⇒ GameAPI (GameM m) where
                     rem   = dropWhile ((==True) . snd) l
                 in  bool (head rem : front) front (null rem)
 
+            -- TODO subtract 1 because standing on the floor counts as if we're in the second 'height box'
+            --      floor has to count as having no height, and height calculations must use heights of all
+            --      objects in the same cell, not the index itself!
             addStanceHeight ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m (V2 Int, Int)
-            addStanceHeight (v, i) = (v,) . max 4 . (+i) . stanceToHeight . fromJustNote "updateVisible!" . preview (_Just.o_state._Person.ch_stance) . valueAt i <$> doWorld (cellAt v)
+            addStanceHeight (v, i) = (v,) . max 1 . min 4 . subtract 1 . (+i) . stanceToHeight . valueAt i <$> doWorld (cellAt v)
 
-            stanceToHeight Upright = 3
-            stanceToHeight Crouch  = 2
-            stanceToHeight Prone   = 1
+            stanceToHeight = go . fromJustNote "updateVisible!" . preview (_Just.o_state._Person.ch_stance) 
+                where
+                    go Upright = 3
+                    go Crouch  = 2
+                    go Prone   = 1
 
     --updateAi = do
     --    m ← use w_map
