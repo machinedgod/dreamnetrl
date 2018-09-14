@@ -1,10 +1,8 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, DeriveTraversable #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Dreamnet.Engine.WorldMap
 ( module Dreamnet.Engine.TileMap
@@ -84,17 +82,19 @@ isEmpty (Cell l) = null l
 
 --------------------------------------------------------------------------------
 
-class WorldMapReadAPI a wm | wm → a where
+class WorldMapReadAPI wm where
+    type WorldMapObject wm ∷ *
+
     desc               ∷ wm String
-    cellAt             ∷ V2 Int → wm (Cell a)
-    interestingObjects ∷ V2 Int → Range → (a → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
+    cellAt             ∷ V2 Int → wm (Cell (WorldMapObject wm))
+    interestingObjects ∷ V2 Int → Range → (WorldMapObject wm → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
     oob                ∷ V2 Int → wm Bool
     castRay            ∷ V2 Int → Int → V2 Int → Int → wm [(V2 Int, Bool)]
 
 
-class (WorldMapReadAPI a wm) ⇒ WorldMapAPI a wm | wm → a where
-    modifyCell  ∷ V2 Int → (Cell a → Cell a) → wm ()
-    replaceCell ∷ V2 Int → Cell a → wm ()
+class (WorldMapReadAPI wm) ⇒ WorldMapAPI wm where
+    modifyCell  ∷ V2 Int → (Cell (WorldMapObject wm) → Cell (WorldMapObject wm)) → wm ()
+    replaceCell ∷ V2 Int → Cell (WorldMapObject wm) → wm ()
 
 --------------------------------------------------------------------------------
 
@@ -129,7 +129,7 @@ newWorldMap w h x =
 fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → Either String a) → Either String (WorldMap a)
 fromTileMap tm t2o = do
     let maybeObjects  i   = coordLin tm i `M.lookup` (tm^.m_positioned)
-        addPositioned i o = maybe (Right o) (\os → (o<>) . Cell <$> traverse t2o os) (maybeObjects i)
+        addPositioned i o = maybe (Right o) (fmap ((o<>) . Cell) . traverse t2o) (maybeObjects i)
     mapData ←  V.imapM addPositioned =<< transposeAndMerge <$> traverse (layerToObject (tm^.m_tileset)) (tm^.m_layers)
     pure $ WorldMap { _wm_width   = width tm
                     , _wm_height  = height tm
@@ -179,7 +179,9 @@ execWorldMap wmm = snd . runWorldMap wmm
 
 --------------------------------------------------------------------------------
 
-instance (VisibleAPI a) ⇒ WorldMapReadAPI a (WorldMapM a) where
+instance (VisibleAPI a) ⇒ WorldMapReadAPI (WorldMapM a) where
+    type WorldMapObject (WorldMapM a) = a
+
     desc = use wm_desc
 
     -- TODO partial function! :-O
@@ -202,15 +204,9 @@ instance (VisibleAPI a) ⇒ WorldMapReadAPI a (WorldMapM a) where
 
 
 
-instance (VisibleAPI a) ⇒ WorldMapAPI a (WorldMapM a) where
+instance (VisibleAPI a) ⇒ WorldMapAPI (WorldMapM a) where
     modifyCell v f = do
         m ← get
-        wm_data %= V.modify (modifyInPlace m)
-        where
-            modifyInPlace m vec = do
-                let i = linCoord m v
-                os ← MV.read vec i
-                MV.write vec i (f os)
+        wm_data %= V.modify (\vec → let i = linCoord m v in  MV.read vec i >>= MV.write vec i . f)
 
     replaceCell v c = modifyCell v (const c)
-

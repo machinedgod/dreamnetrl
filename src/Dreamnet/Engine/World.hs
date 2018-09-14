@@ -1,29 +1,18 @@
 {-# LANGUAGE UnicodeSyntax, OverloadedStrings, NegativeLiterals, TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Dreamnet.Engine.World
 ( module Dreamnet.Engine.WorldMap
 , module Dreamnet.Engine.ObjectAPI
 
-, WorldReadAPI(..)
+, WorldReadAPI(..), WorldAPI(..)
 
-, WorldAPI(..)
-, replaceObject
+, World, newWorld
 
-, World
-, newWorld
-
-, WorldM
-, runWorld
-, evalWorld
-, execWorld
-
-, runObjectMonadForAI
+, WorldM, runWorld, evalWorld, execWorld
 ) where
 
 
@@ -38,46 +27,48 @@ import Control.Monad.State.Strict (MonadState, State, runState, evalState, execS
 import Linear                     (V2(V2))
 import Data.Foldable              (traverse_, for_)
 import Data.List                  (elemIndex)
+import Data.Maybe                 (fromMaybe)
 
 import qualified Data.Vector as V (Vector, imap, replicate, head)
 import qualified Data.Set    as S (Set, member, map)
 
+import Dreamnet.Engine.Object
 import Dreamnet.Engine.ObjectAPI
 import Dreamnet.Engine.WorldMap
 import Dreamnet.Engine.Visibility hiding (height)
 
 --------------------------------------------------------------------------------
 
-class (WorldMapReadAPI (Object o) w) ⇒ WorldReadAPI o v w | w → o, w → v where
+class (WorldMapReadAPI w) ⇒ WorldReadAPI w where
+    type WorldObject w      ∷ *
+    type VisibilityObject w ∷ *
+
     currentTurn       ∷ w Int
-    currentMap        ∷ w (WorldMap (Object o)) -- TODO not liking this
-    visibility        ∷ w (V.Vector v) -- TODO or this
+    currentMap        ∷ w (WorldMap (WorldObject w)) -- TODO not liking this
+    visibility        ∷ w (V.Vector (VisibilityObject w)) -- TODO or this
     playerPosition    ∷ w (V2 Int, Int)
-    playerObject      ∷ w o
+    playerObject      ∷ w (WorldObject w)
     teamPositions     ∷ w [(V2 Int, Int)]
-    teamObjects       ∷ w [o]
+    teamObjects       ∷ w [WorldObject w]
 
 
-class (WorldMapAPI (Object o) w, WorldReadAPI o v w) ⇒ WorldAPI o v w | w → o, w → v where
-    increaseTurn    ∷ w ()
-    status          ∷ w String
+class (WorldMapAPI w, WorldReadAPI w) ⇒ WorldAPI w where
+    increaseTurn        ∷ w ()
+    status              ∷ w String
     -- TODO consider nuking this and using rendering of the state to display info
-    setStatus       ∷ String → w ()
-    changeObject    ∷ V2 Int → (Object o → w (Object o)) → w ()
-    modifyObjectAt  ∷ V2 Int → Int → (Object o → w (Object o)) → w ()
-    movePlayer      ∷ V2 Int → w ()
-    changePlayer    ∷ (Object o → Object o) → w ()
-    --joinParty       ∷ w ()
-    joinTeam        ∷ o → w ()
-    moveObject      ∷ V2 Int → Object o → V2 Int → w ()
+    setStatus           ∷ String → w ()
+    changeObject        ∷ V2 Int → (WorldObject w → w (WorldObject w)) → w ()
+    modifyObjectAt      ∷ V2 Int → Int → (WorldObject w → w (WorldObject w)) → w ()
+    replaceObject       ∷ V2 Int → WorldObject w → WorldObject w → w ()
+    movePlayer          ∷ V2 Int → w ()
+    changePlayer        ∷ (WorldObject w → WorldObject w) → w ()
+    --joinParty         ∷ w ()
+    joinTeam            ∷ WorldObject w → w ()
+    moveObject          ∷ V2 Int → WorldObject w → V2 Int → w ()
     -- TODO Nuke when updateVisible disappears
-    setVisibility   ∷ S.Set (V2 Int) → w ()
+    setVisibility       ∷ S.Set (V2 Int) → w ()
+    runObjectMonadForAI ∷ (V2 Int, Int, WorldMapObject w) → Free (ObjectF (WorldMapObject w)) a → w a
 
-
-replaceObject ∷ (Eq o, Applicative w, WorldAPI o v w) ⇒ V2 Int → Object o → Object o → w ()
-replaceObject v oo no = changeObject v (\c → pure $ if c == oo
-                                                      then no
-                                                      else c)
 
 --------------------------------------------------------------------------------
 
@@ -119,7 +110,9 @@ newtype WorldM o v a = WorldM { runWorldM ∷ State (World o v) a }
                      deriving (Functor, Applicative, Monad, MonadState (World o v))
 
 
-instance WorldMapReadAPI (Object o) (WorldM o v) where
+instance WorldMapReadAPI (WorldM o v) where
+    type WorldMapObject (WorldM o v) = Object o
+
     desc = uses w_map (evalWorldMap desc)
 
     cellAt v = uses w_map (evalWorldMap (cellAt v))
@@ -132,7 +125,7 @@ instance WorldMapReadAPI (Object o) (WorldM o v) where
 
 
 
-instance WorldMapAPI (Object o) (WorldM o v) where
+instance WorldMapAPI (WorldM o v) where
     modifyCell v f = w_map %= execWorldMap (modifyCell v f)
 
     replaceCell v l = w_map %= execWorldMap (replaceCell v l)
@@ -140,7 +133,10 @@ instance WorldMapAPI (Object o) (WorldM o v) where
 
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
-instance WorldReadAPI o Visibility (WorldM o Visibility) where
+instance WorldReadAPI (WorldM o Visibility) where
+    type WorldObject (WorldM o Visibility) = Object o
+    type VisibilityObject (WorldM o Visibility) = Visibility
+
     currentTurn = use w_turn
 
     currentMap = use w_map
@@ -151,16 +147,18 @@ instance WorldReadAPI o Visibility (WorldM o Visibility) where
 
     playerObject = do
         mpl ← playerPosition >>= \tp → fmap (valueAt (snd tp)) (cellAt (fst tp))
-        pure $ view o_state $ fromJustNote "Error retrieving player data, bad code!" mpl
+        pure $ fromJustNote "Error retrieving player data, bad code!" mpl
+        --pure $ view o_state $ fromJustNote "Error retrieving player data, bad code!" mpl
 
     teamPositions = use w_team
 
     teamObjects = use w_team >>=
-        traverse (\tp → maybe
-            (error "Team member referenced, but does not exist in the map at that position!") (view o_state) . valueAt (snd tp) <$> cellAt (fst tp))
+        traverse (\tp → fromMaybe
+            (error "Team member referenced, but does not exist in the map at that position!") . valueAt (snd tp) <$> cellAt (fst tp))
+            --(error "Team member referenced, but does not exist in the map at that position!") (view o_state) . valueAt (snd tp) <$> cellAt (fst tp))
 
 
-instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
+instance (Eq o, Show o) ⇒ WorldAPI (WorldM o Visibility) where
     increaseTurn = w_turn += 1
 
     status = use w_status
@@ -174,6 +172,10 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
     modifyObjectAt v ix f =
         cellAt v >>=
         traverse_ (f >=> \no → modifyCell v (replaceInCell ix no)) . valueAt ix -- traversal over Maybe
+
+    replaceObject v oo no = changeObject v (\c → pure $ if c == oo
+                                                          then no
+                                                          else c)
 
     movePlayer v = do
         (pp, ix) ← playerPosition
@@ -208,6 +210,76 @@ instance (Eq o) ⇒ WorldAPI o Visibility (WorldM o Visibility) where
                                     Visible → Known
                                     _       → x)
 
+    runObjectMonadForAI (cv, h, o) (Free (Position fv)) =
+        runObjectMonadForAI (cv, h, o) (fv (cv, h))
+    runObjectMonadForAI (cv, h, o) (Free (Move v n)) =
+        moveObject cv o v *>
+            runObjectMonadForAI (v, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (Passable fn)) =
+        runObjectMonadForAI (cv, h, o) (fn $ view o_passable o)
+    runObjectMonadForAI (cv, h, o) (Free (SetPassable cl n)) =
+        let no = o_passable .~ cl $ o
+        in  replaceObject cv o no *>
+                runObjectMonadForAI (cv, h, no) n
+    runObjectMonadForAI (cv, h, o) (Free (SeeThrough fn)) =
+        runObjectMonadForAI (cv, h, o) (fn $ view o_seeThrough o)
+    runObjectMonadForAI (cv, h, o) (Free (SetSeeThrough st n)) =
+        let no = o_seeThrough .~ st $ o
+        in  replaceObject cv o no *>
+                runObjectMonadForAI (cv, h, no) n
+    runObjectMonadForAI (cv, h, o) (Free (CanSee v fs)) =
+        castRay cv h v 0 >>= -- TODO add height!
+            runObjectMonadForAI (cv, h, o) . fs . and . fmap snd
+    runObjectMonadForAI (cv, h, o) (Free (ChangeSymbol c n)) =
+        let no = o_symbol .~ c $ o
+        in  replaceObject cv o no *>
+                runObjectMonadForAI (cv, h, no) n
+    runObjectMonadForAI (cv, h, o) (Free (ChangeMat m n)) =
+        let no = o_material .~ m $ o
+        in  replaceObject cv o no *>
+                runObjectMonadForAI (cv, h, no) n
+    runObjectMonadForAI (cv, h, o) (Free (Message m n)) =
+        setStatus m *>
+            runObjectMonadForAI (cv, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (DoTalk _ n)) =
+        setStatus ("NPC " <> show o <> " is talking.") *>
+            runObjectMonadForAI (cv, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (OperateComputer n)) =
+        setStatus ("Computer " <> show o <> " is being operated.") *>
+            runObjectMonadForAI (cv, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (ScanRange r f fn)) = do
+        points ← interestingObjects cv r f
+        values ← foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points
+        runObjectMonadForAI (cv, h, o) (fn (zip points values))
+        where
+            onlyJust (Just x) l = x : l
+            onlyJust Nothing  l = l
+    runObjectMonadForAI (cv, h, o) (Free (AcquireTarget s fn)) =
+        case s of
+            Freeform    → runObjectMonadForAI (cv, h, o) (fn (V2 0 0))
+            LineOfSight → runObjectMonadForAI (cv, h, o) (fn (V2 1 1))
+    runObjectMonadForAI (cv, h, o) (Free (SpawnNewObject v s n)) = do
+        modifyCell v (addToCell s)
+        runObjectMonadForAI (cv, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (RemoveObject v i n)) = do
+        x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
+        modifyCell v (deleteFromCell x)
+        runObjectMonadForAI (cv, h, o) n
+    runObjectMonadForAI (cv, h, o) (Free (FindObject s fn)) = do
+        pp ← fst <$> playerPosition
+        xs ← interestingObjects pp 60 (s==)
+        if null xs
+            then runObjectMonadForAI (cv, h, o) (fn Nothing)
+            else do
+                let v = head xs
+                cellvs ← cellValues <$> cellAt v
+                let mi = s `elemIndex` cellvs
+                let r = (v,) <$> mi
+                runObjectMonadForAI (cv, h, o) (fn r)
+    runObjectMonadForAI _ (Pure x) =
+        pure x
+
+
 
 runWorld ∷ WorldM o v a → World o v → (a, World o v)
 runWorld wm = runState (runWorldM wm)
@@ -219,76 +291,4 @@ evalWorld wm = evalState (runWorldM wm)
 
 execWorld ∷ WorldM o v a → World o v → World o v
 execWorld wm = execState (runWorldM wm)
-
---------------------------------------------------------------------------------
-
-runObjectMonadForAI ∷ (Show o, Eq o, Monad w, WorldAPI o v w) ⇒ (V2 Int, Int, Object o) → Free (ObjectF o) a → w a
-runObjectMonadForAI (cv, h, o) (Free (Position fv)) =
-    runObjectMonadForAI (cv, h, o) (fv (cv, h))
-runObjectMonadForAI (cv, h, o) (Free (Move v n)) =
-    moveObject cv o v *>
-        runObjectMonadForAI (v, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (Passable fn)) =
-    runObjectMonadForAI (cv, h, o) (fn $ view o_passable o)
-runObjectMonadForAI (cv, h, o) (Free (SetPassable cl n)) =
-    let no = o_passable .~ cl $ o
-    in  replaceObject cv o no *>
-            runObjectMonadForAI (cv, h, no) n
-runObjectMonadForAI (cv, h, o) (Free (SeeThrough fn)) =
-    runObjectMonadForAI (cv, h, o) (fn $ view o_seeThrough o)
-runObjectMonadForAI (cv, h, o) (Free (SetSeeThrough st n)) =
-    let no = o_seeThrough .~ st $ o
-    in  replaceObject cv o no *>
-            runObjectMonadForAI (cv, h, no) n
-runObjectMonadForAI (cv, h, o) (Free (CanSee v fs)) =
-    castRay cv h v 0 >>= -- TODO add height!
-        runObjectMonadForAI (cv, h, o) . fs . and . fmap snd
-runObjectMonadForAI (cv, h, o) (Free (ChangeSymbol c n)) =
-    let no = o_symbol .~ c $ o
-    in  replaceObject cv o no *>
-            runObjectMonadForAI (cv, h, no) n
-runObjectMonadForAI (cv, h, o) (Free (ChangeMat m n)) =
-    let no = o_material .~ m $ o
-    in  replaceObject cv o no *>
-            runObjectMonadForAI (cv, h, no) n
-runObjectMonadForAI (cv, h, o) (Free (Message m n)) =
-    setStatus m *>
-        runObjectMonadForAI (cv, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (DoTalk _ n)) =
-    setStatus ("NPC " <> show o <> " is talking.") *>
-        runObjectMonadForAI (cv, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (OperateComputer n)) =
-    setStatus ("Computer " <> show o <> " is being operated.") *>
-        runObjectMonadForAI (cv, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (ScanRange r f fn)) = do
-    points ← interestingObjects cv r f
-    values ← foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points
-    runObjectMonadForAI (cv, h, o) (fn (zip points values))
-    where
-        onlyJust (Just x) l = x : l
-        onlyJust Nothing  l = l
-runObjectMonadForAI (cv, h, o) (Free (AcquireTarget s fn)) =
-    case s of
-        Freeform    → runObjectMonadForAI (cv, h, o) (fn (V2 0 0))
-        LineOfSight → runObjectMonadForAI (cv, h, o) (fn (V2 1 1))
-runObjectMonadForAI (cv, h, o) (Free (SpawnNewObject v s n)) = do
-    modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
-    runObjectMonadForAI (cv, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (RemoveObject v i n)) = do
-    x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
-    modifyCell v (deleteFromCell x)
-    runObjectMonadForAI (cv, h, o) n
-runObjectMonadForAI (cv, h, o) (Free (FindObject s fn)) = do
-    pp ← fst <$> playerPosition
-    xs ← interestingObjects pp 60 ((s==) . view o_state)
-    if null xs
-        then runObjectMonadForAI (cv, h, o) (fn Nothing)
-        else do
-            let v = head xs
-            cellvs ← cellValues <$> cellAt v
-            let mi = s `elemIndex` (view o_state <$> cellvs)
-            let r = (v,) <$> mi
-            runObjectMonadForAI (cv, h, o) (fn r)
-runObjectMonadForAI _ (Pure x) =
-    pure x
 

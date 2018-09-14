@@ -4,6 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 
 module Dreamnet.Dreamnet
@@ -41,6 +42,7 @@ import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Visibility hiding (height)
 import qualified Dreamnet.Engine.Visibility as Visibility (height)
 import Dreamnet.Engine.Character
+import Dreamnet.Engine.Object
 import qualified Dreamnet.Engine.Input as Input
 
 import Dreamnet.Rendering.Renderer
@@ -399,7 +401,7 @@ processNormal _ Input.Examine = do
                 if onHerself
                     then Examination <$> world <*> doWorld desc
                     else doWorld (increaseTurn *> playerObject) >>=
-                            whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
+                            whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world) . view o_state
         case gs of
             (Examination _ d) → let examineUpdateUi = setScroll . newScrollData (V2 2 1) (V2 60 20) Nothing
                                 in  examineUpdateUi d
@@ -416,15 +418,15 @@ processNormal _ Input.Operate = do
                 Normal <$> world
                               -- .-- TODO as much as operation program wants!
             Just o → doWorld (increaseTurn *> playerObject) >>=
-                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
+                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world) . view o_state
     where
         program o ch = programForState ch (view o_state o) Operate
 processNormal _ Input.ExamineHeld = do
     mres ← runMaybeT $ do
         ho  ← lift (doWorld playerObject)
-                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
+                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot) . view o_state
         (pp, ph) ← lift $ doWorld playerPosition
-        pch      ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        pch      ← MaybeT $ doWorld (maybeCharacter . view o_state <$> playerObject)
         lift $ runProgramAsPlayer pp ph (programForState pch ho Examine)
     maybe
         (doWorld (setStatus "You aren't carrying anything in your hands.") >> Normal <$> world)
@@ -433,9 +435,9 @@ processNormal _ Input.ExamineHeld = do
 processNormal _ Input.OperateHeld = do
     mres ← runMaybeT $ do
         ho  ← lift (doWorld playerObject)
-                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot)
+                    >>= MaybeT . pure . (maybeCharacter >=> slotWrapperItem . primaryHandSlot) . view o_state
         (pp, ph) ← lift $ doWorld playerPosition
-        pch      ← MaybeT $ doWorld (maybeCharacter <$> playerObject)
+        pch      ← MaybeT $ doWorld (maybeCharacter . view o_state <$> playerObject)
         lift $ runProgramAsPlayer pp ph (programForState pch ho Operate)
     maybe
         -- TODO as much as the device wants!
@@ -447,6 +449,7 @@ processNormal _ Input.OperateHeldOn = do
             whenCharacter
                 (pure . slotWrapperItem . primaryHandSlot)
                 (pure Nothing)
+                . view o_state
     case mho of
         Nothing → do
             doWorld $ setStatus "You aren't carrying anything in your hands."
@@ -471,6 +474,7 @@ processNormal _ Input.OperateHeldOn = do
                                  runProgramAsPlayer v i (programForState ch so (OperateWith ho));
                                 })
                                 (Normal <$> world)
+                                . view o_state
                         -- TODO which of the game states should take precedence?
 processNormal _ Input.Talk = do
     gs ← withTarget Adjactened $ \v i → 
@@ -481,7 +485,7 @@ processNormal _ Input.Talk = do
                     increaseTurn
                 Normal <$> world
             Just o → doWorld (increaseTurn *> playerObject) >>=
-                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world)
+                        whenCharacter (runProgramAsPlayer v i . program o) (Normal <$> world) . view o_state
     case gs of
         (Conversation _ ps cn) → conversationUpdateUi (view ch_name <$> ps) cn
         _ → pure ()
@@ -489,14 +493,14 @@ processNormal _ Input.Talk = do
     where
         program o ch = programForState ch (view o_state o) Talk
 processNormal _ Input.InventorySheet = do
-    itemList ← whenCharacter listOfItemsFromContainers [] <$> doWorld playerObject
+    itemList ← whenCharacter listOfItemsFromContainers [] . view o_state <$> doWorld playerObject
     --itemList ← fromCharacter listOfItemsFromContainers [] . evalWorld (playerPosition >>= (\(pp, ix) → fromJustNote "invsheet" . valueAt ix <$> cellAt pp)) <$> world
     setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
     InventoryUI <$> world
 processNormal _ Input.CharacterSheet =
     SkillsUI <$> world <*> pure carla
 processNormal _ Input.GiveCommand = do
-    teamChars ← doWorld (fmap (fromJust . maybeCharacter) <$> teamObjects)
+    teamChars ← doWorld (fmap (fromJust . maybeCharacter . view o_state) <$> teamObjects)
     if not (null teamChars)
         then do
             let xs = zip choiceChs (view ch_name <$> teamChars)
@@ -516,7 +520,7 @@ processNormal _ Input.SwitchToHud =
 
 
 
-programForState ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → States → InteractionType States → o ()
+programForState ∷ (DreamnetObjectAPI States o) ⇒ DreamnetCharacter → States → InteractionType States → o ()
 programForState _  (Prop "Door" _)      it = genericDoor it
 programForState ch (Prop "Mirror" _)    it = mirror ch it
 programForState ch (Prop "Newspaper" _) it = mirror ch it

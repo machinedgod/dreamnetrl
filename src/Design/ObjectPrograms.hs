@@ -1,13 +1,17 @@
-{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE UnicodeSyntax, LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Design.ObjectPrograms
 where
 
-import Control.Lens       (view, views, (^.))
+import Control.Lens       (view, (^.))
+import Control.Monad.Free (Free)
 import Data.Semigroup     ((<>))
 import Data.Bool          (bool)
 
+import Dreamnet.Engine.Object
 import Dreamnet.Engine.World
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
@@ -17,7 +21,11 @@ import Dreamnet.ComputerModel
 
 --------------------------------------------------------------------------------
 
-genericProp ∷ (ObjectAPI s o, Applicative o) ⇒ String → String → InteractionType s → o ()
+type DreamnetObjectAPI s o = (ObjectAPI o, Monad o, ObjectAPIState o ~ s, ObjectAPIConversation o ~ Free (ConversationF s))
+
+--------------------------------------------------------------------------------
+
+genericProp ∷ (DreamnetObjectAPI s o) ⇒ String → String → InteractionType s → o ()
 genericProp _ d Examine =
     message d
 genericProp _ _ _ =
@@ -25,7 +33,7 @@ genericProp _ _ _ =
 
 
 
-genericClothes ∷ (ObjectAPI s o, Applicative o) ⇒ WearableItem i → InteractionType s → o ()
+genericClothes ∷ (DreamnetObjectAPI s o) ⇒ WearableItem i → InteractionType s → o ()
 genericClothes wi Examine =
     message ("A " <> view wi_name wi)
 genericClothes _ _ =
@@ -33,7 +41,7 @@ genericClothes _ _ =
 
 
 
-genericWeapon ∷ (ObjectAPI States o, Monad o) ⇒ WeaponItem → InteractionType States → o ()
+genericWeapon ∷ (DreamnetObjectAPI States o) ⇒ WeaponItem → InteractionType States → o ()
 genericWeapon wpi Examine =
     message (wpi ^. wpi_description)
 genericWeapon wpi Operate =
@@ -47,7 +55,7 @@ genericWeapon _ (OperateOn s) = do
             uncurry removeObject v
             message ("Boom boom! " <> show s <> " is dead!")
         Nothing →
-            message ("Well, there's nothing there?")
+            message "Well, there's nothing there?"
 genericWeapon wpi (OperateWith (Ammo ami)) =
     message ("You reload the " <> view wpi_name wpi <> " with ammo clip: " <> view ami_name ami)
 genericWeapon _ _ =
@@ -55,7 +63,7 @@ genericWeapon _ _ =
 
 
 
-genericAmmo ∷ (ObjectAPI States o, Applicative o) ⇒ AmmoItem → InteractionType States → o ()
+genericAmmo ∷ (DreamnetObjectAPI States o) ⇒ AmmoItem → InteractionType States → o ()
 genericAmmo ami Examine =
     message ("Nice ammo, a " <> view ami_name ami)
 genericAmmo ami Operate =
@@ -69,7 +77,7 @@ genericAmmo _ _ =
 
 
 
-genericThrowable ∷ (ObjectAPI States o, Applicative o) ⇒ ThrownWeaponItem → InteractionType States → o ()
+genericThrowable ∷ (DreamnetObjectAPI States o) ⇒ ThrownWeaponItem → InteractionType States → o ()
 genericThrowable twi Examine =
     message ("Nice throwable, a " <> view twi_name twi)
 genericThrowable twi Operate =
@@ -83,7 +91,7 @@ genericThrowable _ _ =
 
 
 
-genericConsumable ∷ (ObjectAPI States o, Monad o) ⇒ ConsumableItem → DreamnetCharacter → InteractionType States → o ()
+genericConsumable ∷ (DreamnetObjectAPI States o) ⇒ ConsumableItem → DreamnetCharacter → InteractionType States → o ()
 genericConsumable ci _ Examine =
     message ("A " <> view ci_name ci)
 genericConsumable ci ch Operate =
@@ -94,7 +102,7 @@ genericConsumable _ _ _ =
 --------------------------------------------------------------------------------
 
 -- | Toggles collision and character on interaction
-genericDoor ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType States → o ()
+genericDoor ∷ (DreamnetObjectAPI States o) ⇒ InteractionType States → o ()
 genericDoor Examine =
     passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
 genericDoor Operate = do
@@ -111,7 +119,7 @@ genericDoor _ =
 
 
 
-lock ∷ (ObjectAPI States o, Monad o) ⇒ InteractionType States → o ()
+lock ∷ (DreamnetObjectAPI States o) ⇒ InteractionType States → o ()
 lock Examine =
     message "Its a lock allright"
 lock Operate =
@@ -127,7 +135,7 @@ lock _ =
 
 
 
-genericComputer ∷ (ObjectAPI States o, Monad o) ⇒ ComputerData → InteractionType States → o ()
+genericComputer ∷ (DreamnetObjectAPI States o) ⇒ ComputerData → InteractionType States → o ()
 genericComputer _ Examine =
     message "Screen, keyboard, cartridge connector.. yeah, pretty standard machine there."
 genericComputer _ Operate =
@@ -144,7 +152,7 @@ genericComputer _ _ =
 
 
 
-genericPerson ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType States → o ()
+genericPerson ∷ (DreamnetObjectAPI States o) ⇒ DreamnetCharacter → InteractionType States → o ()
 genericPerson ch Examine =
     message (view ch_description ch)
 genericPerson ch Operate =
@@ -157,22 +165,25 @@ genericPerson _ _ =
 
 
 -- TODO mixes general Object knowledge with States knowledge. This is an issue!
-genericCamera ∷ (ObjectAPI States o, Monad o) ⇒ Faction → Word → InteractionType s → o ()
+genericCamera ∷ (DreamnetObjectAPI States o) ⇒ Faction → Word → InteractionType s → o ()
 genericCamera _ _ Examine =
     message "A camera, its eye lazily scanning the environment. Its unaware of you, or it doesn't care."
 genericCamera f _ Operate = do
-    os   ← scanRange 8 ((==Symbol '@') . view o_symbol)
+    os   ← scanRange 8 (\case
+                            Person _ → True
+                            _        → False)
     viso ← fmap (snd . fst) . filter snd . zip os <$> traverse (canSee . fst) os
     -- traverse isFoe viso >>= (\v → modifyState (\(Camera f _) → Camera f (fromIntegral v))) . length -- . filter id
     message $ "Camera alarm level: " <> show (length $ isFoe <$> viso)
     where
-        isFoe o = f /= views o_state (\(Person ch) → view ch_faction ch) o -- TODO Fix this with maybe monad
+        isFoe (Person ch) = f /= view ch_faction ch -- TODO Fix this with maybe monad
+        isFoe _           = False
 genericCamera _ _ _ =
     pure ()
 
 
 
-mirror ∷ (ObjectAPI States o, Monad o) ⇒ DreamnetCharacter → InteractionType States → o ()
+mirror ∷ (DreamnetObjectAPI States o) ⇒ DreamnetCharacter → InteractionType States → o ()
 mirror ch Examine =
     doTalk (describe (view ch_description ch))
 mirror ch Talk =

@@ -68,6 +68,7 @@ executable dreamnetrl
                         Dreamnet.Engine.TileMap
                         Dreamnet.Engine.Utils
                         Dreamnet.Engine.Visibility
+                        Dreamnet.Engine.Object
                         Dreamnet.Engine.ObjectAPI
                         Dreamnet.Engine.World
                         Dreamnet.Engine.WorldMap

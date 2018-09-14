@@ -160,7 +160,7 @@ generateDescription ∷ (MonadRandom r)
 generateDescription _ _ _ _ _ _ = pure "You never saw this person in your life."
 
 
-generateConvo ∷ (ConversationAPI o c) ⇒ c () -- TODO I should be able to mix conversation monad with monad random!
+generateConvo ∷ (ConversationAPI c) ⇒ c () -- TODO I should be able to mix conversation monad with monad random!
 generateConvo = talk 1 "Beat it, lizzie!"
 
 

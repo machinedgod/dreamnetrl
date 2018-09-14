@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Dreamnet.Engine.Conversation
 ( ConversationAPI(..)
@@ -15,14 +15,16 @@ import Control.Monad.Free (Free(Free, Pure))
 
 -- TODO consider using package 'naturals' to add safety to these ints
 -- Words just wrap around so they're useless
-class ConversationAPI o c | c → o where
+class ConversationAPI c where
+    type ConvObject c ∷ *
+
     name        ∷ Int → c String
     lastname    ∷ Int → c String
     nick        ∷ Int → c String
     talk        ∷ Int → String → c ()
     choice      ∷ [String] → c Int
     describe    ∷ String → c ()
-    receiveItem ∷ Int → o → c ()
+    receiveItem ∷ Int → ConvObject c → c ()
     (|=>)       ∷ String → c () → (String, c ())
 
 --------------------------------------------------------------------------------
@@ -44,7 +46,9 @@ instance Show (ConversationF o a) where
     show _ = "[CONV]"
 
 
-instance ConversationAPI o (Free (ConversationF o)) where
+instance ConversationAPI (Free (ConversationF o)) where
+    type ConvObject (Free (ConversationF o)) = o
+
     name i = Free $ CName i Pure
 
     lastname i = Free $ CLastname i Pure

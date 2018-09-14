@@ -1,8 +1,6 @@
 {-# LANGUAGE UnicodeSyntax, LambdaCase, TupleSections, ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -73,6 +71,7 @@ import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Utils
+import Dreamnet.Engine.Object
 
 import qualified Dreamnet.Rendering.Renderer as R
 
@@ -508,7 +507,7 @@ runObjectMonadForPlayer (cv, h, o) (Free (Message s n)) = -- TODO this means we 
         runObjectMonadForPlayer (cv, h, o) n
 runObjectMonadForPlayer (_, _, o) (Free (DoTalk c _)) = do
     w ← world
-    (Person pc) ← doWorld playerObject
+    (Person pc) ← doWorld (view o_state <$> playerObject)
     changeGameState $ \_ → 
         whenCharacter (\ch → Conversation w (pc :| [ch]) c) (Normal w) (view o_state o)
     -- runObjectMonadForPlayer (cv, h, o) n
@@ -516,11 +515,11 @@ runObjectMonadForPlayer (cv, _, o) (Free (OperateComputer _)) = do
     w ← world
     changeGameState $ \_ →
         -- TODO actually find the position here -----.----   , and if there isn't one, don't do anything!
-        whenComputer (\cd → ComputerOperation w (cv, 1) cd) (Normal w) (view o_state o)
+        whenComputer (ComputerOperation w (cv, 1)) (Normal w) (view o_state o)
     --runObjectMonadForPlayer (cv, h, o) n
 runObjectMonadForPlayer (cv, h, o) (Free (ScanRange r f fn)) = do
-    points ← doWorld (interestingObjects cv r f)
-    values ← doWorld (foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points)
+    points ← doWorld (interestingObjects cv r (f . view o_state))
+    values ← doWorld (foldr onlyJust [] <$> traverse (fmap (fmap (view o_state) . lastValue) . cellAt) points)
     runObjectMonadForPlayer (cv, h, o) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l

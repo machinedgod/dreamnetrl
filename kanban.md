@@ -24,6 +24,8 @@
     * [ ] Personalities
     * [ ] Dwarffortress-like preferences
     * [ ] AI's know what are they good at, and their personality decides whether they go with what they're good in, or try to learn new things
+- See if possible to refactor GameStates into data family, with enum promoted to kind, and  data instances that only ever have one valid constructor (carrying all the data)
+    > This would make it possible to create tighter functions that can only ever operate on a single valid state, not all the states.
 
 ## Analysis(1)
 
