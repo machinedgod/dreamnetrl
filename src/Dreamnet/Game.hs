@@ -5,6 +5,13 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DataKinds, KindSignatures #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Dreamnet.Game
 ( module Dreamnet.Engine.World
 
@@ -27,9 +34,7 @@ module Dreamnet.Game
 
 , Faction(..)
 , States(..), _Prop, _Camera, _Person, _Computer, _Clothes, _Weapon, _Ammo,
-  _Throwable, _Consumable, withCharacter, whenCharacter, whenComputer,
-  whenClothes, maybeCharacter
-
+  _Throwable, _Consumable
 
 , DreamnetCharacter
 , DreamnetWorld
@@ -39,26 +44,20 @@ module Dreamnet.Game
 
 , TargetActivationF(runWithTarget)
 , ChoiceActivationF(runWithChoice)
-, GameAPI(..)
-, GameState(..)
-, DesignData(..)
-, dd_characters
-, dd_dev_startingMap
+, GameStateEnum(..), GameState(..), SomeGameState(..), dreamnetWorld, modifyWorld
 
-, GameM
-, runGame
-, evalGame
-, execGame
+, DesignData(..), dd_characters, dd_dev_startingMap
+
+, runProgramAsPlayer, withTargetAdjactened, withTargetDistant, withChoice,
+  updateVisible
 ) where
 
 import Safe                       (fromJustNote)
 import Control.Lens               (makeLenses, makePrisms, view, preview, (.~), _Just)
-import Control.Monad.Trans        (MonadTrans, lift)
 import Control.Monad.Free         (Free(Free, Pure))
-import Control.Monad.State        (MonadState, StateT, runStateT, evalStateT,
-                                   execStateT, get, gets, put, modify)
+import Control.Monad.Reader       (MonadReader, runReader, ask, asks) 
 import Data.Bool                  (bool)
-import Data.Maybe                 (isJust)
+import Data.Maybe                 (isJust, fromMaybe)
 import Data.List                  (elemIndex)
 import Data.List.NonEmpty         (NonEmpty((:|)))
 import Linear                     (V2(V2))
@@ -72,8 +71,6 @@ import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.Object
-
-import qualified Dreamnet.Rendering.Renderer as R
 
 import Dreamnet.ComputerModel
 
@@ -207,33 +204,6 @@ instance ItemTraits States where
     isContainer (Clothes wi) = isContainer wi
     isContainer _            = False
 
-
-withCharacter ∷ (DreamnetCharacter → DreamnetCharacter) → States → States
-withCharacter f (Person ch) = Person (f ch)
-withCharacter _ x           = x
-
---------------------------------------------------------------------------------
-
-whenCharacter ∷ (DreamnetCharacter →  a) →  a → States →  a
-whenCharacter f _ (Person ch) = f ch
-whenCharacter _ d _           = d
-
-
-whenComputer ∷ (ComputerData →  a) →  a → States →  a
-whenComputer f _ (Computer cd) = f cd
-whenComputer _ d _             = d
-
-
-whenClothes ∷ (∀ b. WearableItem b → a) → a → States → a
-whenClothes f _ (Clothes wi) = f wi
-whenClothes _ d _            = d
-
---------------------------------------------------------------------------------
-
-maybeCharacter ∷ States → Maybe DreamnetCharacter
-maybeCharacter (Person ch) = Just ch
-maybeCharacter _           = Nothing
-
 --------------------------------------------------------------------------------
 
 data DesignData = DesignData {
@@ -259,296 +229,240 @@ lineOfSight isVisibleF = Distant (Filtered isVisibleF)
 
 --------------------------------------------------------------------------------
 
-newtype TargetActivationF g = TargetActivationF {
-      runWithTarget ∷ (GameAPI g) ⇒ V2 Int → Int → g (GameState g)
+newtype TargetActivationF = TargetActivationF {
+      runWithTarget ∷ V2 Int → Int → SomeGameState
     }
 
-newtype ChoiceActivationF g = ChoiceActivationF {
-      runWithChoice ∷ (GameAPI g) ⇒ Int → g (GameState g)
+newtype ChoiceActivationF = ChoiceActivationF {
+      runWithChoice ∷ Int → SomeGameState
     }
-
-
-class GameAPI g where
-    gameState          ∷ g (GameState g)
-    changeGameState    ∷ (GameState g → GameState g) → g (GameState g)
-    world              ∷ g DreamnetWorld
-    doWorld            ∷ WorldM States Visibility a → g a -- TODO why not WorldApi???
-    withTarget         ∷ TargetSelectionType → ((Monad g) ⇒ V2 Int → Int → g (GameState g)) → g (GameState g)
-    withChoice         ∷ [(Char, String)] → ((Monad g) ⇒ Int → g (GameState g)) → g (GameState g)
-    runProgramAsPlayer ∷ V2 Int → Int → Free (ObjectF States) () → g (GameState g)
-    -- TODO redo this, to be a function, and calculate on demand, not prefront
-    updateVisible      ∷ g ()
-    -- TODO not really happy with 'update*' anything. Provide a primitive!
-    --updateAi ∷ w ()
 
 --------------------------------------------------------------------------------
+
+data GameStateEnum = 
+      Quit
+    | Normal
+    | Examination
+    | Conversation
+    | ComputerOperation
+    
+    | HudTeam
+    | HudMessages
+    | HudWatch
+    | InventoryUI
+    | SkillsUI
+    | EquipmentUI
+    
+    | TargetSelectionAdjactened
+    | TargetSelectionDistant
+    | ChoiceSelection
 
 -- TODO try making World Objects keep ObjectPrograms in them, rather than states
 --      then, somehow, programs can keep the state by themselves. Its a monad
 --      after all.
-data GameState g = Quit               DreamnetWorld
-                 | Normal             DreamnetWorld
-                 | Examination        DreamnetWorld String
-                 | Conversation       DreamnetWorld (NonEmpty DreamnetCharacter) (Free (ConversationF States) ())
-                 | ComputerOperation  DreamnetWorld (V2 Int, Int) ComputerData
 
-                 | HudTeam      DreamnetWorld Int
-                 | HudMessages  DreamnetWorld
-                 | HudWatch     DreamnetWorld Int Int
-                 | InventoryUI  DreamnetWorld
-                 | SkillsUI     DreamnetWorld DreamnetCharacter
-                 | EquipmentUI  DreamnetWorld DreamnetCharacter
+type Turn              = Int
+type Button            = Int
+type SelectedCharacter = Int
 
-                 | TargetSelectionAdjactened  DreamnetWorld (V2 Int) Int (TargetActivationF g)
-                 | TargetSelectionDistant     DreamnetWorld (V2 Int) Int (TargetActivationF g)
-                 | ChoiceSelection            DreamnetWorld [(Char, String)] Int (ChoiceActivationF g)
+data GameState ∷ GameStateEnum → * where
+    StNormal            ∷ DreamnetWorld                                                               → GameState 'Normal
+    StExamination       ∷ DreamnetWorld → String                                                      → GameState 'Examination
+    StConversation      ∷ DreamnetWorld → NonEmpty DreamnetCharacter → Free (ConversationF States) () → GameState 'Conversation
+    StComputerOperation ∷ DreamnetWorld → (V2 Int, Int) → ComputerData                                → GameState 'ComputerOperation
+
+    StHudTeam     ∷ DreamnetWorld → SelectedCharacter → GameState 'HudTeam
+    StHudMessages ∷ DreamnetWorld                     → GameState 'HudMessages
+    StHudWatch    ∷ DreamnetWorld → Turn → Button     → GameState 'HudWatch
+    StInventoryUI ∷ DreamnetWorld                     → GameState 'InventoryUI
+    StSkillsUI    ∷ DreamnetWorld → DreamnetCharacter → GameState 'SkillsUI
+    StEquipmentUI ∷ DreamnetWorld → DreamnetCharacter → GameState 'EquipmentUI
+
+    StTargetSelectionAdjactened ∷ DreamnetWorld → V2 Int           → Int → TargetActivationF → GameState 'TargetSelectionAdjactened
+    StTargetSelectionDistant    ∷ DreamnetWorld → V2 Int           → Int → TargetActivationF → GameState 'TargetSelectionDistant
+    StChoiceSelection           ∷ DreamnetWorld → [(Char, String)] → Int → ChoiceActivationF → GameState 'ChoiceSelection
+
+
+dreamnetWorld ∷ GameState gse → DreamnetWorld
+dreamnetWorld (StNormal w)                          = w
+dreamnetWorld (StExamination w _)                   = w
+dreamnetWorld (StConversation w _ _)                = w
+dreamnetWorld (StComputerOperation w _ _)           = w
+dreamnetWorld (StHudTeam w _)                       = w
+dreamnetWorld (StHudMessages w)                     = w
+dreamnetWorld (StHudWatch w _ _)                    = w
+dreamnetWorld (StInventoryUI w)                     = w
+dreamnetWorld (StSkillsUI w _)                      = w
+dreamnetWorld (StEquipmentUI w _)                   = w
+dreamnetWorld (StTargetSelectionAdjactened w _ _ _) = w
+dreamnetWorld (StTargetSelectionDistant w _ _ _)    = w
+dreamnetWorld (StChoiceSelection w _ _ _)           = w
+
+
+modifyWorld ∷ (DreamnetWorld → DreamnetWorld) → GameState gse → GameState gse
+modifyWorld wf (StNormal w)                          = StNormal (wf w)
+modifyWorld wf (StExamination w s)                   = StExamination (wf w) s
+modifyWorld wf (StConversation w cs c)               = StConversation (wf w) cs c
+modifyWorld wf (StComputerOperation w v cd)          = StComputerOperation (wf w) v cd
+modifyWorld wf (StHudTeam w i)                       = StHudTeam (wf w) i
+modifyWorld wf (StHudMessages w)                     = StHudMessages (wf w)
+modifyWorld wf (StHudWatch w hs mm)                  = StHudWatch (wf w) hs mm
+modifyWorld wf (StInventoryUI w)                     = StInventoryUI (wf w)
+modifyWorld wf (StSkillsUI w ch)                     = StSkillsUI (wf w) ch
+modifyWorld wf (StEquipmentUI w ch)                  = StEquipmentUI (wf w) ch
+modifyWorld wf (StTargetSelectionAdjactened w t i f) = StTargetSelectionAdjactened (wf w) t i f
+modifyWorld wf (StTargetSelectionDistant w t i f)    = StTargetSelectionDistant (wf w) t i f
+modifyWorld wf (StChoiceSelection w xs i f)          = StChoiceSelection (wf w) xs i f
 
 --------------------------------------------------------------------------------
 
--- TODO Can't be monadstate of two things at once (GameState and RendererEnvironment)
-newtype GameM m a = GameM { runGameM ∷ StateT (GameState (GameM m)) m a }
-                  deriving (Functor, Applicative, Monad, MonadState (GameState (GameM m)))
+data SomeGameState = ∀ gse. SomeGS (GameState gse)
 
+--------------------------------------------------------------------------------
 
-instance MonadTrans GameM where
-    lift = GameM . lift
-
-
-instance (R.RenderAPI m, Monad m) ⇒ R.RenderAPI (GameM m) where
-    updateMain = lift . R.updateMain
-
-    updateHud = lift . R.updateHud
-
-    updateUi = lift . R.updateUi
-
-    screenSize = lift R.screenSize
-
-    mainSize = lift R.mainSize
-
-    hudSize = lift R.hudSize
-
-    setScroll = lift . R.setScroll
-
-    doScroll = lift . R.doScroll
-    
-    withScroll = lift . R.withScroll
-
-    setChoice = lift . R.setChoice
-
-    doChoice = lift . R.doChoice
-
-    withChoiceData = lift . R.withChoiceData
-
-    currentChoice = lift R.currentChoice
-
-    moveCamera = lift . R.moveCamera
-
-    camera = lift R.camera
-
-    style s = lift (R.style s)
-
-    flush = lift R.flush
-
-
-
-instance (Monad m) ⇒ GameAPI (GameM m) where
-    gameState = get
-
-    changeGameState f = modify f >> get
-
-    world = gets $ \case
-        (Quit w)                  → w
-        (Normal w)                → w
-        (Examination w _)         → w
-        (Conversation w _ _)      → w
-        (ComputerOperation w _ _) → w
-
-        (HudTeam w _)     → w
-        (HudMessages w)   → w
-        (HudWatch w _ _)  → w
-        (InventoryUI w)   → w
-        (SkillsUI w _)    → w
-        (EquipmentUI w _) → w
-        
-        (TargetSelectionAdjactened w _ _ _) → w
-        (TargetSelectionDistant w _ _ _)    → w
-        (ChoiceSelection w _ _ _)           → w
-
-    doWorld m = do
-        (x, w') ← runWorld m <$> world
-        modify $ \case
-            (Quit _)                   → Quit w'
-            (Normal _)                 → Normal w'
-            (Examination _ s)          → Examination w' s
-            (Conversation _ cs c)      → Conversation w' cs c
-            (ComputerOperation _ v cd) → ComputerOperation w' v cd
-
-            (HudTeam _ i)      → HudTeam w' i
-            (HudMessages _)    → HudMessages w'
-            (HudWatch _ hs mm) → HudWatch w' hs mm
-            (InventoryUI _)    → InventoryUI w'
-            (SkillsUI _ ch)    → SkillsUI w' ch
-            (EquipmentUI _ ch) → EquipmentUI w' ch
-
-            (TargetSelectionAdjactened _ t i f) → TargetSelectionAdjactened w' t i f
-            (TargetSelectionDistant _ t i f)    → TargetSelectionDistant w' t i f
-            (ChoiceSelection _ xs i f)          → ChoiceSelection w' xs i f
-        pure x
-
-    withTarget Adjactened f = do
-        w  ← world
-        pp ← doWorld (fst <$> playerPosition)
-        let gs = TargetSelectionAdjactened w pp 0 (TargetActivationF f)
-        put gs
-        pure gs
-
-    withTarget (Distant _) f = do
-        w  ← world
-        pp ← doWorld (fst <$> playerPosition)
-        let gs = TargetSelectionDistant w pp 0 (TargetActivationF f)
-        put gs
-        pure gs
-
-    withChoice lst f = do
-        w  ← world
-        let gs = ChoiceSelection w lst 0 (ChoiceActivationF f)
-        put gs
-        pure gs
-
-    runProgramAsPlayer v i prg =
-        doWorld (valueAt i <$> cellAt v) >>= \case
-            Nothing → Normal <$> world
-            Just o  → do
-                gs ← runObjectMonadForPlayer (v, i, o) prg
-                updateVisible
-                pure gs
-
-    updateVisible = do
-        pp  ← doWorld playerPosition >>= addStanceHeight
-        tps ← doWorld teamPositions >>= traverse addStanceHeight
-
-        raysForAll ← traverse pointsForOne (pp : tps)
-        doWorld $ setVisibility (S.fromList $ mconcat raysForAll)
-        
-        -- NOTE resolving 'x' causes lag
+runProgramAsPlayer ∷ DreamnetWorld → (V2 Int, Int) → Free (ObjectF States) () → SomeGameState
+runProgramAsPlayer w (v, i) prg = case evalWorld (valueAt i <$> cellAt v) w of
+    Nothing → SomeGS (StNormal w)
+    Just o  → let (v', i', o', sgs) = runObjectMonadForPlayer (v, i, o, StNormal w) prg `runReader` w
+              in  case sgs of
+                    (SomeGS gs) → SomeGS (updateVisible (modifyWorld (saveChanges o (v', i', o')) gs))
         where
-            pointsForOne ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m [V2 Int]
-            pointsForOne (p, h) =
-                let points = circle 20 p
-                    rays   = traverse (\t → doWorld (castRay p h t 3)) points
-                in  mconcat . fmap (fmap fst . visibleAndOneExtra) <$> rays
-
-            visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
-            visibleAndOneExtra l =
-                let front = takeWhile ((==True) . snd) l
-                    rem   = dropWhile ((==True) . snd) l
-                in  bool (head rem : front) front (null rem)
-
-            -- TODO subtract 1 because standing on the floor counts as if we're in the second 'height box'
-            --      floor has to count as having no height, and height calculations must use heights of all
-            --      objects in the same cell, not the index itself!
-            addStanceHeight ∷ (Monad m) ⇒ (V2 Int, Int) → GameM m (V2 Int, Int)
-            addStanceHeight (v, i) = (v,) . max 1 . min 4 . subtract 1 . (+i) . stanceToHeight . valueAt i <$> doWorld (cellAt v)
-
-            stanceToHeight = go . fromJustNote "updateVisible!" . preview (_Just.o_state._Person.ch_stance) 
-                where
-                    go Upright = 3
-                    go Crouch  = 2
-                    go Prone   = 1
-
-    --updateAi = do
-    --    m ← use w_map
-    --    use (w_map.wm_data) >>= V.imapM_ (\i → traverse_ (runAi (coordLin m i)))
-
-runGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m (a, GameState (GameM m))
-runGame = runStateT . runGameM
+            saveChanges o (v', i', o') w' = flip execWorld w' $
+                replaceObject v o o'
+                --moveObject v o v'
+                
 
 
-evalGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m a
-evalGame = evalStateT . runGameM
+withTargetAdjactened ∷ DreamnetWorld → (V2 Int → Int → SomeGameState) → GameState 'TargetSelectionAdjactened
+withTargetAdjactened w f = StTargetSelectionAdjactened w (pp w) 0 (TargetActivationF f)
+    where
+        pp = evalWorld (fst <$> playerPosition)
 
 
-execGame ∷ (Monad m) ⇒ GameM m a → GameState (GameM m) → m (GameState (GameM m))
-execGame = execStateT . runGameM
+withTargetDistant ∷ DreamnetWorld → (V2 Int → Int → SomeGameState) → GameState 'TargetSelectionDistant
+withTargetDistant w f = StTargetSelectionDistant w (pp w) 0 (TargetActivationF f)
+    where
+        pp = evalWorld (fst <$> playerPosition)
 
---------------------------------------------------------------------------------
 
-runObjectMonadForPlayer ∷ (GameAPI g, Monad g) ⇒ (V2 Int, Int, Object States) → Free (ObjectF States) a → g (GameState g)
-runObjectMonadForPlayer (cv, h, o) (Free (Position fn)) =
-    runObjectMonadForPlayer (cv, h, o) (fn (cv, h))
-runObjectMonadForPlayer (cv, h, o) (Free (Move v n)) =
-    doWorld (moveObject cv o v) *>
-        runObjectMonadForPlayer (v, h, o) n
-runObjectMonadForPlayer (cv, h, o) (Free (Passable fn)) =
-    runObjectMonadForPlayer (cv, h, o) (fn $ view o_passable o)
-runObjectMonadForPlayer (cv, h, o) (Free (SetPassable b n)) =
+withChoice ∷ DreamnetWorld → [(Char, String)] → (Int → SomeGameState) → GameState 'ChoiceSelection
+withChoice w lst f = StChoiceSelection w lst 0 (ChoiceActivationF f)
+
+
+updateVisible ∷ GameState gse → GameState gse
+updateVisible gs =
+    let w          = dreamnetWorld gs
+        pp         = evalWorld playerPosition w `addStanceHeight` w
+        tps        = (`addStanceHeight` w) <$> evalWorld teamPositions w
+        raysForAll = (`pointsForOne` w) <$> (pp : tps)
+        nw         = execWorld (setVisibility (S.fromList $ mconcat raysForAll)) w
+    in  modifyWorld (const nw) gs
+    
+    -- NOTE resolving 'x' causes lag
+    where
+        pointsForOne ∷ (V2 Int, Int) → DreamnetWorld → [V2 Int]
+        pointsForOne (p, h) w =
+            let points = circle 20 p
+                rays   ∷ [[(V2 Int, Bool)]]
+                rays   = (\t → evalWorld (castRay p h t 3) w) <$> points
+            in  mconcat $ fmap fst . visibleAndOneExtra <$> rays
+
+        visibleAndOneExtra ∷ [(V2 Int, Bool)] → [(V2 Int, Bool)]
+        visibleAndOneExtra l =
+            let front = takeWhile ((==True) . snd) l
+                remv  = dropWhile ((==True) . snd) l
+            in  bool (head remv : front) front (null remv)
+
+        -- TODO subtract 1 because standing on the floor counts as if we're in the second 'height box'
+        --      floor has to count as having no height, and height calculations must use heights of all
+        --      objects in the same cell, not the index itself!
+        addStanceHeight ∷ (V2 Int, Int) → DreamnetWorld → (V2 Int, Int)
+        addStanceHeight (v, i) = (v,) . max 1 . min 4 . subtract 1 . (+i) . stanceToHeight . valueAt i . evalWorld (cellAt v)
+
+        stanceToHeight = go . fromJustNote "updateVisible!" . preview (_Just.o_state._Person.ch_stance) 
+            where
+                go Upright = 3
+                go Crouch  = 2
+                go Prone   = 1
+
+
+runObjectMonadForPlayer ∷ (MonadReader DreamnetWorld m) ⇒ (V2 Int, Int, Object States, GameState gs) → Free (ObjectF States) () → m (V2 Int, Int, Object States, SomeGameState)
+runObjectMonadForPlayer (cv, h, o, gs) (Free (Position fn)) =
+    runObjectMonadForPlayer (cv, h, o, gs) (fn (cv, h))
+runObjectMonadForPlayer (_, h, o, gs) (Free (Move v n)) =
+    runObjectMonadForPlayer (v, h, o, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (Passable fn)) =
+    runObjectMonadForPlayer (cv, h, o, gs) (fn $ view o_passable o)
+runObjectMonadForPlayer (cv, h, o, gs) (Free (SetPassable b n)) =
     let no = o_passable .~ b $ o
-    in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, h, no) n
-runObjectMonadForPlayer (cv, h, o) (Free (SeeThrough fn)) =
-    runObjectMonadForPlayer (cv, h, o) (fn $ view o_seeThrough o)
-runObjectMonadForPlayer (cv, h, o) (Free (SetSeeThrough b n)) =
+    in  runObjectMonadForPlayer (cv, h, no, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (SeeThrough fn)) =
+    runObjectMonadForPlayer (cv, h, o, gs) (fn $ view o_seeThrough o)
+runObjectMonadForPlayer (cv, h, o, gs) (Free (SetSeeThrough b n)) =
     let no = o_seeThrough .~ b $ o
-    in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, h, no) n
-runObjectMonadForPlayer (cv, h, o) (Free (CanSee v fn)) =
-    doWorld (castRay cv h v 0) >>= -- TODO add object height!
-        runObjectMonadForPlayer (cv, h, o) . fn . and . fmap snd
-runObjectMonadForPlayer (cv, h, o) (Free (ChangeSymbol s n)) =
+    in  runObjectMonadForPlayer (cv, h, no, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (CanSee v fn)) =
+    asks (evalWorld (castRay cv h v 0)) >>= -- TODO add object height!
+        runObjectMonadForPlayer (cv, h, o, gs) . fn . and . fmap snd
+runObjectMonadForPlayer (cv, h, o, gs) (Free (ChangeSymbol s n)) =
     let no = o_symbol .~ s $ o
-    in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, h, no) n
-runObjectMonadForPlayer (cv, h, o) (Free (ChangeMat m n)) =
+    in  runObjectMonadForPlayer (cv, h, no, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (ChangeMat m n)) =
     let no = o_material .~ m $ o
-    in  doWorld (replaceObject cv o no) *>
-            runObjectMonadForPlayer (cv, h, no) n
-runObjectMonadForPlayer (cv, h, o) (Free (Message s n)) = -- TODO this means we can delete set status from the world code! :-D
-    doWorld (setStatus s) *>
-        runObjectMonadForPlayer (cv, h, o) n
-runObjectMonadForPlayer (_, _, o) (Free (DoTalk c _)) = do
-    w ← world
-    (Person pc) ← doWorld (view o_state <$> playerObject)
-    changeGameState $ \_ → 
-        whenCharacter (\ch → Conversation w (pc :| [ch]) c) (Normal w) (view o_state o)
-    -- runObjectMonadForPlayer (cv, h, o) n
-runObjectMonadForPlayer (cv, _, o) (Free (OperateComputer _)) = do
-    w ← world
-    changeGameState $ \_ →
-        -- TODO actually find the position here -----.----   , and if there isn't one, don't do anything!
-        whenComputer (ComputerOperation w (cv, 1)) (Normal w) (view o_state o)
-    --runObjectMonadForPlayer (cv, h, o) n
-runObjectMonadForPlayer (cv, h, o) (Free (ScanRange r f fn)) = do
-    points ← doWorld (interestingObjects cv r (f . view o_state))
-    values ← doWorld (foldr onlyJust [] <$> traverse (fmap (fmap (view o_state) . lastValue) . cellAt) points)
-    runObjectMonadForPlayer (cv, h, o) (fn (zip points values))
+    in  runObjectMonadForPlayer (cv, h, no, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (Message _ n)) =
+    -- TODO repair set status!
+    runObjectMonadForPlayer (cv, h, o, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (DoTalk c n)) = do
+    w ← ask
+    fromMaybe 
+        (runObjectMonadForPlayer (cv, h, o, gs) n)
+        (do
+            pc ← evalWorld (preview (o_state._Person) <$> playerObject) w
+            ch ← preview (o_state._Person) o
+            pure $ runObjectMonadForPlayer (cv, h, o, StConversation w (pc :| [ch]) c) n
+        )
+runObjectMonadForPlayer (cv, h, o, gs) (Free (OperateComputer n)) = do
+    w ← ask
+    maybe
+        (runObjectMonadForPlayer (cv, h, o, gs) n)
+        (\cd → runObjectMonadForPlayer (cv, h, o, StComputerOperation w (cv, 1) cd) n)
+        (preview (o_state._Computer) o)
+runObjectMonadForPlayer (cv, h, o, gs) (Free (ScanRange r f fn)) = do
+    points ← asks (evalWorld (interestingObjects cv r (f . view o_state)))
+    values ← asks (evalWorld (foldr onlyJust [] <$> traverse (fmap (fmap (view o_state) . lastValue) . cellAt) points))
+    runObjectMonadForPlayer (cv, h, o, gs) (fn (zip points values))
     where
         onlyJust (Just x) l = x : l
         onlyJust Nothing  l = l
-runObjectMonadForPlayer (cv, h, o) (Free (AcquireTarget s fn)) =
+runObjectMonadForPlayer (cv, h, o, gs) (Free (AcquireTarget s fn)) =
     case s of
-        Freeform    → runObjectMonadForPlayer (cv, h, o) (fn (V2 0 0))
-        LineOfSight → runObjectMonadForPlayer (cv, h, o) (fn (V2 1 1))
-runObjectMonadForPlayer (cv, h, o) (Free (SpawnNewObject v s n)) = do
-    doWorld $
-        modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
-    runObjectMonadForPlayer (cv, h, o) n
-runObjectMonadForPlayer (cv, h, o) (Free (RemoveObject v i n)) = do
-    doWorld $ do
-        x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
-        modifyCell v (deleteFromCell x)
-    runObjectMonadForPlayer (cv, h, o) n
-runObjectMonadForPlayer (cv, h, o) (Free (FindObject s fn)) = do
-    xs ← doWorld $ do
+        Freeform    → runObjectMonadForPlayer (cv, h, o, gs) (fn (V2 0 0))
+        LineOfSight → runObjectMonadForPlayer (cv, h, o, gs) (fn (V2 1 1))
+runObjectMonadForPlayer (cv, h, o, gs) (Free (SpawnNewObject _ _ n)) =
+    --doWorld $
+    --    modifyCell v (addToCell (Object (Symbol '?') "metal" True True 1 s))
+    -- TODO fix SpawnNewObject
+    runObjectMonadForPlayer (cv, h, o, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (RemoveObject _ _ n)) =
+    --doWorld $ do
+    --    x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
+    --    modifyCell v (deleteFromCell x)
+    -- TODO fix RemoveObject
+    runObjectMonadForPlayer (cv, h, o, gs) n
+runObjectMonadForPlayer (cv, h, o, gs) (Free (FindObject s fn)) = do
+    xs ← asks $ evalWorld $ do
         pp ← fst <$> playerPosition
         interestingObjects pp 60 ((s==) . view o_state)
     if null xs
-        then runObjectMonadForPlayer (cv, h, o) (fn Nothing)
+        then runObjectMonadForPlayer (cv, h, o, gs) (fn Nothing)
         else do
             let v = head xs
-            cellvs ← doWorld (cellValues <$> cellAt v)
+            cellvs ← asks (evalWorld (cellValues <$> cellAt v))
             let mi = s `elemIndex` (view o_state <$> cellvs)
             let r = (v,) <$> mi
-            runObjectMonadForPlayer (cv, h, o) (fn r)
-runObjectMonadForPlayer _ (Pure _) =
-    Normal <$> world
+            runObjectMonadForPlayer (cv, h, o, gs) (fn r)
+runObjectMonadForPlayer (cv, h, o, gs) (Pure ()) =
+    pure (cv, h, o, SomeGS gs)
+    
 

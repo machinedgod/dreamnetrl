@@ -11,7 +11,7 @@ module Dreamnet.Engine.WorldMap
 , Cell(cellValues), valueAt, lastValue, replaceInCell, addToCell,
   deleteFromCell, isEmpty
 
-, WorldMapReadAPI(..)
+, WorldMapReadAPI(..), maxCellIndex
 , WorldMapAPI(..)
 
 -- TODO convert to API
@@ -90,6 +90,10 @@ class WorldMapReadAPI wm where
     interestingObjects ∷ V2 Int → Range → (WorldMapObject wm → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
     oob                ∷ V2 Int → wm Bool
     castRay            ∷ V2 Int → Int → V2 Int → Int → wm [(V2 Int, Bool)]
+
+
+maxCellIndex ∷ (WorldMapReadAPI w, Functor w) ⇒ V2 Int → w Int
+maxCellIndex v = subtract 1 . length . cellValues <$> cellAt v
 
 
 class (WorldMapReadAPI wm) ⇒ WorldMapAPI wm where

@@ -39,6 +39,8 @@ import Dreamnet.Engine.Visibility hiding (height)
 
 --------------------------------------------------------------------------------
 
+type WorldPosition = (V2 Int, Int)
+
 class (WorldMapReadAPI w) ⇒ WorldReadAPI w where
     type WorldObject w      ∷ *
     type VisibilityObject w ∷ *
@@ -46,19 +48,19 @@ class (WorldMapReadAPI w) ⇒ WorldReadAPI w where
     currentTurn       ∷ w Int
     currentMap        ∷ w (WorldMap (WorldObject w)) -- TODO not liking this
     visibility        ∷ w (V.Vector (VisibilityObject w)) -- TODO or this
-    playerPosition    ∷ w (V2 Int, Int)
+    playerPosition    ∷ w WorldPosition
     playerObject      ∷ w (WorldObject w)
-    teamPositions     ∷ w [(V2 Int, Int)]
+    teamPositions     ∷ w [WorldPosition]
     teamObjects       ∷ w [WorldObject w]
 
 
 class (WorldMapAPI w, WorldReadAPI w) ⇒ WorldAPI w where
     increaseTurn        ∷ w ()
-    status              ∷ w String
+    --status              ∷ w String
     -- TODO consider nuking this and using rendering of the state to display info
-    setStatus           ∷ String → w ()
+    --setStatus           ∷ String → w ()
     changeObject        ∷ V2 Int → (WorldObject w → w (WorldObject w)) → w ()
-    modifyObjectAt      ∷ V2 Int → Int → (WorldObject w → w (WorldObject w)) → w ()
+    modifyObjectAt      ∷ WorldPosition → (WorldObject w → w (WorldObject w)) → w ()
     replaceObject       ∷ V2 Int → WorldObject w → WorldObject w → w ()
     movePlayer          ∷ V2 Int → w ()
     changePlayer        ∷ (WorldObject w → WorldObject w) → w ()
@@ -67,7 +69,7 @@ class (WorldMapAPI w, WorldReadAPI w) ⇒ WorldAPI w where
     moveObject          ∷ V2 Int → WorldObject w → V2 Int → w ()
     -- TODO Nuke when updateVisible disappears
     setVisibility       ∷ S.Set (V2 Int) → w ()
-    runObjectMonadForAI ∷ (V2 Int, Int, WorldMapObject w) → Free (ObjectF (WorldMapObject w)) a → w a
+    runObjectMonadForAI ∷ (WorldPosition, WorldMapObject w) → Free (ObjectF (WorldMapObject w)) a → w a
 
 
 --------------------------------------------------------------------------------
@@ -83,7 +85,6 @@ data World o v = World {
     , _w_team   ∷ [(V2 Int, Int)]
     , _w_map    ∷ WorldMap (Object o)
     , _w_vis    ∷ V.Vector v
-    , _w_status ∷ String
     }
 makeLenses ''World
 
@@ -100,7 +101,6 @@ newWorld m p =
         , _w_team   = []
         , _w_map    = map
         , _w_vis    = V.replicate (fromIntegral $ width m * height m) mempty
-        , _w_status = ""
         }
 
 --------------------------------------------------------------------------------
@@ -161,15 +161,15 @@ instance WorldReadAPI (WorldM o Visibility) where
 instance (Eq o, Show o) ⇒ WorldAPI (WorldM o Visibility) where
     increaseTurn = w_turn += 1
 
-    status = use w_status
+    --status = use w_status
 
-    setStatus s = w_status .= s
+    --setStatus s = w_status .= s
 
     changeObject v fo = do
         nc ← cellAt v >>= traverse fo
         replaceCell v nc
 
-    modifyObjectAt v ix f =
+    modifyObjectAt (v, ix) f =
         cellAt v >>=
         traverse_ (f >=> \no → modifyCell v (replaceInCell ix no)) . valueAt ix -- traversal over Maybe
 
@@ -210,72 +210,75 @@ instance (Eq o, Show o) ⇒ WorldAPI (WorldM o Visibility) where
                                     Visible → Known
                                     _       → x)
 
-    runObjectMonadForAI (cv, h, o) (Free (Position fv)) =
-        runObjectMonadForAI (cv, h, o) (fv (cv, h))
-    runObjectMonadForAI (cv, h, o) (Free (Move v n)) =
+    runObjectMonadForAI ((cv, h), o) (Free (Position fv)) =
+        runObjectMonadForAI ((cv, h), o) (fv (cv, h))
+    runObjectMonadForAI ((cv, h), o) (Free (Move v n)) =
         moveObject cv o v *>
-            runObjectMonadForAI (v, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (Passable fn)) =
-        runObjectMonadForAI (cv, h, o) (fn $ view o_passable o)
-    runObjectMonadForAI (cv, h, o) (Free (SetPassable cl n)) =
+            runObjectMonadForAI ((v, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (Passable fn)) =
+        runObjectMonadForAI ((cv, h), o) (fn $ view o_passable o)
+    runObjectMonadForAI ((cv, h), o) (Free (SetPassable cl n)) =
         let no = o_passable .~ cl $ o
         in  replaceObject cv o no *>
-                runObjectMonadForAI (cv, h, no) n
-    runObjectMonadForAI (cv, h, o) (Free (SeeThrough fn)) =
-        runObjectMonadForAI (cv, h, o) (fn $ view o_seeThrough o)
-    runObjectMonadForAI (cv, h, o) (Free (SetSeeThrough st n)) =
+                runObjectMonadForAI ((cv, h), no) n
+    runObjectMonadForAI ((cv, h), o) (Free (SeeThrough fn)) =
+        runObjectMonadForAI ((cv, h), o) (fn $ view o_seeThrough o)
+    runObjectMonadForAI ((cv, h), o) (Free (SetSeeThrough st n)) =
         let no = o_seeThrough .~ st $ o
         in  replaceObject cv o no *>
-                runObjectMonadForAI (cv, h, no) n
-    runObjectMonadForAI (cv, h, o) (Free (CanSee v fs)) =
+                runObjectMonadForAI ((cv, h), no) n
+    runObjectMonadForAI ((cv, h), o) (Free (CanSee v fs)) =
         castRay cv h v 0 >>= -- TODO add height!
-            runObjectMonadForAI (cv, h, o) . fs . and . fmap snd
-    runObjectMonadForAI (cv, h, o) (Free (ChangeSymbol c n)) =
+            runObjectMonadForAI ((cv, h), o) . fs . and . fmap snd
+    runObjectMonadForAI ((cv, h), o) (Free (ChangeSymbol c n)) =
         let no = o_symbol .~ c $ o
         in  replaceObject cv o no *>
-                runObjectMonadForAI (cv, h, no) n
-    runObjectMonadForAI (cv, h, o) (Free (ChangeMat m n)) =
+                runObjectMonadForAI ((cv, h), no) n
+    runObjectMonadForAI ((cv, h), o) (Free (ChangeMat m n)) =
         let no = o_material .~ m $ o
         in  replaceObject cv o no *>
-                runObjectMonadForAI (cv, h, no) n
-    runObjectMonadForAI (cv, h, o) (Free (Message m n)) =
-        setStatus m *>
-            runObjectMonadForAI (cv, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (DoTalk _ n)) =
-        setStatus ("NPC " <> show o <> " is talking.") *>
-            runObjectMonadForAI (cv, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (OperateComputer n)) =
-        setStatus ("Computer " <> show o <> " is being operated.") *>
-            runObjectMonadForAI (cv, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (ScanRange r f fn)) = do
+                runObjectMonadForAI ((cv, h), no) n
+    runObjectMonadForAI ((cv, h), o) (Free (Message _ n)) =
+        -- TODO repair, use some kind of "action" on NPC that marks what are they doing ATM
+        --      one action could be "talking" and this could render a small speech bubble
+        runObjectMonadForAI ((cv, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (DoTalk _ n)) =
+        -- TODO repair, use some kind of "action" on NPC that marks what are they doing ATM
+        --      one action could be "talking" and this could render a small speech bubble
+        runObjectMonadForAI ((cv, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (OperateComputer n)) =
+        --setStatus ("Computer " <> show o <> " is being operated.") *>
+        -- TODO repair NPC operating a computer
+        runObjectMonadForAI ((cv, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (ScanRange r f fn)) = do
         points ← interestingObjects cv r f
         values ← foldr onlyJust [] <$> traverse (fmap lastValue . cellAt) points
-        runObjectMonadForAI (cv, h, o) (fn (zip points values))
+        runObjectMonadForAI ((cv, h), o) (fn (zip points values))
         where
             onlyJust (Just x) l = x : l
             onlyJust Nothing  l = l
-    runObjectMonadForAI (cv, h, o) (Free (AcquireTarget s fn)) =
+    runObjectMonadForAI ((cv, h), o) (Free (AcquireTarget s fn)) =
         case s of
-            Freeform    → runObjectMonadForAI (cv, h, o) (fn (V2 0 0))
-            LineOfSight → runObjectMonadForAI (cv, h, o) (fn (V2 1 1))
-    runObjectMonadForAI (cv, h, o) (Free (SpawnNewObject v s n)) = do
+            Freeform    → runObjectMonadForAI ((cv, h), o) (fn (V2 0 0))
+            LineOfSight → runObjectMonadForAI ((cv, h), o) (fn (V2 1 1))
+    runObjectMonadForAI ((cv, h), o) (Free (SpawnNewObject v s n)) = do
         modifyCell v (addToCell s)
-        runObjectMonadForAI (cv, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (RemoveObject v i n)) = do
+        runObjectMonadForAI ((cv, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (RemoveObject v i n)) = do
         x ← fromJustNote "RemoveObject runObjectMonadForAI" . valueAt i <$> cellAt v
         modifyCell v (deleteFromCell x)
-        runObjectMonadForAI (cv, h, o) n
-    runObjectMonadForAI (cv, h, o) (Free (FindObject s fn)) = do
+        runObjectMonadForAI ((cv, h), o) n
+    runObjectMonadForAI ((cv, h), o) (Free (FindObject s fn)) = do
         pp ← fst <$> playerPosition
         xs ← interestingObjects pp 60 (s==)
         if null xs
-            then runObjectMonadForAI (cv, h, o) (fn Nothing)
+            then runObjectMonadForAI ((cv, h), o) (fn Nothing)
             else do
                 let v = head xs
                 cellvs ← cellValues <$> cellAt v
                 let mi = s `elemIndex` cellvs
                 let r = (v,) <$> mi
-                runObjectMonadForAI (cv, h, o) (fn r)
+                runObjectMonadForAI ((cv, h), o) (fn r)
     runObjectMonadForAI _ (Pure x) =
         pure x
 

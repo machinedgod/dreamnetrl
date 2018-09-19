@@ -122,7 +122,7 @@ module Dreamnet.Engine.Character
 ) where
 
 
-import Control.Lens            (makeLenses, view, views, (^.), (%~))
+import Control.Lens            (makeLenses, makePrisms, view, views, (^.), (%~))
 import Data.Maybe              (isJust, isNothing)
 import Data.Singletons         (Demote, Sing, SingI, fromSing, sing)
 import Data.Singletons.TH      (genSingletons)
@@ -133,6 +133,7 @@ data Orientation = LeftSide
                  | RightSide
                  deriving (Eq, Ord, Bounded, Enum, Show)
 $(genSingletons [ ''Orientation ])
+makePrisms ''Orientation
 
 
 data SlotType = Hand
@@ -146,6 +147,7 @@ data SlotType = Hand
               | Foot
               deriving (Eq, Show)
 $(genSingletons [ ''SlotType ])
+makePrisms ''SlotType
 
 
 -- TODO we probably should keep type as a single variable, and then join
@@ -171,6 +173,7 @@ data Stance = Upright
             | Crouch
             | Prone
             deriving(Eq, Ord, Bounded, Enum, Show)
+makePrisms ''Stance
 
 --------------------------------------------------------------------------------
 
@@ -486,17 +489,11 @@ modifySlotContent (Just RightSide) Foot  f = ch_equipment.eq_rightFoot.s_item %~
 modifySlotContent _                _     _ = id
 
 
-pickUp ∷ i → Character i c f → Character i c f
-pickUp i ch =
-    let phsw = primaryHandSlot ch
-    in  if isNothing (slotWrapperItem phsw)
-            then modifySlotContent (slotWrapperOrientation phsw) (slotWrapperType phsw) (const (Just i)) ch
-            else ch
-
 --------------------------------------------------------------------------------
 
 -- Cannot use record syntax due to escaped type variables
 data SlotWrapper i = ∀ o t. (SingI o, SingI t) ⇒ SlotWrapper (Slot o t i)
+makePrisms 'SlotWrapper
 
 deriving instance (Show i) ⇒ Show (SlotWrapper i)
 deriving instance Functor SlotWrapper
@@ -554,4 +551,13 @@ secondaryHandSlot ch = views ch_handedness fetch ch
     where
         fetch LeftSide  = SlotWrapper (ch ^. ch_equipment.eq_rightHand)
         fetch RightSide = SlotWrapper (ch ^. ch_equipment.eq_leftHand)
+
+--------------------------------------------------------------------------------
+
+pickUp ∷ i → Character i c f → Character i c f
+pickUp i ch =
+    let phsw = primaryHandSlot ch
+    in  if isNothing (slotWrapperItem phsw)
+            then modifySlotContent (slotWrapperOrientation phsw) (slotWrapperType phsw) (const (Just i)) ch
+            else ch
 

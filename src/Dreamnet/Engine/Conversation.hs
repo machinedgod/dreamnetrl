@@ -33,8 +33,6 @@ data ConversationF o a = CName         Int (String → a)
                        | CLastname     Int (String → a)
                        | CNick         Int (String → a)
                        | CTalk         Int String a
-                       -- | CContinue     String a -- TODO can I implement these in terms of Talk?
-                       -- | CReply        String a -- TODO can I implement these in terms of Talk?
                        | CChoice       [String] (Int → a)
                        | CDescribe     String a
                        | CReceiveItem  Int o a
