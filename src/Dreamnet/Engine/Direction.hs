@@ -8,9 +8,9 @@ module Dreamnet.Engine.Direction
 where
 
 
-import Linear  (V2(V2), normalize, Epsilon)
-import Data.Singletons
-import Data.Singletons.TH
+import Linear              (V2(V2), normalize, Epsilon)
+import Data.Singletons     (fromSing)
+import Data.Singletons.TH  (genSingletons)
 
 
 data Direction = North
@@ -24,7 +24,8 @@ data Direction = North
                deriving (Eq, Ord, Show, Read, Enum)
 $(genSingletons [ ''Direction ])
 
-dirToVec' ∷ Sing (d ∷ Direction) → V2 Int
+
+dirToVec' ∷ SDirection d → V2 Int
 dirToVec' = dirToVec . fromSing
 
 

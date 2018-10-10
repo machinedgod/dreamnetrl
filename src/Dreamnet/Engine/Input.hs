@@ -7,22 +7,30 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances #-}
+
+
 module Dreamnet.Engine.Input
-( BackEvent(..), WorldEvent(..), nextWorldEvent, TypedWorldEvent(..), withTypedWorldEvent
+--( BackEvent(..), WorldEvent(..), nextWorldEvent, TypedWorldEvent(..), withTypedWorldEvent
+--
+--, UIEvent(..), nextUiEvent, TypedUiEvent(..), withTypedUIEvent
+--
+--, TargetEvent(..), nextTargetSelectionEvent, TypedTargetEvent(..), withTypedTargetEvent
+--
+--, ChoiceEvent(..), nextChoiceEvent
+--
+--, PassThrough(..), nextPassThrough
+--
+--, TacticalEvent(..), nextTacticalEvent
+--)
+where
 
-, UIEvent(..), nextUiEvent, TypedUiEvent(..), withTypedUIEvent
 
-, TargetEvent(..), nextTargetSelectionEvent, TypedTargetEvent(..), withTypedTargetEvent
-
-, ChoiceEvent(..), nextChoiceEvent
-
-, PassThrough(..), nextPassThrough
-
-, TacticalEvent(..), nextTacticalEvent
-) where
-
-
-import Data.Maybe (fromJust)
+import Data.Maybe         (fromJust)
+import Data.Singletons.TH (genSingletons)
 
 import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
@@ -99,65 +107,6 @@ nextWorldEvent = repeatUntilEvent worldEvent
         worldEvent (C.EventCharacter 'q')  = Just $ Left    Back
         worldEvent _                       = Nothing
 
-
--- TODO singletonize?
---      I mean, use Data.Singletons instead of doing this manually
-data TypedWorldEvent ∷ WorldEvent → * where
-    TyMove             ∷ Sing (d ∷ Direction) → TypedWorldEvent ('Move d)
-    TyMoveCamera       ∷ Sing (d ∷ Direction) → TypedWorldEvent ('MoveCamera d)
-    TyExamine          ∷                        TypedWorldEvent 'Examine
-    TyOperate          ∷                        TypedWorldEvent 'Operate
-    TyExamineHeld      ∷                        TypedWorldEvent 'ExamineHeld
-    TyOperateHeld      ∷                        TypedWorldEvent 'OperateHeld
-    TyOperateHeldOn    ∷                        TypedWorldEvent 'OperateHeldOn
-    TyTalk             ∷                        TypedWorldEvent 'Talk
-    TyGet              ∷                        TypedWorldEvent 'Get
-    TyWear             ∷                        TypedWorldEvent 'Wear
-    TyStoreIn          ∷                        TypedWorldEvent 'StoreIn
-    TyPullFrom         ∷                        TypedWorldEvent 'PullFrom
-    TyWait             ∷                        TypedWorldEvent 'Wait
-    TySetStance        ∷ Sing (i ∷ Iteration) → TypedWorldEvent ('SetStance i)
-    TyInventorySheet   ∷                        TypedWorldEvent 'InventorySheet
-    TyCharacterSheet   ∷                        TypedWorldEvent 'CharacterSheet
-    TySwitchToTactical ∷                        TypedWorldEvent 'SwitchToTactical
-    TySwitchToHud      ∷                        TypedWorldEvent 'SwitchToHud
-
-
-withTypedWorldEvent ∷ WorldEvent → (∀ e. TypedWorldEvent e → r) → r
-withTypedWorldEvent (Move West)            f = f (TyMove SWest)     
-withTypedWorldEvent (Move South)           f = f (TyMove SSouth)    
-withTypedWorldEvent (Move North)           f = f (TyMove SNorth)    
-withTypedWorldEvent (Move East)            f = f (TyMove SEast)     
-withTypedWorldEvent (Move NorthWest)       f = f (TyMove SNorthWest)
-withTypedWorldEvent (Move NorthEast)       f = f (TyMove SNorthEast)
-withTypedWorldEvent (Move SouthWest)       f = f (TyMove SSouthWest)
-withTypedWorldEvent (Move SouthEast)       f = f (TyMove SSouthEast)
-withTypedWorldEvent (MoveCamera West)      f = f (TyMoveCamera SWest)     
-withTypedWorldEvent (MoveCamera South)     f = f (TyMoveCamera SSouth)    
-withTypedWorldEvent (MoveCamera North)     f = f (TyMoveCamera SNorth)    
-withTypedWorldEvent (MoveCamera East)      f = f (TyMoveCamera SEast)     
-withTypedWorldEvent (MoveCamera NorthWest) f = f (TyMoveCamera SNorthWest)
-withTypedWorldEvent (MoveCamera NorthEast) f = f (TyMoveCamera SNorthEast)
-withTypedWorldEvent (MoveCamera SouthWest) f = f (TyMoveCamera SSouthWest)
-withTypedWorldEvent (MoveCamera SouthEast) f = f (TyMoveCamera SSouthEast)
-withTypedWorldEvent Examine                f = f TyExamine
-withTypedWorldEvent Operate                f = f TyOperate
-withTypedWorldEvent ExamineHeld            f = f TyExamineHeld
-withTypedWorldEvent OperateHeld            f = f TyOperateHeld
-withTypedWorldEvent OperateHeldOn          f = f TyOperateHeldOn
-withTypedWorldEvent Talk                   f = f TyTalk
-withTypedWorldEvent Get                    f = f TyGet
-withTypedWorldEvent Wear                   f = f TyWear
-withTypedWorldEvent StoreIn                f = f TyStoreIn
-withTypedWorldEvent PullFrom               f = f TyPullFrom
-withTypedWorldEvent Wait                   f = f TyWait
-withTypedWorldEvent (SetStance Next)       f = f (TySetStance SNext)
-withTypedWorldEvent (SetStance Previous)   f = f (TySetStance SPrevious)
-withTypedWorldEvent InventorySheet         f = f TyInventorySheet
-withTypedWorldEvent CharacterSheet         f = f TyCharacterSheet
-withTypedWorldEvent SwitchToTactical       f = f TySwitchToTactical
-withTypedWorldEvent SwitchToHud            f = f TySwitchToHud
-
 --------------------------------------------------------------------------------
 
 data UIEvent = MoveCursor Direction
@@ -177,26 +126,6 @@ nextUiEvent = repeatUntilEvent uiEvent
         uiEvent (C.EventCharacter '\n')          = Just $ Right   SelectChoice
         uiEvent (C.EventCharacter 'q')           = Just $ Left    Back
         uiEvent _                                = Nothing
-
-
-data TypedUiEvent ∷ UIEvent → * where
-    TyMoveCursor   ∷ Sing (d ∷ Direction) → TypedUiEvent ('MoveCursor d)
-    TyTab          ∷ Sing (i ∷ Iteration) → TypedUiEvent ('Tab i)
-    TySelectChoice ∷                        TypedUiEvent 'SelectChoice
-
-
-withTypedUIEvent ∷ UIEvent → (∀ e. TypedUiEvent e → r) → r
-withTypedUIEvent (MoveCursor West)      f = f (TyMoveCursor SWest)     
-withTypedUIEvent (MoveCursor South)     f = f (TyMoveCursor SSouth)    
-withTypedUIEvent (MoveCursor North)     f = f (TyMoveCursor SNorth)    
-withTypedUIEvent (MoveCursor East)      f = f (TyMoveCursor SEast)     
-withTypedUIEvent (MoveCursor NorthWest) f = f (TyMoveCursor SNorthWest)
-withTypedUIEvent (MoveCursor NorthEast) f = f (TyMoveCursor SNorthEast)
-withTypedUIEvent (MoveCursor SouthWest) f = f (TyMoveCursor SSouthWest)
-withTypedUIEvent (MoveCursor SouthEast) f = f (TyMoveCursor SSouthEast)
-withTypedUIEvent (Tab Next)             f = f (TyTab SNext)
-withTypedUIEvent (Tab Previous)         f = f (TyTab SPrevious)
-withTypedUIEvent SelectChoice           f = f TySelectChoice
 
 --------------------------------------------------------------------------------
 
@@ -237,29 +166,6 @@ nextTargetSelectionEvent = repeatUntilEvent targetEvent
         targetEvent (C.EventCharacter '\n')          = Just $ Right   ConfirmTarget
         targetEvent (C.EventCharacter 'q')           = Just $ Left    Back
         targetEvent _                                = Nothing
-
-
-data TypedTargetEvent ∷ TargetEvent → * where
-    TyMoveReticule   ∷ Sing (d ∷ Direction) → TypedTargetEvent ('MoveReticule d)
-    TyMoveTarget     ∷ Sing (i ∷ Iteration) → TypedTargetEvent ('MoveTarget i)
-    TySmartTarget    ∷ Sing (i ∷ Iteration) → TypedTargetEvent ('SmartTarget i)
-    TyConfirmTarget  ∷               TypedTargetEvent 'ConfirmTarget
-
-
-withTypedTargetEvent ∷ TargetEvent → (∀ e. TypedTargetEvent e → r) → r
-withTypedTargetEvent (MoveReticule West)      f = f (TyMoveReticule SWest)
-withTypedTargetEvent (MoveReticule South)     f = f (TyMoveReticule SSouth)
-withTypedTargetEvent (MoveReticule North)     f = f (TyMoveReticule SNorth)
-withTypedTargetEvent (MoveReticule East)      f = f (TyMoveReticule SEast)
-withTypedTargetEvent (MoveReticule NorthWest) f = f (TyMoveReticule SNorthWest)
-withTypedTargetEvent (MoveReticule NorthEast) f = f (TyMoveReticule SNorthEast)
-withTypedTargetEvent (MoveReticule SouthWest) f = f (TyMoveReticule SSouthWest)
-withTypedTargetEvent (MoveReticule SouthEast) f = f (TyMoveReticule SSouthEast)
-withTypedTargetEvent (MoveTarget Next)        f = f (TyMoveTarget SNext)
-withTypedTargetEvent (MoveTarget Previous)    f = f (TyMoveTarget SPrevious)
-withTypedTargetEvent (SmartTarget Next)       f = f (TySmartTarget SNext)
-withTypedTargetEvent (SmartTarget Previous)   f = f (TySmartTarget SPrevious)
-withTypedTargetEvent ConfirmTarget            f = f TyConfirmTarget
 
 --------------------------------------------------------------------------------
 
@@ -320,3 +226,7 @@ repeatUntilEvent f =
     where
         event w = fromJust <$> C.getEvent w Nothing
 
+--------------------------------------------------------------------------------
+
+-- TODO TacticalEvent has problems with Int
+$(genSingletons [ ''WorldEvent, ''UIEvent, ''TargetEvent ])

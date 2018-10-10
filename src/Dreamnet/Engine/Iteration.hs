@@ -9,8 +9,8 @@ module Dreamnet.Engine.Iteration
 where
 
 
-import Data.Singletons
-import Data.Singletons.TH
+import Data.Singletons    (fromSing)
+import Data.Singletons.TH (genSingletons)
 
 
 data Iteration = Next | Previous
@@ -18,8 +18,9 @@ data Iteration = Next | Previous
 $(genSingletons [ ''Iteration ])
 
 
-itToInt' ∷ Sing (i ∷ Iteration) → Int
+itToInt' ∷ SIteration i → Int
 itToInt' = itToInt . fromSing
+
 
 itToInt ∷ Iteration → Int
 itToInt Next     =  1
