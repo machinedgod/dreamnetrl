@@ -12,12 +12,11 @@ import Data.Semigroup     ((<>))
 import Data.Bool          (bool)
 
 import Dreamnet.Engine.Object
-import Dreamnet.Engine.World
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Conversation
 
 import Dreamnet.Game
-import Dreamnet.ComputerModel
+import Dreamnet.ObjectStates
 
 --------------------------------------------------------------------------------
 

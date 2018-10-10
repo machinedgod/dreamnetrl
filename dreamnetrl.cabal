@@ -72,8 +72,9 @@ executable dreamnetrl
                         Dreamnet.Engine.Visibility
                         Dreamnet.Engine.Object
                         Dreamnet.Engine.ObjectAPI
-                        Dreamnet.Engine.World
                         Dreamnet.Engine.WorldMap
+                        Dreamnet.ObjectStates
+                        Dreamnet.World
                         Dreamnet.Game
                         Dreamnet.Rendering.ChoiceData
                         Dreamnet.Rendering.Renderer

@@ -7,11 +7,12 @@
 module Dreamnet.Engine.WorldMap
 ( module Dreamnet.Engine.TileMap
 
-, Range
+, Range, WorldPosition
+
 , Cell(cellValues), valueAt, lastValue, replaceInCell, addToCell,
   deleteFromCell, isEmpty
 
-, WorldMapReadAPI(..), maxCellIndex
+, WorldMapReadAPI(..), maxCellIndex, objectAt
 , WorldMapAPI(..)
 
 -- TODO convert to API
@@ -45,6 +46,8 @@ import qualified Dreamnet.Engine.Visibility as Visibility (height)
 --------------------------------------------------------------------------------
 
 type Range = Word
+
+type WorldPosition = (V2 Int, Int) -- TODO V3 Int?
 
 --------------------------------------------------------------------------------
 
@@ -89,11 +92,15 @@ class WorldMapReadAPI wm where
     cellAt             ∷ V2 Int → wm (Cell (WorldMapObject wm))
     interestingObjects ∷ V2 Int → Range → (WorldMapObject wm → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
     oob                ∷ V2 Int → wm Bool
-    castRay            ∷ V2 Int → Int → V2 Int → Int → wm [(V2 Int, Bool)]
+    castRay            ∷ WorldPosition → WorldPosition → wm [(V2 Int, Bool)]
 
 
 maxCellIndex ∷ (WorldMapReadAPI w, Functor w) ⇒ V2 Int → w Int
 maxCellIndex v = subtract 1 . length . cellValues <$> cellAt v
+
+
+objectAt ∷ (WorldMapReadAPI w, Functor w) ⇒ WorldPosition → w (Maybe (WorldMapObject w))
+objectAt (v, i) = valueAt i <$> cellAt v
 
 
 class (WorldMapReadAPI wm) ⇒ WorldMapAPI wm where
@@ -199,7 +206,7 @@ instance (VisibleAPI a) ⇒ WorldMapReadAPI (WorldMapM a) where
 
     oob = gets . flip outOfBounds
 
-    castRay s sh t _ = traverse findHits =<< filterM (fmap not . oob) (drop 1 $ bla s t) -- Dropping originating V2 
+    castRay (s, sh) (t, _) = traverse findHits =<< filterM (fmap not . oob) (drop 1 $ bla s t) -- Dropping originating V2 
         where
             findHits p = do
                 c ← cellAt p

@@ -53,14 +53,13 @@ import qualified Data.Map    as M
 import qualified Data.Vector as V
 
 import Dreamnet.Engine.Utils (lines')
-import Dreamnet.Engine.Character   
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Visibility
 
 import Dreamnet.Rendering.ScrollData
 import Dreamnet.Rendering.ChoiceData
 
-import Dreamnet.ComputerModel
+import Dreamnet.ObjectStates hiding (Material, Camera)
 
 --------------------------------------------------------------------------------
 

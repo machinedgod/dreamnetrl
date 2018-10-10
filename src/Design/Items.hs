@@ -1,16 +1,11 @@
 {-# LANGUAGE UnicodeSyntax #-}
 
 module Design.Items
-( module Dreamnet.Engine.Character
+( module Dreamnet.ObjectStates
 
-, clothesDict
-, weaponsDict
-, ammoDict
-, throwableDict
-, consumableDict
+, clothesDict, weaponsDict, ammoDict, throwableDict, consumableDict
 
-, laserjet
-, laserjetClip
+, laserjet, laserjetClip
 , fragmentGrenade
 , backpack
 , clipBelt
@@ -24,8 +19,7 @@ import Data.Semigroup  ((<>))
 
 import qualified Data.Map as M (Map, fromList, singleton)
 
-import Dreamnet.Engine.Character   (SlotType(..))
-import Dreamnet.Game
+import Dreamnet.ObjectStates
 
 --------------------------------------------------------------------------------
 -- Dictionaries

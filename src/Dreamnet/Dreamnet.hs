@@ -30,7 +30,7 @@ import Control.Monad.State       (execState, modify, get)
 import Control.Monad.Random      (MonadRandom)
 import Control.Monad.IO.Class    (MonadIO)
 import Data.Functor              (($>))
-import Data.Bifunctor            (bimap)
+import Data.Bifunctor            (bimap, first)
 import Data.Semigroup            ((<>))
 import Data.Bool                 (bool)
 import Data.List                 (genericLength, elemIndex)
@@ -47,7 +47,6 @@ import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
 import Dreamnet.Engine.Conversation
-import Dreamnet.Engine.Visibility hiding (height)
 import qualified Dreamnet.Engine.Visibility as Visibility (height)
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Object
@@ -243,8 +242,8 @@ dreamnet dd = C.runCurses $ do
                         ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
                         _                          → pure (Just (SomeGS gs))
 
-            gs@(StTargetSelectionAdjactened w tp i _) → do
-                renderTargetSelectionAdjactened w tp i
+            gs@(StTargetSelectionAdjactened w tp _) → do
+                renderTargetSelectionAdjactened w tp
                 flush
                 lift Input.nextTargetSelectionEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
@@ -254,8 +253,8 @@ dreamnet dd = C.runCurses $ do
                         ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
                         ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
 
-            gs@(StTargetSelectionDistant w tp i _) → do
-                renderTargetSelectionDistant w tp i
+            gs@(StTargetSelectionDistant w tp _) → do
+                renderTargetSelectionDistant w tp
                 flush
                 lift Input.nextTargetSelectionEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
@@ -421,11 +420,10 @@ class ProcessTarget (gsi ∷ GameStateEnum) (ev ∷ Input.TargetEvent) where
     type TgGameStateOut gsi ev ∷ *
     processTarget ∷ GameState gsi → Input.STargetEvent ev → TgGameStateOut gsi ev
 
-
 --------------------------------------------------------------------------------
 
-cellObject ∷ V2 Int → Int → DreamnetWorld → Maybe (Object States)
-cellObject v i = evalWorld (valueAt i <$> cellAt v)
+cellObject ∷ WorldPosition → World → Maybe (Object States)
+cellObject p = evalWorld (objectAt p)
 
 
 instance ProcessNormal 'Normal ('Input.Move k) where
@@ -444,8 +442,8 @@ instance ProcessNormal 'Normal ('Input.MoveCamera k) where
 
 instance ProcessNormal 'Normal 'Input.Examine where
     type GameStateOut 'Normal 'Input.Examine = GameState 'TargetSelectionDistant
-    processNormal (StNormal w) _ = withTargetDistant w $ \v i →
-        case cellObject v i w of
+    processNormal (StNormal w) _ = withTargetDistant w $ \(v, i) →
+        case cellObject (v, i) w of
             Nothing → SomeGS $ StNormal (execWorld increaseTurn w)
                 --doWorld (setStatus "There's nothing here." *> increaseTurn)
             Just o → bool (SomeGS describeWorld) (runExamineObject v i o) (notOnPlayer v)
@@ -469,12 +467,12 @@ instance ProcessNormal 'Normal 'Input.Examine where
 
 instance ProcessNormal 'Normal 'Input.Operate where
     type GameStateOut 'Normal 'Input.Operate = GameState 'TargetSelectionAdjactened
-    processNormal (StNormal w) _ = withTargetAdjactened w $ \v i →
-        case cellObject v i w of
+    processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
+        case cellObject t w of
             Nothing →  SomeGS (StNormal w)
             Just o → case preview (o_state._Person) (evalWorld playerObject w) of
                 Nothing → SomeGS (StNormal w)
-                Just ch → runProgramAsPlayer w (v, i) (program o ch)
+                Just ch → runProgramAsPlayer w t (program o ch)
         where
             program o ch = programForState ch (view o_state o) Operate
 
@@ -520,8 +518,8 @@ instance ProcessNormal 'Normal 'Input.OperateHeldOn where
                 --      can either show UI for the player, or use "brain"/Simulation to select
                 --      one for the NPC's
                 -- Also, the range should be item's range
-                Right $ withTargetDistant w $ \v i → 
-                    case cellObject v i w of
+                Right $ withTargetDistant w $ \t →
+                    case cellObject t w of
                         Nothing → SomeGS (StNormal w)
                             --doWorld (setStatus "Nothing there.")
                         Just o  →
@@ -531,18 +529,18 @@ instance ProcessNormal 'Normal 'Input.OperateHeldOn where
                                     -- TODO which of the game states should take precedence?
                                     let so          = view o_state o
                                     in  case runProgramAsPlayer w (evalWorld playerPosition w) (programForState ch ho (OperateOn so)) of
-                                            (SomeGS gs) → runProgramAsPlayer (dreamnetWorld gs) (v, i) (programForState ch so (OperateWith ho))
+                                            (SomeGS gs) → runProgramAsPlayer (dreamnetWorld gs) t (programForState ch so (OperateWith ho))
 
 
 instance ProcessNormal 'Normal 'Input.Talk where
     type GameStateOut 'Normal 'Input.Talk = GameState 'TargetSelectionAdjactened
-    processNormal (StNormal w) _ = withTargetAdjactened w $ \v i → 
-        case cellObject v i w of
+    processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
+        case cellObject t w of
             Nothing → SomeGS (StNormal (execWorld increaseTurn w))
                 --setStatus "Trying to talk to someone, but there's no one there."
             Just o → case preview (o_state._Person) (evalWorld playerObject w) of
                 Nothing → SomeGS (StNormal w)
-                Just ch → runProgramAsPlayer w (v, i) (program o ch)
+                Just ch → runProgramAsPlayer w t (program o ch)
                 --Just ch → case runProgramAsPlayer w (v, i) (program o ch) of
                 --    gs@(SomeGS (StConversation _ ps (Free cn))) → conversationUpdateUi (view ch_name <$> ps) cn *> pure gs
                 --    gs                                          → pure gs
@@ -553,8 +551,8 @@ instance ProcessNormal 'Normal 'Input.Talk where
 
 instance ProcessNormal 'Normal 'Input.Get where
     type GameStateOut 'Normal 'Input.Get = GameState 'TargetSelectionAdjactened
-    processNormal (StNormal w) _ = withTargetAdjactened w $ \v i →
-        case cellObject v i w of
+    processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
+        case cellObject t w of
             Nothing → SomeGS (StNormal w)
                 --setStatus "There's nothing here."
             Just o  → SomeGS $ StNormal $ flip execWorld w $ do
@@ -567,7 +565,7 @@ instance ProcessNormal 'Normal 'Input.Get where
                 -- withState type of function that does something as long as the State
                 -- is of the actual correct type, and does nothing if it isn't
                 changePlayer (o_state._Person %~ pickUp (view o_state o))
-                modifyCell v (deleteFromCell o)
+                modifyCell (fst t) (deleteFromCell o)
                 increaseTurn
         
 
@@ -910,7 +908,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'South) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'South) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SSouth) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 3) . genericLength <$> teamPositions) w
+            tp = evalWorld (min (i + 3) . genericLength . fmap memberPosition <$> team) w
 
 
 instance ProcessUI 'HudTeam ('Input.MoveCursor 'North) where
@@ -922,7 +920,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'East) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'East) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SEast) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 1) . genericLength <$> teamPositions) w
+            tp = evalWorld (min (i + 1) . genericLength . fmap memberPosition <$> team) w
 
 
 instance ProcessUI 'HudTeam 'Input.SelectChoice where
@@ -1014,13 +1012,13 @@ instance ProcessUI 'EquipmentUI ('Input.Tab i) where
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveReticule d) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w _ i f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (dirToVec' d) i f
+    processTarget (StTargetSelectionAdjactened w (_, i) f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (dirToVec' d, i) f
 
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveTarget i) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveTarget i) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w tp i f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w tp (max 0 (i - 1)) f
-    processTarget (StTargetSelectionAdjactened w tp i f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w tp (min (i + 1) maxi) f
+    processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w (tp, (max 0 (i - 1))) f
+    processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w (tp, (min (i + 1) maxi)) f
         where
             maxi =  evalWorld (maxCellIndex . (tp +) . fst =<< playerPosition) w
 
@@ -1032,7 +1030,7 @@ instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
 
 instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionAdjactened 'Input.ConfirmTarget = SomeGameState
-    processTarget (StTargetSelectionAdjactened w tp i f) _ = runWithTarget f (tp + ppos) i
+    processTarget (StTargetSelectionAdjactened w tp f) _ = runWithTarget f ((+ppos) `first`  tp)
         where
             ppos = evalWorld (fst <$> playerPosition) w
 
@@ -1040,15 +1038,15 @@ instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionDistant ('Input.MoveReticule d) = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w tp i f) (Input.SMoveReticule d) = StTargetSelectionDistant w (tp + dirToVec' d) i f
+    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveReticule d) = StTargetSelectionDistant w (tp + dirToVec' d, i) f
 
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.MoveTarget i) where
     type TgGameStateOut 'TargetSelectionDistant ('Input.MoveTarget i) = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w tp i f) (Input.SMoveTarget SNext) = StTargetSelectionDistant w tp lowerTarget f
+    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveTarget SNext) = StTargetSelectionDistant w (tp, lowerTarget) f
         where
             lowerTarget = max 0 (i - 1)
-    processTarget (StTargetSelectionDistant w tp i f) (Input.SMoveTarget SPrevious) = StTargetSelectionDistant w tp (min (i + 1) maxi) f
+    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveTarget SPrevious) = StTargetSelectionDistant w (tp, min (i + 1) maxi) f
         where
             maxi = evalWorld (maxCellIndex tp) w
 
@@ -1060,7 +1058,7 @@ instance ProcessTarget 'TargetSelectionDistant ('Input.SmartTarget i) where
 
 instance ProcessTarget 'TargetSelectionDistant 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionDistant 'Input.ConfirmTarget = SomeGameState
-    processTarget (StTargetSelectionDistant _ tp i f) _ = runWithTarget f tp i
+    processTarget (StTargetSelectionDistant _ tp f) _ = runWithTarget f tp
 
 --------------------------------------------------------------------------------
 
@@ -1110,7 +1108,7 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 
 --render ∷ (RenderAPI r, Monad r) ⇒ GameState g e → r ()
 
-renderNormal ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
+renderNormal ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderNormal w = do
     renderWorld w
     updateHud =<< drawTeamHud (completeTeam w) Nothing
@@ -1144,19 +1142,19 @@ renderComputerOperation cd =
         clear
         drawComputer cd
 
-renderHudTeam ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → Int → r ()
+renderHudTeam ∷ (RenderAPI r, Monad r) ⇒ World → Int → r ()
 renderHudTeam w i = do
     updateHud =<< drawTeamHud (completeTeam w) (Just i)
     --updateHud =<< drawStatus False (evalWorld status w)
     updateHud =<< drawWatch False (evalWorld currentTurn w)
 
-renderHudMessages ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
+renderHudMessages ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudMessages w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus True (evalWorld status w)
     updateHud =<< drawWatch False (evalWorld currentTurn w)
 
-renderHudWatch ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
+renderHudWatch ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudWatch w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
@@ -1177,21 +1175,21 @@ renderEquipmentUI ch = do
     updateUi clear
     updateUi =<< drawEquipmentDoll ch
 
-renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → V2 Int → Int → r ()
-renderTargetSelectionAdjactened w tp i = do
-    let pp = evalWorld playerPosition w
+renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
+renderTargetSelectionAdjactened w (tp, i) = do
+    let pp = evalWorld (fst <$> playerPosition) w
     white ← style s_colorWhite
     green ← style s_colorGreen
-    renderCellContentsToStatus w (fst pp + tp) i
+    renderCellContentsToStatus w (pp + tp, i)
     updateMain $ do
         RenderAction $ do
             C.setColor white
-            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) (fst pp)
+            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) pp
                 [ "yku"
                 , "h.l"
                 , "bjn"
                 ]
-        draw' (fst pp + tp) (charForVec tp) [C.AttributeColor green]
+        draw' (pp + tp) (charForVec tp) [C.AttributeColor green]
     where
         charForVec (V2 -1  -1) = 'y'
         charForVec (V2  0  -1) = 'k'
@@ -1204,12 +1202,12 @@ renderTargetSelectionAdjactened w tp i = do
         charForVec _           = '.'
 
 
-renderTargetSelectionDistant ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → V2 Int → Int → r ()
-renderTargetSelectionDistant w tp i = do
+renderTargetSelectionDistant ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
+renderTargetSelectionDistant w tp = do
     renderWorld w
     green ← style s_colorGreen
-    renderCellContentsToStatus w tp i
-    updateMain $ draw' tp 'X' [C.AttributeColor green]
+    renderCellContentsToStatus w tp
+    updateMain $ draw' (fst tp) 'X' [C.AttributeColor green]
 
 renderChoiceSelection ∷ (RenderAPI r, Monad r) ⇒ [(Char, String)] → Int → r ()
 renderChoiceSelection xs i = do
@@ -1236,7 +1234,7 @@ renderChoiceSelection xs i = do
             drawString (2 ∷ Int) (l + 2) (ch : " - " <> str)
 
 
-renderWorld ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → r ()
+renderWorld ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderWorld w =
     let m = evalWorld currentMap w
         d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
@@ -1245,8 +1243,8 @@ renderWorld w =
 
 
 
-renderCellContentsToStatus ∷ (RenderAPI r, Monad r) ⇒ DreamnetWorld → V2 Int → Int → r ()
-renderCellContentsToStatus w v i = do
+renderCellContentsToStatus ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
+renderCellContentsToStatus w (v, i) = do
     white ← style s_colorWhite
     green ← style s_colorGreen
 
@@ -1266,7 +1264,7 @@ renderCellContentsToStatus w v i = do
 
 
 
-completeTeam ∷ World States Visibility → [DreamnetCharacter]
+completeTeam ∷ World → [DreamnetCharacter]
 completeTeam w =
     let p = flip evalWorld w $ playerPosition >>= \t → 
                                fromJustNote "complTeam" . valueAt (snd t) <$> cellAt (fst t)

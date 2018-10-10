@@ -29,7 +29,7 @@ import qualified Data.Map as M (Map, fromList)
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Character
 
-import Dreamnet.Game
+import Dreamnet.ObjectStates
 import Design.Items
 
 --------------------------------------------------------------------------------
