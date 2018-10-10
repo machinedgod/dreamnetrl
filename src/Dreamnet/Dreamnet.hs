@@ -11,6 +11,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 
 module Dreamnet.Dreamnet
@@ -51,6 +52,8 @@ import qualified Dreamnet.Engine.Visibility as Visibility (height)
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Object
 import qualified Dreamnet.Engine.Input as Input
+import Dreamnet.Engine.Direction
+import Dreamnet.Engine.Iteration
 
 import Dreamnet.Rendering.Renderer
 import Dreamnet.Game
@@ -118,25 +121,24 @@ dreamnet dd = C.runCurses $ do
                 lift Input.nextWorldEvent >>= \case
                     (Left Input.Back) → pure Nothing
                     (Right event)     → Input.withTypedWorldEvent event $ \case
-                        ev@(Input.TyMove _)       → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@(Input.TyMoveCamera _) → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyExamine        → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyOperate        → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyExamineHeld    → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyOperateHeld    → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyOperateHeldOn  → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
-                        ev@Input.TyTalk           → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyGet            → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyWear           → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyStoreIn        → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyPullFrom       → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyWait           → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyHigherStance   → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyLowerStance    → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyInventorySheet → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyCharacterSheet → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.TyGiveCommand    → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
-                        ev@Input.TySwitchToHud    → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@(Input.TyMove _)         → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@(Input.TyMoveCamera _)   → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyExamine          → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyOperate          → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyExamineHeld      → pure (Just (either SomeGS id (processNormal gs ev)))
+                        ev@Input.TyOperateHeld      → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyOperateHeldOn    → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
+                        ev@Input.TyTalk             → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyGet              → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyWear             → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyStoreIn          → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyPullFrom         → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyWait             → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@(Input.TySetStance _)    → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyInventorySheet   → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TyCharacterSheet   → pure (Just (SomeGS (processNormal gs ev)))
+                        ev@Input.TySwitchToTactical → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
+                        ev@Input.TySwitchToHud      → pure (Just (SomeGS (processNormal gs ev)))
 
             gs@(StExamination w _) → do
                 renderExamination
@@ -144,9 +146,9 @@ dreamnet dd = C.runCurses $ do
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp   → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown → Just . SomeGS <$> processUI gs ev
-                        _                   → pure (Just (SomeGS gs))
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
 
             gs@(StConversation w _ (Free cn')) → do
                 renderConversation cn'
@@ -154,14 +156,15 @@ dreamnet dd = C.runCurses $ do
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp       → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TySelectChoice → Just . SomeGS <$> processUI gs ev
-                        _                       → pure (Just (SomeGS gs))
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        ev@Input.TySelectChoice        → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
             (StConversation w _ (Pure _)) → do
                 renderNormal w
                 flush
                 pure (Just $ SomeGS (StNormal w))
+
             gs@(StComputerOperation w p cd) → do
                 renderComputerOperation cd
                 flush
@@ -177,13 +180,14 @@ dreamnet dd = C.runCurses $ do
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp       → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveLeft     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveRight    → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabNext      → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabPrevious  → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TySelectChoice → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SNext)         → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                        ev@Input.TySelectChoice        → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
                         
             gs@(StHudMessages w) → do
                 renderHudMessages w
@@ -191,52 +195,53 @@ dreamnet dd = C.runCurses $ do
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp       → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabNext      → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabPrevious  → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TySelectChoice → Just . SomeGS <$> processUI gs ev
-                        _                       → pure (Just (SomeGS gs))
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SNext)         → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                        ev@Input.TySelectChoice        → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
             gs@(StHudWatch w _ _) → do
                 renderHudWatch w
                 flush
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp       → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveLeft     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveRight    → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabNext      → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabPrevious  → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TySelectChoice → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SNext)         → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                        ev@Input.TySelectChoice        → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
             gs@(StInventoryUI w) → do
                 renderInventoryUI
                 flush
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyMoveUp       → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyMoveDown     → Just . SomeGS <$> processUI gs ev
-                        _                       → pure (Just (SomeGS gs))
+                        ev@(Input.TyMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                        _                              → pure (Just (SomeGS gs))
             gs@(StSkillsUI w ch) → do
                 renderSkillsUI ch
                 flush
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyTabNext      → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabPrevious  → Just . SomeGS <$> processUI gs ev
-                        _                       → pure (Just (SomeGS gs))
+                        ev@(Input.TyTab SNext)     → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SPrevious) → Just . SomeGS <$> processUI gs ev
+                        _                          → pure (Just (SomeGS gs))
             gs@(StEquipmentUI w ch) → do
                 renderEquipmentUI ch
                 flush
                 lift Input.nextUiEvent >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedUIEvent event $ \case
-                        ev@Input.TyTabNext      → Just . SomeGS <$> processUI gs ev
-                        ev@Input.TyTabPrevious  → Just . SomeGS <$> processUI gs ev
-                        _                       → pure (Just (SomeGS gs))
+                        ev@(Input.TyTab SNext)     → Just . SomeGS <$> processUI gs ev
+                        ev@(Input.TyTab SPrevious) → Just . SomeGS <$> processUI gs ev
+                        _                          → pure (Just (SomeGS gs))
 
             gs@(StTargetSelectionAdjactened w tp i _) → do
                 renderTargetSelectionAdjactened w tp i
@@ -245,11 +250,10 @@ dreamnet dd = C.runCurses $ do
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedTargetEvent event $ \case
                         ev@(Input.TyMoveReticule _) → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyHigherTarget     → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyLowerTarget      → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyNextTarget       → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyPreviousTarget   → Just . SomeGS <$> processTarget gs ev
+                        ev@(Input.TyMoveTarget _)   → Just . SomeGS <$> processTarget gs ev
+                        ev@(Input.TySmartTarget _)  → Just . SomeGS <$> processTarget gs ev
                         ev@Input.TyConfirmTarget    → Just <$> processTarget gs ev
+
             gs@(StTargetSelectionDistant w tp i _) → do
                 renderTargetSelectionDistant w tp i
                 flush
@@ -257,18 +261,17 @@ dreamnet dd = C.runCurses $ do
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → Input.withTypedTargetEvent event $ \case
                         ev@(Input.TyMoveReticule _) → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyHigherTarget     → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyLowerTarget      → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyNextTarget       → Just . SomeGS <$> processTarget gs ev
-                        ev@Input.TyPreviousTarget   → Just . SomeGS <$> processTarget gs ev
+                        ev@(Input.TyMoveTarget _)   → Just . SomeGS <$> processTarget gs ev
+                        ev@(Input.TySmartTarget _)  → Just . SomeGS <$> processTarget gs ev
                         ev@Input.TyConfirmTarget    → Just <$> processTarget gs ev
+
             gs@(StChoiceSelection w chs i _) → do
                 renderChoiceSelection chs i
                 flush
                 lift (Input.nextChoiceEvent (fst $ unzip chs)) >>= \case
                     (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
                     (Right event)     → processChoiceSelection gs event >>= \case
-                        (Left fgs)   → pure (Just (SomeGS fgs))
+                        (Left fgs)  → pure (Just (SomeGS fgs))
                         (Right sgs) → pure (Just sgs)
 
 
@@ -410,15 +413,13 @@ class ProcessNormal (gsi ∷ GameStateEnum) (ev ∷ Input.WorldEvent) where
 
 
 class ProcessUI (gsi ∷ GameStateEnum) (ev ∷ Input.UIEvent) where
-    type UIEffects      gsi ev ∷ * → *
     type UIGameStateOut gsi ev ∷ *
-    processUI ∷ GameState gsi → Input.TypedUiEvent ev → UIEffects gsi ev (UIGameStateOut gsi ev)
+    processUI ∷ GameState gsi → Input.TypedUiEvent ev → DreamnetMonad (UIGameStateOut gsi ev)
 
 
 class ProcessTarget (gsi ∷ GameStateEnum) (ev ∷ Input.TargetEvent) where
-    type TgEffects      gsi ev ∷ * → *
     type TgGameStateOut gsi ev ∷ *
-    processTarget ∷ GameState gsi → Input.TypedTargetEvent ev → TgEffects gsi ev (TgGameStateOut gsi ev)
+    processTarget ∷ GameState gsi → Input.TypedTargetEvent ev → DreamnetMonad (TgGameStateOut gsi ev)
 
 --------------------------------------------------------------------------------
 
@@ -428,15 +429,15 @@ cellObject v i = evalWorld (valueAt i <$> cellAt v)
 
 instance ProcessNormal 'Normal ('Input.Move k) where
     type GameStateOut 'Normal ('Input.Move k) = GameState 'Normal
-    processNormal (StNormal w) (Input.TyMove v) =
+    processNormal (StNormal w) (Input.TyMove d) =
         updateVisible $ StNormal $ flip execWorld w $ do
-            movePlayer v
+            movePlayer (dirToVec' d)
             increaseTurn
 
 
 instance ProcessNormal 'Normal ('Input.MoveCamera k) where
     type GameStateOut 'Normal ('Input.MoveCamera k) = GameState 'Normal
-    processNormal (StNormal w) (Input.TyMoveCamera v) = StNormal w
+    processNormal (StNormal w) (Input.TyMoveCamera _) = StNormal w
         --moveCamera v
 
 
@@ -478,18 +479,15 @@ instance ProcessNormal 'Normal 'Input.Operate where
 
 
 instance ProcessNormal 'Normal 'Input.ExamineHeld where
-    type GameStateOut 'Normal 'Input.ExamineHeld = GameState 'Normal
+    type GameStateOut 'Normal 'Input.ExamineHeld = Either (GameState 'Normal) SomeGameState
     processNormal (StNormal w) _ =
         let mres = do
                 ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld playerObject w)
                 pch ← preview (o_state._Person) (evalWorld playerObject w)
                 pure $ runProgramAsPlayer w (evalWorld playerPosition w) (programForState pch ho Examine)
         in  case mres of
-                Just x  → case x of
-                    -- TODO BLATANTLY WRONG BUT FIXING COMPILATION NOW
-                    (SomeGS gs@(StNormal _)) → gs
-                    _                        → StNormal w
-                Nothing → StNormal w
+                Just x  → Right x
+                Nothing → Left (StNormal w)
 
 
 instance ProcessNormal 'Normal 'Input.OperateHeld where
@@ -669,18 +667,14 @@ instance ProcessNormal 'Normal 'Input.Wait where
     processNormal (StNormal w) _ = updateVisible (StNormal (execWorld increaseTurn w))
 
 
-instance ProcessNormal 'Normal 'Input.HigherStance where
-    type GameStateOut 'Normal 'Input.HigherStance = GameState 'Normal
-    processNormal (StNormal w) _ = updateVisible (StNormal (execWorld updateStance w))
+instance ProcessNormal 'Normal ('Input.SetStance i) where
+    type GameStateOut 'Normal ('Input.SetStance i) = GameState 'Normal
+    processNormal (StNormal w) (Input.TySetStance i) = case i of
+        SNext     → updateFunc succSafe
+        SPrevious → updateFunc predSafe
         where
-            updateStance = changePlayer (o_state._Person.ch_stance %~ predSafe)
-
-
-instance ProcessNormal 'Normal 'Input.LowerStance where
-    type GameStateOut 'Normal 'Input.LowerStance = GameState 'Normal
-    processNormal (StNormal w) _ = updateVisible (StNormal (execWorld updateStance w))
-        where
-            updateStance = changePlayer (o_state._Person.ch_stance %~ succSafe)
+            updateFunc f   = updateVisible (StNormal (execWorld (updateStance f) w))
+            updateStance f = changePlayer (o_state._Person.ch_stance %~ f)
 
 
 instance ProcessNormal 'Normal 'Input.InventorySheet where
@@ -697,8 +691,8 @@ instance ProcessNormal 'Normal 'Input.CharacterSheet where
     processNormal (StNormal w) _ = StSkillsUI w carla  -- TODO totally not correct
 
 
-instance ProcessNormal 'Normal 'Input.GiveCommand where
-    type GameStateOut 'Normal 'Input.GiveCommand = Either (GameState 'Normal) (GameState 'ChoiceSelection)
+instance ProcessNormal 'Normal 'Input.SwitchToTactical where
+    type GameStateOut 'Normal 'Input.SwitchToTactical = Either (GameState 'Normal) (GameState 'ChoiceSelection)
     processNormal (StNormal w) _ =
         let teamChars = evalWorld (fmap (fromJust . preview (o_state._Person)) <$> teamObjects) w
         in  if not (null teamChars)
@@ -734,22 +728,19 @@ programForState ch (Consumable ci)      it = genericConsumable ci ch it
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'Examination 'Input.MoveUp where
-    type UIEffects      'Examination 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'Examination 'Input.MoveUp = GameState 'Examination
+instance ProcessUI 'Examination ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'Examination ('Input.MoveCursor 'North) = GameState 'Examination
     processUI gs _ = doScroll scrollUp $> gs
 
 
-instance ProcessUI 'Examination 'Input.MoveDown where
-    type UIEffects      'Examination 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'Examination 'Input.MoveDown = GameState 'Examination
+instance ProcessUI 'Examination ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'Examination ('Input.MoveCursor 'South) = GameState 'Examination
     processUI gs _ = doScroll scrollDown $> gs
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'Conversation 'Input.MoveUp where
-    type UIEffects      'Conversation 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'Conversation 'Input.MoveUp = GameState 'Conversation
+instance ProcessUI 'Conversation ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'Conversation ('Input.MoveCursor 'North) = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
         let cname = view ch_name $ ps !! i
         in  processUI (StConversation w ps (fn cname)) e
@@ -765,9 +756,8 @@ instance ProcessUI 'Conversation 'Input.MoveUp where
         doScroll scrollUp $> gs
 
 
-instance ProcessUI 'Conversation 'Input.MoveDown where
-    type UIEffects      'Conversation 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'Conversation 'Input.MoveDown = GameState 'Conversation
+instance ProcessUI 'Conversation ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'Conversation ('Input.MoveCursor 'South) = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
         let cname = view ch_name $ ps !! i
         in  processUI (StConversation w ps (fn cname)) e
@@ -784,7 +774,6 @@ instance ProcessUI 'Conversation 'Input.MoveDown where
 
 
 instance ProcessUI 'Conversation 'Input.SelectChoice where
-    type UIEffects      'Conversation 'Input.SelectChoice = DreamnetMonad
     type UIGameStateOut 'Conversation 'Input.SelectChoice = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
         let cname = view ch_name $ ps !! i
@@ -893,204 +882,154 @@ processComputerOperation (StComputerOperation w (v,ix) cd) (Input.PassThrough c)
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'HudTeam 'Input.TabNext where
-    type UIEffects      'HudTeam 'Input.TabNext = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.TabNext = GameState 'HudMessages
-    processUI (StHudTeam w _) _ = pure (StHudMessages w)
+type family IterateOverHudElements (gs ∷ GameStateEnum) (i ∷ Iteration) ∷ GameStateEnum where
+    IterateOverHudElements 'HudTeam 'Next     = 'HudMessages
+    IterateOverHudElements 'HudTeam 'Previous = 'HudWatch
+
+    IterateOverHudElements 'HudMessages 'Next     = 'HudWatch
+    IterateOverHudElements 'HudMessages 'Previous = 'HudTeam
+
+    IterateOverHudElements 'HudWatch 'Next     = 'HudTeam
+    IterateOverHudElements 'HudWatch 'Previous = 'HudMessages
+
+--------------------------------------------------------------------------------
+
+instance ProcessUI 'HudTeam ('Input.Tab i) where
+    type UIGameStateOut 'HudTeam ('Input.Tab i) = GameState (IterateOverHudElements 'HudTeam i)
+    processUI (StHudTeam w _) (Input.TyTab SNext)     = pure (StHudMessages w)
+    processUI (StHudTeam w _) (Input.TyTab SPrevious) = pure (StHudWatch w 0 0)
 
 
-instance ProcessUI 'HudTeam 'Input.TabPrevious where
-    type UIEffects      'HudTeam 'Input.TabPrevious = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.TabPrevious = GameState 'HudWatch
-    processUI (StHudTeam w _) _ = pure (StHudWatch w 0 0)
+instance ProcessUI 'HudTeam ('Input.MoveCursor 'West) where
+    type UIGameStateOut 'HudTeam ('Input.MoveCursor 'West) = GameState 'HudTeam
+    processUI (StHudTeam w i) (Input.TyMoveCursor SWest) = pure (StHudTeam w (max 0 (i - 1)))
 
 
-instance ProcessUI 'HudTeam 'Input.MoveUp where
-    type UIEffects      'HudTeam 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.MoveUp = GameState 'HudTeam
-    processUI (StHudTeam w i) _ = pure (StHudTeam w (max 0 (i - 3)))
-
-
-instance ProcessUI 'HudTeam 'Input.MoveDown where
-    type UIEffects      'HudTeam 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.MoveDown = GameState 'HudTeam
-    processUI (StHudTeam w i) _ = pure (StHudTeam w tp)
+instance ProcessUI 'HudTeam ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'HudTeam ('Input.MoveCursor 'South) = GameState 'HudTeam
+    processUI (StHudTeam w i) (Input.TyMoveCursor SSouth) = pure (StHudTeam w tp)
         where
             tp = evalWorld (min (i + 3) . genericLength <$> teamPositions) w
 
 
-instance ProcessUI 'HudTeam 'Input.MoveLeft where
-    type UIEffects      'HudTeam 'Input.MoveLeft = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.MoveLeft = GameState 'HudTeam
-    processUI (StHudTeam w i) _ = pure (StHudTeam w (max 0 (i - 1)))
+instance ProcessUI 'HudTeam ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'HudTeam ('Input.MoveCursor 'North) = GameState 'HudTeam
+    processUI (StHudTeam w i) (Input.TyMoveCursor SNorth) = pure (StHudTeam w (max 0 (i - 3)))
 
 
-instance ProcessUI 'HudTeam 'Input.MoveRight where
-    type UIEffects      'HudTeam 'Input.MoveRight = DreamnetMonad
-    type UIGameStateOut 'HudTeam 'Input.MoveRight = GameState 'HudTeam
-    processUI (StHudTeam w i) _ = pure (StHudTeam w tp)
+instance ProcessUI 'HudTeam ('Input.MoveCursor 'East) where
+    type UIGameStateOut 'HudTeam ('Input.MoveCursor 'East) = GameState 'HudTeam
+    processUI (StHudTeam w i) (Input.TyMoveCursor SEast) = pure (StHudTeam w tp)
         where
             tp = evalWorld (min (i + 1) . genericLength <$> teamPositions) w
 
 
 instance ProcessUI 'HudTeam 'Input.SelectChoice where
-    type UIEffects      'HudTeam 'Input.SelectChoice = DreamnetMonad
     type UIGameStateOut 'HudTeam 'Input.SelectChoice = GameState 'SkillsUI
     processUI (StHudTeam w i) _ = pure (StSkillsUI w (completeTeam w `at` i))
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'HudMessages 'Input.TabNext where
-    type UIEffects      'HudMessages 'Input.TabNext = DreamnetMonad
-    type UIGameStateOut 'HudMessages 'Input.TabNext = GameState 'HudWatch
-    processUI (StHudMessages w) _ = pure (StHudWatch w 0 0)
+instance ProcessUI 'HudMessages ('Input.Tab i) where
+    type UIGameStateOut 'HudMessages ('Input.Tab i) = GameState (IterateOverHudElements 'HudMessages i)
+    processUI (StHudMessages w) (Input.TyTab SNext)     = pure (StHudWatch w 0 0)
+    processUI (StHudMessages w) (Input.TyTab SPrevious) = pure (StHudTeam w 0)
 
 
-instance ProcessUI 'HudMessages 'Input.TabPrevious where
-    type UIEffects      'HudMessages 'Input.TabPrevious = DreamnetMonad
-    type UIGameStateOut 'HudMessages 'Input.TabPrevious = GameState 'HudTeam
-    processUI (StHudMessages w) _ = pure (StHudTeam w 0)
-    
-
-instance ProcessUI 'HudMessages 'Input.MoveUp where
-    type UIEffects      'HudMessages 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'HudMessages 'Input.MoveUp = GameState 'HudMessages
+instance ProcessUI 'HudMessages ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'HudMessages ('Input.MoveCursor 'North) = GameState 'HudMessages
     -- TODO scroll
     processUI (StHudMessages w) _ = pure (StHudMessages w)
 
 
-instance ProcessUI 'HudMessages 'Input.MoveDown where
-    type UIEffects      'HudMessages 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'HudMessages 'Input.MoveDown = GameState 'HudMessages
+instance ProcessUI 'HudMessages ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'HudMessages ('Input.MoveCursor 'South) = GameState 'HudMessages
     -- TODO scroll
     processUI (StHudMessages w) _ = pure (StHudMessages w)
 
 
 instance ProcessUI 'HudMessages 'Input.SelectChoice where
-    type UIEffects      'HudMessages 'Input.SelectChoice = DreamnetMonad
     type UIGameStateOut 'HudMessages 'Input.SelectChoice = GameState 'HudMessages
     -- TODO use scroll window to show log
     processUI (StHudMessages w) _ = pure (StHudMessages w)
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'HudWatch 'Input.TabNext where
-    type UIEffects      'HudWatch 'Input.TabNext = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.TabNext = GameState 'HudTeam
-    processUI (StHudWatch w _ _) _ = pure (StHudTeam w 0)
+instance ProcessUI 'HudWatch ('Input.Tab i) where
+    type UIGameStateOut 'HudWatch ('Input.Tab i) = GameState (IterateOverHudElements 'HudWatch i)
+    processUI (StHudWatch w _ _) (Input.TyTab SNext)     = pure (StHudTeam w 0)
+    processUI (StHudWatch w _ _) (Input.TyTab SPrevious) = pure (StHudMessages w)
 
 
-instance ProcessUI 'HudWatch 'Input.TabPrevious where
-    type UIEffects      'HudWatch 'Input.TabPrevious = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.TabPrevious = GameState 'HudMessages
-    processUI (StHudWatch w _ _) _ = pure (StHudMessages w)
+instance ProcessUI 'HudWatch ('Input.MoveCursor 'West) where
+    type UIGameStateOut 'HudWatch ('Input.MoveCursor 'West) = GameState 'HudWatch
+    processUI (StHudWatch w t b) (Input.TyMoveCursor SWest)  = pure (StHudWatch w t ((b - 1) `mod` 3))
 
 
-instance ProcessUI 'HudWatch 'Input.MoveUp where
-    type UIEffects      'HudWatch 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.MoveUp = GameState 'HudWatch
-    processUI (StHudWatch w t b) _ = pure (StHudWatch w (t + 1) b)
+instance ProcessUI 'HudWatch ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'HudWatch ('Input.MoveCursor 'South) = GameState 'HudWatch
+    processUI (StHudWatch w t b) (Input.TyMoveCursor SSouth) = pure (StHudWatch w (t - 1) b)
 
 
-instance ProcessUI 'HudWatch 'Input.MoveDown where
-    type UIEffects      'HudWatch 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.MoveDown = GameState 'HudWatch
-    processUI (StHudWatch w t b) _ = pure (StHudWatch w (t - 1) b)
+instance ProcessUI 'HudWatch ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'HudWatch ('Input.MoveCursor 'North) = GameState 'HudWatch
+    processUI (StHudWatch w t b) (Input.TyMoveCursor SNorth) = pure (StHudWatch w (t + 1) b)
 
 
-instance ProcessUI 'HudWatch 'Input.MoveLeft where
-    type UIEffects      'HudWatch 'Input.MoveLeft = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.MoveLeft = GameState 'HudWatch
-    processUI (StHudWatch w t b) _ = pure (StHudWatch w t ((b - 1) `mod` 3))
-     
+instance ProcessUI 'HudWatch ('Input.MoveCursor 'East) where
+    type UIGameStateOut 'HudWatch ('Input.MoveCursor 'East) = GameState 'HudWatch
+    processUI (StHudWatch w t b) (Input.TyMoveCursor SEast)  = pure (StHudWatch w t ((b + 1) `mod` 3))
 
-instance ProcessUI 'HudWatch 'Input.MoveRight where
-    type UIEffects      'HudWatch 'Input.MoveRight = DreamnetMonad
-    type UIGameStateOut 'HudWatch 'Input.MoveRight = GameState 'HudWatch
-    processUI (StHudWatch w t b) _ = pure (StHudWatch w t ((b + 1) `mod` 3))
-    
 
 instance ProcessUI 'HudWatch 'Input.SelectChoice where
-    type UIEffects      'HudWatch 'Input.SelectChoice = DreamnetMonad
     type UIGameStateOut 'HudWatch 'Input.SelectChoice = GameState 'HudWatch
     processUI gs _ = pure gs
 
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'InventoryUI 'Input.MoveUp where
-    type UIEffects      'InventoryUI 'Input.MoveUp = DreamnetMonad
-    type UIGameStateOut 'InventoryUI 'Input.MoveUp = GameState 'InventoryUI
-    processUI gs _ = doScroll scrollUp $> gs
+instance ProcessUI 'InventoryUI ('Input.MoveCursor 'North) where
+    type UIGameStateOut 'InventoryUI ('Input.MoveCursor 'North) = GameState 'InventoryUI
+    processUI gs (Input.TyMoveCursor SNorth) = doScroll scrollUp $> gs
 
 
-instance ProcessUI 'InventoryUI 'Input.MoveDown where
-    type UIEffects      'InventoryUI 'Input.MoveDown = DreamnetMonad
-    type UIGameStateOut 'InventoryUI 'Input.MoveDown = GameState 'InventoryUI
-    processUI gs _ = doScroll scrollDown $> gs
+instance ProcessUI 'InventoryUI ('Input.MoveCursor 'South) where
+    type UIGameStateOut 'InventoryUI ('Input.MoveCursor 'South) = GameState 'InventoryUI
+    processUI gs (Input.TyMoveCursor SSouth) = doScroll scrollDown $> gs
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'SkillsUI 'Input.TabNext where
-    type UIEffects      'SkillsUI 'Input.TabNext = DreamnetMonad
-    type UIGameStateOut 'SkillsUI 'Input.TabNext = GameState 'EquipmentUI
-    processUI (StSkillsUI w ch) _ = pure (StEquipmentUI w ch)
-
-
-instance ProcessUI 'SkillsUI 'Input.TabPrevious where
-    type UIEffects      'SkillsUI 'Input.TabPrevious = DreamnetMonad
-    type UIGameStateOut 'SkillsUI 'Input.TabPrevious = GameState 'EquipmentUI
+instance ProcessUI 'SkillsUI ('Input.Tab i) where
+    type UIGameStateOut 'SkillsUI ('Input.Tab i) = GameState 'EquipmentUI
     processUI (StSkillsUI w ch) _ = pure (StEquipmentUI w ch)
 
 --------------------------------------------------------------------------------
 
-instance ProcessUI 'EquipmentUI 'Input.TabNext where
-    type UIEffects      'EquipmentUI 'Input.TabNext = DreamnetMonad
-    type UIGameStateOut 'EquipmentUI 'Input.TabNext = GameState 'SkillsUI
-    processUI (StEquipmentUI w ch) _ = pure (StSkillsUI w ch)
-
-
-instance ProcessUI 'EquipmentUI 'Input.TabPrevious where
-    type UIEffects      'EquipmentUI 'Input.TabPrevious = DreamnetMonad
-    type UIGameStateOut 'EquipmentUI 'Input.TabPrevious = GameState 'SkillsUI
+instance ProcessUI 'EquipmentUI ('Input.Tab i) where
+    type UIGameStateOut 'EquipmentUI ('Input.Tab i) = GameState 'SkillsUI
     processUI (StEquipmentUI w ch) _ = pure (StSkillsUI w ch)
 
 --------------------------------------------------------------------------------
 
-instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveReticule k) where
-    type TgEffects      'TargetSelectionAdjactened ('Input.MoveReticule k) = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveReticule k) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w _ i f) (Input.TyMoveReticule v) = pure (StTargetSelectionAdjactened w v i f)
+instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveReticule d) where
+    type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveReticule d) = GameState 'TargetSelectionAdjactened
+    processTarget (StTargetSelectionAdjactened w _ i f) (Input.TyMoveReticule d) = pure (StTargetSelectionAdjactened w (dirToVec' d) i f)
 
 
-instance ProcessTarget 'TargetSelectionAdjactened 'Input.LowerTarget where
-    type TgEffects      'TargetSelectionAdjactened 'Input.LowerTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionAdjactened 'Input.LowerTarget = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w tp i f) _ = pure (StTargetSelectionAdjactened w tp (max 0 (i - 1)) f)
-
-
-instance ProcessTarget 'TargetSelectionAdjactened 'Input.HigherTarget where
-    type TgEffects      'TargetSelectionAdjactened 'Input.HigherTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionAdjactened 'Input.HigherTarget = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w tp i f) _ = pure (StTargetSelectionAdjactened w tp (min (i + 1) maxi) f)
+instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveTarget i) where
+    type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveTarget i) = GameState 'TargetSelectionAdjactened
+    processTarget (StTargetSelectionAdjactened w tp i f) (Input.TyMoveTarget SNext)     = pure (StTargetSelectionAdjactened w tp (max 0 (i - 1)) f)
+    processTarget (StTargetSelectionAdjactened w tp i f) (Input.TyMoveTarget SPrevious) = pure (StTargetSelectionAdjactened w tp (min (i + 1) maxi) f)
         where
             maxi =  evalWorld (maxCellIndex . (tp +) . fst =<< playerPosition) w
 
 
-instance ProcessTarget 'TargetSelectionAdjactened 'Input.NextTarget where
-    type TgEffects      'TargetSelectionAdjactened 'Input.NextTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionAdjactened 'Input.NextTarget = GameState 'TargetSelectionAdjactened
-    processTarget gs _ = pure gs
-
-
-instance ProcessTarget 'TargetSelectionAdjactened 'Input.PreviousTarget where
-    type TgEffects      'TargetSelectionAdjactened 'Input.PreviousTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionAdjactened 'Input.PreviousTarget = GameState 'TargetSelectionAdjactened
+instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
+    type TgGameStateOut 'TargetSelectionAdjactened ('Input.SmartTarget i) = GameState 'TargetSelectionAdjactened
     processTarget gs _ = pure gs
 
 
 instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
-    type TgEffects      'TargetSelectionAdjactened 'Input.ConfirmTarget = DreamnetMonad
     type TgGameStateOut 'TargetSelectionAdjactened 'Input.ConfirmTarget = SomeGameState
     processTarget (StTargetSelectionAdjactened w tp i f) _ = pure $ runWithTarget f (tp + ppos) i
         where
@@ -1098,42 +1037,27 @@ instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
 
 --------------------------------------------------------------------------------
 
-instance ProcessTarget 'TargetSelectionDistant ('Input.MoveReticule k) where
-    type TgEffects      'TargetSelectionDistant ('Input.MoveReticule k) = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionDistant ('Input.MoveReticule k) = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w tp i f) (Input.TyMoveReticule v) = pure (StTargetSelectionDistant w (tp + v) i f)
+instance ProcessTarget 'TargetSelectionDistant ('Input.MoveReticule d) where
+    type TgGameStateOut 'TargetSelectionDistant ('Input.MoveReticule d) = GameState 'TargetSelectionDistant
+    processTarget (StTargetSelectionDistant w tp i f) (Input.TyMoveReticule d) = pure (StTargetSelectionDistant w (tp + dirToVec' d) i f)
 
 
-instance ProcessTarget 'TargetSelectionDistant 'Input.LowerTarget where
-    type TgEffects      'TargetSelectionDistant 'Input.LowerTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionDistant 'Input.LowerTarget = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w tp i f) _ = pure (StTargetSelectionDistant w tp lowerTarget f)
+instance ProcessTarget 'TargetSelectionDistant ('Input.MoveTarget i) where
+    type TgGameStateOut 'TargetSelectionDistant ('Input.MoveTarget i) = GameState 'TargetSelectionDistant
+    processTarget (StTargetSelectionDistant w tp i f) (Input.TyMoveTarget SNext) = pure (StTargetSelectionDistant w tp lowerTarget f)
         where
             lowerTarget = max 0 (i - 1)
-
-
-instance ProcessTarget 'TargetSelectionDistant 'Input.HigherTarget where
-    type TgEffects      'TargetSelectionDistant 'Input.HigherTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionDistant 'Input.HigherTarget = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w tp i f) _ = pure (StTargetSelectionDistant w tp (min (i + 1) maxi) f)
+    processTarget (StTargetSelectionDistant w tp i f) (Input.TyMoveTarget SPrevious) = pure (StTargetSelectionDistant w tp (min (i + 1) maxi) f)
         where
             maxi = evalWorld (maxCellIndex tp) w
 
 
-instance ProcessTarget 'TargetSelectionDistant 'Input.NextTarget where
-    type TgEffects      'TargetSelectionDistant 'Input.NextTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionDistant 'Input.NextTarget = GameState 'TargetSelectionDistant
-    processTarget gs _ = pure gs
-
-
-instance ProcessTarget 'TargetSelectionDistant 'Input.PreviousTarget where
-    type TgEffects      'TargetSelectionDistant 'Input.PreviousTarget = DreamnetMonad
-    type TgGameStateOut 'TargetSelectionDistant 'Input.PreviousTarget = GameState 'TargetSelectionDistant
+instance ProcessTarget 'TargetSelectionDistant ('Input.SmartTarget i) where
+    type TgGameStateOut 'TargetSelectionDistant ('Input.SmartTarget i) = GameState 'TargetSelectionDistant
     processTarget gs _ = pure gs
 
 
 instance ProcessTarget 'TargetSelectionDistant 'Input.ConfirmTarget where
-    type TgEffects      'TargetSelectionDistant 'Input.ConfirmTarget = DreamnetMonad
     type TgGameStateOut 'TargetSelectionDistant 'Input.ConfirmTarget = SomeGameState
     processTarget (StTargetSelectionDistant _ tp i f) _ = pure $ runWithTarget f tp i
 

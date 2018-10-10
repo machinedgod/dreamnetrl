@@ -61,6 +61,8 @@ executable dreamnetrl
                         Design.ObjectPrograms
                         Dreamnet.Dreamnet
                         Dreamnet.ComputerModel
+                        Dreamnet.Engine.Direction
+                        Dreamnet.Engine.Iteration
                         Dreamnet.Engine.Character
                         Dreamnet.Engine.Conversation
                         Dreamnet.Engine.CoordVector

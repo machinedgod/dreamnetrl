@@ -2,14 +2,16 @@
 
 module Dreamnet.Engine.Utils
 ( --line
-  bla
-, circle
-, floodFillRange
+  bla, circle, floodFillRange
 
 , lines'
+
+, interpolateMonoid, interpolateEnum, interpolateSucc, interpolatePred
 ) where
 
 
+import Prelude             hiding (succ, pred)
+import Safe                       (succSafe, predSafe)
 import Control.Lens               (use, (%=), _1, _2)
 import Control.Monad              (unless)
 import Control.Monad.State.Strict (State, execState)
@@ -136,3 +138,26 @@ lines' l lf sep xs =
                               then (f <> sep <> x, b)
                               else (f, [x])
 
+--------------------------------------------------------------------------------
+
+-- TODO allow interpolation even when value set is smaller than index set
+interpolateMonoid ∷ (Monoid a, Monoid b, Ord b) ⇒ a → a → b → b → a
+interpolateMonoid start step i iend = start <> recurseSteps mempty
+    where
+        recurseSteps c
+            | c >= iend = mempty
+            | otherwise = step <> recurseSteps (c <> i)
+
+
+interpolateEnum ∷ (Enum a) ⇒ a → a → Float → a
+interpolateEnum x n t =
+    let xs = enumFromThen x n
+    in  xs !! floor (t * fromIntegral (length xs))
+
+
+interpolateSucc ∷ (Enum a, Eq a, Bounded a) ⇒ a → Float → a
+interpolateSucc x = interpolateEnum x (succSafe x)
+
+
+interpolatePred ∷ (Enum a, Eq a, Bounded a) ⇒ a → Float → a
+interpolatePred x = interpolateEnum x (predSafe x)
