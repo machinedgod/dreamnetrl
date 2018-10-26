@@ -142,6 +142,8 @@ type DreamnetCharacter = Character States (Free (ConversationF States) ()) Facti
 --
 -- So for example, Camera could utilize some generic 'perception' program that
 -- somehow signals some other object, that's set up with switches?
+--
+-- TODO should use a single object for all data, to be able to use Prisms w/o relying on tuple lenses
 data States = Prop        String String
             | Camera      Faction Word
             | Person      DreamnetCharacter

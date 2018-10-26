@@ -74,6 +74,7 @@ executable dreamnetrl
                         Dreamnet.Engine.ObjectAPI
                         Dreamnet.Engine.WorldMap
                         Dreamnet.ObjectStates
+                        Dreamnet.ObjectAPI2
                         Dreamnet.World
                         Dreamnet.Game
                         Dreamnet.Rendering.ChoiceData

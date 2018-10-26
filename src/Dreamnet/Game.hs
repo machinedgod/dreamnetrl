@@ -30,9 +30,10 @@ module Dreamnet.Game
 ) where
 
 import Safe                       (fromJustNote)
-import Control.Lens               (makeLenses, view, preview, (.~), _Just)
+import Control.Lens               (makeLenses, view, views, preview, (.~), _Just)
 import Control.Monad.Free         (Free(Free, Pure))
 import Control.Monad.Reader       (MonadReader, runReader, ask, asks) 
+import Control.Monad.State        (get) 
 import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
 import Data.List                  (elemIndex)
@@ -84,8 +85,7 @@ newtype ChoiceActivationF = ChoiceActivationF {
 --------------------------------------------------------------------------------
 
 data GameStateEnum = 
-      Quit
-    | Normal
+      Normal
     | Examination
     | Conversation
     | ComputerOperation
@@ -175,15 +175,11 @@ runProgramAsPlayer w p prg = case evalWorld (objectAt p) w of
 
 
 withTargetAdjactened ∷ World → (WorldPosition → SomeGameState) → GameState 'TargetSelectionAdjactened
-withTargetAdjactened w f = StTargetSelectionAdjactened w (pp w, 0) (TargetActivationF f)
-    where
-        pp = evalWorld (fst <$> playerPosition)
+withTargetAdjactened w f = StTargetSelectionAdjactened w (views w_player fst w, 0) (TargetActivationF f)
 
 
 withTargetDistant ∷ World → (WorldPosition → SomeGameState) → GameState 'TargetSelectionDistant
-withTargetDistant w f = StTargetSelectionDistant w (pp w, 0) (TargetActivationF f)
-    where
-        pp = evalWorld (fst <$> playerPosition)
+withTargetDistant w f = StTargetSelectionDistant w (views w_player fst w, 0) (TargetActivationF f)
 
 
 withChoice ∷ World → [(Char, String)] → (Int → SomeGameState) → GameState 'ChoiceSelection
@@ -193,8 +189,8 @@ withChoice w lst f = StChoiceSelection w lst 0 (ChoiceActivationF f)
 updateVisible ∷ GameState gse → GameState gse
 updateVisible gs =
     let w          = dreamnetWorld gs
-        pp         = evalWorld playerPosition w `addStanceHeight` w
-        tps        = (`addStanceHeight` w) <$> (memberPosition <$> evalWorld team w)
+        pp         = addStanceHeight (view w_player w) w
+        tps        = (`addStanceHeight` w) <$> (memberPosition <$> view w_team w)
         raysForAll = (`pointsForOne` w) <$> (pp : tps)
         nw         = execWorld (setVisibility (S.fromList $ mconcat raysForAll)) w
     in  modifyWorld (const nw) gs
@@ -243,7 +239,7 @@ runObjectMonadForPlayer (cp, o, gs) (Free (SetSeeThrough b n)) =
     let no = o_seeThrough .~ b $ o
     in  runObjectMonadForPlayer (cp, no, gs) n
 runObjectMonadForPlayer (cp, o, gs) (Free (CanSee v fn)) =
-    asks (evalWorld (castRay (cp) (v, 0))) >>= -- TODO add object height!
+    asks (evalWorld (castRay cp (v, 0))) >>= -- TODO add object height!
         runObjectMonadForPlayer (cp, o, gs) . fn . and . fmap snd
 runObjectMonadForPlayer (cp, o, gs) (Free (ChangeSymbol s n)) =
     let no = o_symbol .~ s $ o
@@ -259,7 +255,8 @@ runObjectMonadForPlayer (cp, o, gs) (Free (DoTalk c n)) = do
     fromMaybe 
         (runObjectMonadForPlayer (cp, o, gs) n)
         (do
-            pc ← evalWorld (preview (o_state._Person) <$> playerObject) w
+            pc ← evalWorld (preview (o_state._Person) <$> (playerObject =<< get)) w
+            --pc ← evalWorld (preview (o_state._Person) <$> playerObject) w
             ch ← preview (o_state._Person) o
             pure $ runObjectMonadForPlayer (cp, o, StConversation w (pc :| [ch]) c) n
         )
@@ -292,9 +289,8 @@ runObjectMonadForPlayer (cp, o, gs) (Free (RemoveObject _ _ n)) =
     -- TODO fix RemoveObject
     runObjectMonadForPlayer (cp, o, gs) n
 runObjectMonadForPlayer (cp, o, gs) (Free (FindObject s fn)) = do
-    xs ← asks $ evalWorld $ do
-        pp ← fst <$> playerPosition
-        interestingObjects pp 60 ((s==) . view o_state)
+    pp ← asks (views w_player fst)
+    xs ← asks (evalWorld (interestingObjects pp 60 ((s==) . view o_state)))
     if null xs
         then runObjectMonadForPlayer (cp, o, gs) (fn Nothing)
         else do

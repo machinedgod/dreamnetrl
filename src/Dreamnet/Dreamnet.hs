@@ -22,7 +22,8 @@ where
 
 import Prelude            hiding (head, (!!))
 import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
-import Control.Lens              (view, views, (%~), (^.), set, _Just, preview, previews)
+import Control.Lens              (view, views, (%~), (^.), set, _Just, preview,
+                                  previews, use)
 import Control.Monad             (void, join)
 import Control.Monad.Free        (Free(..))
 import Control.Monad.Trans       (lift)
@@ -63,6 +64,27 @@ import Design.GameCharacters
 import Design.Items
 
 --------------------------------------------------------------------------------
+
+{-
+data GameFlowEvent = GFEWorldEvent Input.WorldEvent
+                   | GFEUIEvent Input.UIEvent
+                   | GFETargetEvent Input.TargetEvent
+
+$(genSingletons [ ''GameFlowEvent ])
+
+class GameStateFlow (gsi ∷ GameStateEnum) (ev ∷ GameFlowEvent) where
+    type FlowOutState gsi ev ∷ *
+    gameStateFlow ∷ GameState gsi → Sing ev → FlowOutState gsi ev 
+
+
+instance GameStateFlow 'Normal ('GFEWorldEvent ('Input.Move k)) where
+    type FlowOutState 'Normal ('GFEWorldEvent ('Input.Move k)) = GameState 'Normal
+    gameStateFlow (StNormal w) (SGFEWorldEvent (Input.SMove d)) =
+        updateVisible $ StNormal $ flip execWorld w $ do
+            movePlayer (dirToVec' d)
+            increaseTurn
+-}
+
 
 choiceChs ∷ String
 choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM"
@@ -117,162 +139,156 @@ dreamnet dd = C.runCurses $ do
             gs@(StNormal w) → do
                 renderNormal w
                 flush
-                lift Input.nextWorldEvent >>= \case
-                    (Left Input.Back) → pure Nothing
-                    (Right event)     → withSomeSing event $ \case -- Input.withTypedWorldEvent event $ \case
-                        ev@(Input.SMove _)         → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@(Input.SMoveCamera _)   → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SExamine          → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SOperate          → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SExamineHeld      → pure (Just (either SomeGS id (processNormal gs ev)))
-                        ev@Input.SOperateHeld      → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SOperateHeldOn    → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
-                        ev@Input.STalk             → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SGet              → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SWear             → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SStoreIn          → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SPullFrom         → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SWait             → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@(Input.SSetStance _)    → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SInventorySheet   → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SCharacterSheet   → pure (Just (SomeGS (processNormal gs ev)))
-                        ev@Input.SSwitchToTactical → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
-                        ev@Input.SSwitchToHud      → pure (Just (SomeGS (processNormal gs ev)))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    --ev@(Input.SMove _)         → pure (Just (SomeGS (gameStateFlow gs (SGFEWorldEvent ev))))
+                    ev@(Input.SMove _)         → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@(Input.SMoveCamera _)   → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SExamine          → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SOperate          → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SExamineHeld      → pure (Just (either SomeGS id (processNormal gs ev)))
+                    ev@Input.SOperateHeld      → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SOperateHeldOn    → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
+                    ev@Input.STalk             → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SGet              → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SWear             → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SStoreIn          → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SPullFrom         → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SWait             → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@(Input.SSetStance _)    → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SInventorySheet   → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SCharacterSheet   → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SSwitchToTactical → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
+                    ev@Input.SSwitchToHud      → pure (Just (SomeGS (processNormal gs ev)))
+                    ev@Input.SBackToMainMenu   → pure Nothing
 
             gs@(StExamination w _) → do
                 renderExamination
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        _                             → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
 
             gs@(StConversation w _ (Free cn')) → do
                 renderConversation cn'
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                        _                              → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
             (StConversation w _ (Pure _)) → do
                 renderNormal w
                 flush
                 pure (Just $ SomeGS (StNormal w))
 
-            gs@(StComputerOperation w p cd) → do
+            gs@(StComputerOperation w (v,ix) cd) → do
                 renderComputerOperation cd
                 flush
-                lift Input.nextPassThrough >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal (execWorld saveWorldData w))))
-                    (Right ev) → Just . SomeGS <$> processComputerOperation gs ev
+                lift (Input.nextEvent gs ()) >>= \case
+                    Input.PassThroughBack    → pure (Just (SomeGS (StNormal (execWorld saveWorldData w))))
+                    (Input.PassThrough '\n') → pure (Just (SomeGS (StComputerOperation w  (v,ix) (snd $ runComputer commitInput cd))))
+                    (Input.PassThrough '\b') → pure (Just (SomeGS (StComputerOperation w (v,ix) (snd $ runComputer backspace cd))))
+                    (Input.PassThrough c)    → pure (Just (SomeGS (StComputerOperation w (v,ix) (snd $ runComputer (typeIn c) cd))))
+                    --ev                       → Just . SomeGS <$> processComputerOperation gs ev
                 where
-                    saveWorldData = modifyObjectAt p (pure . set o_state (Computer cd))
+                    saveWorldData = modifyObjectAt (v, ix) (pure . set o_state (Computer cd))
 
             gs@(StHudTeam w i) → do
                 renderHudTeam w i
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                        _                              → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
                         
             gs@(StHudMessages w) → do
                 renderHudMessages w
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                        _                              → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
             gs@(StHudWatch w _ _) → do
                 renderHudWatch w
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
-                        ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                        _                              → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SWest)  → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SEast)  → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
             gs@(StInventoryUI w) → do
                 renderInventoryUI
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                        _                              → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    _                             → pure (Just (SomeGS gs))
             gs@(StSkillsUI w ch) → do
                 renderSkillsUI ch
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
-                        _                          → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack          → pure (Just (SomeGS (StNormal w)))
+                    _                         → pure (Just (SomeGS gs))
             gs@(StEquipmentUI w ch) → do
                 renderEquipmentUI ch
                 flush
-                lift Input.nextUiEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
-                        ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
-                        _                          → pure (Just (SomeGS gs))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
+                    ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
+                    ev@Input.SUiBack          → pure (Just (SomeGS (StNormal w)))
+                    _                         → pure (Just (SomeGS gs))
 
             gs@(StTargetSelectionAdjactened w tp _) → do
                 renderTargetSelectionAdjactened w tp
                 flush
-                lift Input.nextTargetSelectionEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveReticule _) → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveReticule _) → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
+                    ev@Input.STargetBack       → pure (Just (SomeGS (StNormal w)))
 
             gs@(StTargetSelectionDistant w tp _) → do
                 renderTargetSelectionDistant w tp
                 flush
-                lift Input.nextTargetSelectionEvent >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → withSomeSing event $ \case
-                        ev@(Input.SMoveReticule _) → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
-                        ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
+                lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
+                    ev@(Input.SMoveReticule _) → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
+                    ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
+                    ev@Input.STargetBack       → pure (Just (SomeGS (StNormal w)))
 
-            gs@(StChoiceSelection w chs i _) → do
+            gs@(StChoiceSelection w chs i f) → do
                 renderChoiceSelection chs i
                 flush
-                lift (Input.nextChoiceEvent (fst $ unzip chs)) >>= \case
-                    (Left Input.Back) → pure (Just (SomeGS (StNormal w)))
-                    (Right event)     → processChoiceSelection gs event >>= \case
-                        (Left fgs)  → pure (Just (SomeGS fgs))
-                        (Right sgs) → pure (Just sgs)
-
+                lift (Input.nextEvent gs (fst $ unzip chs)) >>= \case
+                    Input.ChoiceBack → pure (Just (SomeGS (StNormal w)))
+                    (Input.ChoiceCharacter c) → if c == (fst $ chs `at` i)
+                        then pure (Just (runWithChoice f i))
+                        else pure (Just (SomeGS (StChoiceSelection w chs (fromJust . elemIndex c . fst . unzip $ chs) f)))
+        
+--------------------------------------------------------------------------------
 
 newGame ∷ DesignData → C.Curses (GameState 'Normal)
 newGame dd = do
@@ -448,7 +464,7 @@ instance ProcessNormal 'Normal 'Input.Examine where
                 --doWorld (setStatus "There's nothing here." *> increaseTurn)
             Just o → bool (SomeGS describeWorld) (runExamineObject v i o) (notOnPlayer v)
         where
-            notOnPlayer v  = evalWorld ((/=v) . fst <$> playerPosition) w
+            notOnPlayer v  = views w_player ((/=v) . fst) w
             program o ch   = programForState ch (view o_state o) Examine
             --describeWorld  = do
             --    let d = evalWorld desc w
@@ -457,7 +473,7 @@ instance ProcessNormal 'Normal 'Input.Examine where
             describeWorld  = StExamination w (evalWorld desc w)
             runExamineObject ∷ V2 Int → Int → Object States → SomeGameState
             runExamineObject v i o =
-                case preview (o_state._Person) (evalWorld playerObject w) of
+                case preview (o_state._Person) (evalWorld (playerObject w) w) of
                     Nothing → SomeGS (StNormal w)
                     Just ch → runProgramAsPlayer w (v, i) (program o ch)
                     --Just ch → case runProgramAsPlayer w v i (program o ch) of
@@ -470,7 +486,7 @@ instance ProcessNormal 'Normal 'Input.Operate where
     processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
         case cellObject t w of
             Nothing →  SomeGS (StNormal w)
-            Just o → case preview (o_state._Person) (evalWorld playerObject w) of
+            Just o → case preview (o_state._Person) (evalWorld (playerObject w) w) of
                 Nothing → SomeGS (StNormal w)
                 Just ch → runProgramAsPlayer w t (program o ch)
         where
@@ -481,9 +497,9 @@ instance ProcessNormal 'Normal 'Input.ExamineHeld where
     type GameStateOut 'Normal 'Input.ExamineHeld = Either (GameState 'Normal) SomeGameState
     processNormal (StNormal w) _ =
         let mres = do
-                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld playerObject w)
-                pch ← preview (o_state._Person) (evalWorld playerObject w)
-                pure $ runProgramAsPlayer w (evalWorld playerPosition w) (programForState pch ho Examine)
+                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w)
+                pch ← preview (o_state._Person) (evalWorld (playerObject w) w)
+                pure $ runProgramAsPlayer w (view w_player w) (programForState pch ho Examine)
         in  case mres of
                 Just x  → Right x
                 Nothing → Left (StNormal w)
@@ -493,9 +509,9 @@ instance ProcessNormal 'Normal 'Input.OperateHeld where
     type GameStateOut 'Normal 'Input.OperateHeld = GameState 'Normal
     processNormal (StNormal w) _ =
         let mres = do
-                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld playerObject w)
-                pch ← preview (o_state._Person) (evalWorld playerObject w)
-                pure $ runProgramAsPlayer w (evalWorld playerPosition w) (programForState pch ho Operate)
+                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w)
+                pch ← preview (o_state._Person) (evalWorld (playerObject w) w)
+                pure $ runProgramAsPlayer w (view w_player w) (programForState pch ho Operate)
         in  case mres of
                 Just x  → case x of
                     -- TODO BLATANTLY WRONG BUT FIXING COMPILATION NOW
@@ -510,7 +526,7 @@ instance ProcessNormal 'Normal 'Input.OperateHeld where
 instance ProcessNormal 'Normal 'Input.OperateHeldOn where
     type GameStateOut 'Normal 'Input.OperateHeldOn = Either (GameState 'Normal) (GameState 'TargetSelectionDistant)
     processNormal (StNormal w) _ =
-        case join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld playerObject w) of
+        case join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w) of
             Nothing → Left (StNormal w)
                 --doWorld $ setStatus "You aren't carrying anything in your hands."
             Just ho →
@@ -523,12 +539,12 @@ instance ProcessNormal 'Normal 'Input.OperateHeldOn where
                         Nothing → SomeGS (StNormal w)
                             --doWorld (setStatus "Nothing there.")
                         Just o  →
-                            case preview (o_state._Person) (evalWorld playerObject w) of
+                            case preview (o_state._Person) (evalWorld (playerObject w) w) of
                                 Nothing → SomeGS (StNormal w)
                                 Just ch →
                                     -- TODO which of the game states should take precedence?
                                     let so          = view o_state o
-                                    in  case runProgramAsPlayer w (evalWorld playerPosition w) (programForState ch ho (OperateOn so)) of
+                                    in  case runProgramAsPlayer w (view w_player w) (programForState ch ho (OperateOn so)) of
                                             (SomeGS gs) → runProgramAsPlayer (dreamnetWorld gs) t (programForState ch so (OperateWith ho))
 
 
@@ -538,7 +554,7 @@ instance ProcessNormal 'Normal 'Input.Talk where
         case cellObject t w of
             Nothing → SomeGS (StNormal (execWorld increaseTurn w))
                 --setStatus "Trying to talk to someone, but there's no one there."
-            Just o → case preview (o_state._Person) (evalWorld playerObject w) of
+            Just o → case preview (o_state._Person) (evalWorld (playerObject w) w) of
                 Nothing → SomeGS (StNormal w)
                 Just ch → runProgramAsPlayer w t (program o ch)
                 --Just ch → case runProgramAsPlayer w (v, i) (program o ch) of
@@ -615,7 +631,7 @@ instance ProcessNormal 'Normal 'Input.StoreIn where
     type GameStateOut 'Normal 'Input.StoreIn = GameState 'ChoiceSelection
     processNormal (StNormal w) _ =
         -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
-        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld playerObject w)
+        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld (playerObject w) w)
             xs            = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
         in  withChoice w xs $ \i → 
                 SomeGS $ StNormal $ flip execWorld w $ do
@@ -636,7 +652,7 @@ instance ProcessNormal 'Normal 'Input.PullFrom where
     type GameStateOut 'Normal 'Input.PullFrom = GameState 'ChoiceSelection
     processNormal (StNormal w) _ =
         -- TODO make this single-step choice (show containers and items as tree)
-        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld playerObject w)
+        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld (playerObject w) w)
             xs            = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
         in  withChoice w xs $ \i → 
             let sw       = containerList `at` i
@@ -680,7 +696,7 @@ instance ProcessNormal 'Normal 'Input.InventorySheet where
     type GameStateOut 'Normal 'Input.InventorySheet = GameState 'InventoryUI
     processNormal (StNormal w) _ =
         let itemList = maybe [] listOfItemsFromContainers $
-                            preview (o_state._Person) (evalWorld playerObject w)
+                            preview (o_state._Person) (evalWorld (playerObject w) w)
         --setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
         in  StInventoryUI w
 
@@ -693,7 +709,7 @@ instance ProcessNormal 'Normal 'Input.CharacterSheet where
 instance ProcessNormal 'Normal 'Input.SwitchToTactical where
     type GameStateOut 'Normal 'Input.SwitchToTactical = Either (GameState 'Normal) (GameState 'ChoiceSelection)
     processNormal (StNormal w) _ =
-        let teamChars = evalWorld (fmap (fromJust . preview (o_state._Person)) <$> teamObjects) w
+        let teamChars = evalWorld (fmap (fromJust . preview (o_state._Person)) <$> teamObjects w) w
         in  if not (null teamChars)
                 then
                     let xs = zip choiceChs (view ch_name <$> teamChars)
@@ -871,14 +887,6 @@ conversationSize = fmap (`div` 3) . uncurry V2 <$> mainSize
 -- Note: if I make ability to set the flow function, rather than just gamestate
 -- (setting gamestate should probably be an specialization of setting the flow function)
 -- at Dreamnet:245 from ObjectAPI, this'll be it.
-processComputerOperation ∷ (Monad g) ⇒ GameState 'ComputerOperation → Input.PassThrough → g (GameState 'ComputerOperation)
-processComputerOperation (StComputerOperation w (v,ix) cd) (Input.PassThrough '\n') =
-    pure (StComputerOperation w  (v,ix) (snd $ runComputer commitInput cd))
-processComputerOperation (StComputerOperation w (v,ix) cd) (Input.PassThrough '\b') =
-    pure (StComputerOperation w (v,ix) (snd $ runComputer backspace cd))
-processComputerOperation (StComputerOperation w (v,ix) cd) (Input.PassThrough c) =
-    pure (StComputerOperation w (v,ix) (snd $ runComputer (typeIn c) cd))
-
 --------------------------------------------------------------------------------
 
 type family IterateOverHudElements (gs ∷ GameStateEnum) (i ∷ Iteration) ∷ GameStateEnum where
@@ -908,7 +916,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'South) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'South) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SSouth) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 3) . genericLength . fmap memberPosition <$> team) w
+            tp = evalWorld (min (i + 3) . genericLength . fmap memberPosition <$> use w_team) w
 
 
 instance ProcessUI 'HudTeam ('Input.MoveCursor 'North) where
@@ -920,7 +928,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'East) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'East) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SEast) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 1) . genericLength . fmap memberPosition <$> team) w
+            tp = evalWorld (min (i + 1) . genericLength . fmap memberPosition <$> use w_team) w
 
 
 instance ProcessUI 'HudTeam 'Input.SelectChoice where
@@ -1020,7 +1028,7 @@ instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveTarget i) where
     processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w (tp, (max 0 (i - 1))) f
     processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w (tp, (min (i + 1) maxi)) f
         where
-            maxi =  evalWorld (maxCellIndex . (tp +) . fst =<< playerPosition) w
+            maxi =  evalWorld (maxCellIndex . (tp +) . fst =<< use w_player) w
 
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
@@ -1032,7 +1040,7 @@ instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionAdjactened 'Input.ConfirmTarget = SomeGameState
     processTarget (StTargetSelectionAdjactened w tp f) _ = runWithTarget f ((+ppos) `first`  tp)
         where
-            ppos = evalWorld (fst <$> playerPosition) w
+            ppos = evalWorld (fst <$> use w_player) w
 
 --------------------------------------------------------------------------------
 
@@ -1060,13 +1068,6 @@ instance ProcessTarget 'TargetSelectionDistant 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionDistant 'Input.ConfirmTarget = SomeGameState
     processTarget (StTargetSelectionDistant _ tp f) _ = runWithTarget f tp
 
---------------------------------------------------------------------------------
-
-processChoiceSelection ∷ (Monad g) ⇒ GameState 'ChoiceSelection → Input.ChoiceEvent → g (Either (GameState 'ChoiceSelection) SomeGameState)
-processChoiceSelection (StChoiceSelection w chs i f) (Input.ChoiceCharacter c)
-    | c == (fst $ chs `at` i) = pure (Right (runWithChoice f i))
-    | otherwise               = pure (Left (StChoiceSelection w chs (fromJust . elemIndex c . fst . unzip $ chs) f))
-        
 --------------------------------------------------------------------------------
 
 equippedContainers ∷ (ItemTraits i) ⇒ Character i c f → [SlotWrapper i]
@@ -1113,7 +1114,7 @@ renderNormal w = do
     renderWorld w
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch False (evalWorld currentTurn w)
+    updateHud =<< drawWatch False (view w_turn w)
 
 renderExamination ∷ (RenderAPI r, Monad r) ⇒ r ()
 renderExamination = do
@@ -1146,19 +1147,19 @@ renderHudTeam ∷ (RenderAPI r, Monad r) ⇒ World → Int → r ()
 renderHudTeam w i = do
     updateHud =<< drawTeamHud (completeTeam w) (Just i)
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch False (evalWorld currentTurn w)
+    updateHud =<< drawWatch False (view w_turn w)
 
 renderHudMessages ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudMessages w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus True (evalWorld status w)
-    updateHud =<< drawWatch False (evalWorld currentTurn w)
+    updateHud =<< drawWatch False (view w_turn w)
 
 renderHudWatch ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudWatch w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch True (evalWorld currentTurn w)
+    updateHud =<< drawWatch True (view w_turn w)
 
 renderInventoryUI ∷ (RenderAPI r, Monad r) ⇒ r ()
 renderInventoryUI = do
@@ -1177,7 +1178,7 @@ renderEquipmentUI ch = do
 
 renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
 renderTargetSelectionAdjactened w (tp, i) = do
-    let pp = evalWorld (fst <$> playerPosition) w
+    let pp = views w_player fst w
     white ← style s_colorWhite
     green ← style s_colorGreen
     renderCellContentsToStatus w (pp + tp, i)
@@ -1236,9 +1237,9 @@ renderChoiceSelection xs i = do
 
 renderWorld ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderWorld w =
-    let m = evalWorld currentMap w
+    let m = view w_map w
         d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
-        v = evalWorld visibility w
+        v = view w_vis w
     in  updateMain =<< drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v
 
 
@@ -1266,7 +1267,7 @@ renderCellContentsToStatus w (v, i) = do
 
 completeTeam ∷ World → [DreamnetCharacter]
 completeTeam w =
-    let p = flip evalWorld w $ playerPosition >>= \t → 
+    let p = flip evalWorld w $ use w_player >>= \t → 
                                fromJustNote "complTeam" . valueAt (snd t) <$> cellAt (fst t)
     in  [(\(Person chp) → chp) (p ^. o_state)]
     {-
@@ -1277,4 +1278,6 @@ completeTeam w =
                                fmap fromJustNote . uncurry valueAt . unwrapWorldCoord
     in  (\(Person chp) → chp) (p ^. o_state) : ((\(Person tm) → tm) . view o_state <$> t)
     -}
+
+--------------------------------------------------------------------------------
 

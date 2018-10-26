@@ -10,9 +10,9 @@ module Dreamnet.World
 
 , TeamMember(memberPosition)
 
-, WorldReadAPI(..), WorldAPI(..), playerObject, teamObjects
+, WorldAPI(..), playerObject, teamObjects
 
-, World, newWorld
+, World, w_turn, w_player, w_team, w_map, w_vis, newWorld
 
 , WorldM, runWorld, evalWorld, execWorld
 
@@ -26,7 +26,7 @@ import Control.Lens               (makeLenses, (%=), (.=), (+=), use, uses, view
                                    views, (.~))
 import Control.Monad              (when, (>=>))
 import Control.Monad.Free         (Free(..))
-import Control.Monad.State.Strict (MonadState, State, runState, evalState, execState)
+import Control.Monad.State.Strict (MonadState, State, get, runState, evalState, execState)
 import Linear                     (V2(V2))
 import Data.Foldable              (traverse_, for_)
 import Data.List                  (elemIndex)
@@ -48,15 +48,7 @@ newtype TeamMember = TeamMember { memberPosition ∷ WorldPosition }
 
 --------------------------------------------------------------------------------
 
-class (WorldMapReadAPI w) ⇒ WorldReadAPI w where
-    currentTurn       ∷ w Int
-    currentMap        ∷ w (WorldMap (Object States)) -- TODO not liking this
-    visibility        ∷ w (V.Vector Visibility) -- TODO or this
-    playerPosition    ∷ w WorldPosition
-    team              ∷ w [TeamMember]
-
-
-class (WorldMapAPI w, WorldReadAPI w) ⇒ WorldAPI w where
+class (WorldMapAPI w) ⇒ WorldAPI w where
     increaseTurn        ∷ w ()
     --status              ∷ w String
     -- TODO consider nuking this and using rendering of the state to display info
@@ -72,15 +64,6 @@ class (WorldMapAPI w, WorldReadAPI w) ⇒ WorldAPI w where
     setVisibility       ∷ S.Set (V2 Int) → w ()
     runObjectMonadForAI ∷ (WorldPosition, WorldMapObject w) → Free (ObjectF (WorldMapObject w)) a → w a
 
-
-playerObject ∷ (WorldReadAPI w, Monad w) ⇒ w (WorldMapObject w)
-playerObject = playerPosition >>= fmap (fromJustNote "Error retrieving player data, bad code!") . objectAt 
-
-
-teamObjects ∷ (WorldReadAPI w, Monad w) ⇒ w [WorldMapObject w]
-teamObjects = team >>=
-    traverse (\(TeamMember tp) → fromMaybe
-                                    (error "Team member referenced, but does not exist in the map at that position!") <$> objectAt tp)
 
 --------------------------------------------------------------------------------
 
@@ -113,6 +96,19 @@ newWorld m p =
         , _w_vis    = V.replicate (fromIntegral $ width m * height m) mempty
         }
 
+
+playerObject ∷ (WorldMapReadAPI w, Functor w) ⇒ World → w (WorldMapObject w)
+playerObject = playerObject . view w_player
+    where
+        playerObject ps = fromJustNote "Error retrieving player data, bad code!" <$> objectAt ps
+
+
+teamObjects ∷ (WorldMapReadAPI w, Applicative w) ⇒ World → w [WorldMapObject w]
+teamObjects = traverse teamObject . view w_team
+    where
+        teamObject (TeamMember tp) = fromMaybe (error "Team member referenced, but does not exist in the map at that position!") <$> objectAt tp
+
+
 --------------------------------------------------------------------------------
 
 -- TODO if I use ST monad, I can get mutable state for cheap
@@ -141,19 +137,9 @@ instance WorldMapAPI WorldM where
     replaceCell v l = w_map %= execWorldMap (replaceCell v l)
 
 
+
 -- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
 --      that much more flexible!
-instance WorldReadAPI WorldM where
-    currentTurn = use w_turn
-
-    currentMap = use w_map
-
-    visibility = use w_vis
-
-    playerPosition = use w_player
-
-    team = use w_team
-
 
 instance WorldAPI WorldM where
     increaseTurn = w_turn += 1
@@ -171,7 +157,7 @@ instance WorldAPI WorldM where
                                                           else c)
 
     movePlayer v = do
-        (pp, ix) ← playerPosition
+        (pp, ix) ← use w_player
         cellAt pp >>= \c → for_ (valueAt ix c) $ \o → do
             tv ← cellAt (pp + v)
             when (and (view o_passable <$> tv)) $ do -- TODO replace with height management
@@ -180,7 +166,7 @@ instance WorldAPI WorldM where
                 w_player .= (pp + v, nix)
 
     changePlayer f = do
-        (pp, ix) ← playerPosition
+        (pp, ix) ← use w_player
         cellAt pp >>= \c → for_ (valueAt ix c) $ \o →
             replaceObject pp o (f o)
 
@@ -195,7 +181,7 @@ instance WorldAPI WorldM where
         modifyCell np (addToCell o)
 
     setVisibility xs = do
-        m ← currentMap
+        m ← use w_map
         let xs' = S.map (linCoord m) xs
         w_vis %= V.imap (\i x → if i `S.member` xs'
                                   then Visible
@@ -262,7 +248,7 @@ instance WorldAPI WorldM where
         modifyCell v (deleteFromCell x)
         runObjectMonadForAI (cp, o) n
     runObjectMonadForAI (cp, o) (Free (FindObject s fn)) = do
-        pp ← fst <$> playerPosition
+        pp ← fst <$> use w_player
         xs ← interestingObjects pp 60 (s==)
         if null xs
             then runObjectMonadForAI (cp, o) (fn Nothing)
