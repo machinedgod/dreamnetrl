@@ -1,223 +1,256 @@
-{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax, NegativeLiterals, TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, DeriveTraversable #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Dreamnet.Engine.WorldMap
-( module Dreamnet.Engine.TileMap
+( RangeError(..), OobError(..), Safe(unpack), unpacked
 
-, Range, WorldPosition
+, WorldMap, wm_size, wm_base, wm_data, wm_desc, wm_spawns
 
-, Cell(cellValues), valueAt, lastValue, replaceInCell, addToCell,
-  deleteFromCell, isEmpty
-
-, WorldMapReadAPI(..), maxCellIndex, objectAt
-, WorldMapAPI(..)
-
--- TODO convert to API
-, WorldMap, wm_data, wm_spawns, newWorldMap, fromTileMap
+, newWorldMap, fromTileMap, coordToIndex, indexToCoord, checkBounds
+, checkBounds', clipToBounds, clipToBounds', baseAt, cellAt, column
+, interestingObjects, castRay
 
 , WorldMapM, runWorldMap, evalWorldMap, execWorldMap
-) where
+
+, modifyCell
+)
+where
 
 
-import Safe                (atMay, lastMay)
-import Control.Lens        (makeLenses, view, use, uses, (^.), (%=))
-import Control.Monad       (filterM, foldM)
-import Control.Monad.State (State, MonadState, runState, get, gets)
-import Data.Bool           (bool)
-import Data.Monoid         ((<>))
-import Data.List           (delete)
-import Data.Maybe          (fromMaybe)
-import Linear              (V2(V2))
+import Prelude hiding         (head, tail)
+import Control.Lens           (Getter, makeLenses, view, views, use, uses, _1,
+                               _2, _3)
+import Control.Lens.Operators
+import Control.Monad.ST       (ST)
+import Control.Monad.State    (State, MonadState, runState, evalState, execState,
+                               get, gets)
+import Data.Bifunctor         (Bifunctor(bimap))
+import Data.Monoid            ((<>))
+import Data.Maybe             (catMaybes)
+import Data.Either            (rights)
+import Data.Bool              (bool)
+import Data.List.NonEmpty     (head, tail)
+import Numeric.Natural        (Natural)
+import Linear                 (V2(V2), V3(V3), _x, _y, _z, _xy)
 
-import qualified Data.Vector         as V  (Vector, (!), (!?), imapM, replicate, fromList, head,
-                                            foldl', modify)
+import qualified Data.Vector         as V  (Vector, (!), replicate, fromList,
+                                            modify, concat, length)
 import qualified Data.Vector.Mutable as MV (write, read)
 import qualified Data.Map            as M  (lookup)
 
 
+import Dreamnet.Engine.CoordVector
+import Dreamnet.Engine.Visibility hiding (height)
+import qualified Dreamnet.Engine.Visibility as Visibility
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.TileMap
-import Dreamnet.Engine.Visibility hiding (height)
-import qualified Dreamnet.Engine.Visibility as Visibility (height)
 
 --------------------------------------------------------------------------------
 
-type Range = Word
-
-type WorldPosition = (V2 Int, Int) -- TODO V3 Int?
-
---------------------------------------------------------------------------------
-
-newtype Cell a = Cell { cellValues ∷ [a] }
-               deriving (Functor, Applicative, Monad, Semigroup, Monoid, Foldable, Traversable)
+data RangeError =
+      Underflow
+    | Overflow
+    deriving (Show)
 
 
-instance (VisibleAPI a) ⇒ VisibleAPI (Cell a) where
-    isSeeThrough = and . fmap isSeeThrough . cellValues
-    height = maximum . fmap Visibility.height . cellValues
+data OobError =
+      WidthBound  RangeError
+    | HeightBound RangeError
+    | DepthBound  RangeError
+    deriving (Show)
 
 
-valueAt ∷ Int → Cell a → Maybe a
-valueAt i (Cell l) = l `atMay` i
+newtype Safe a = Safe { unpack ∷ a }
+               deriving (Eq, Show)
 
 
-lastValue ∷ Cell a → Maybe a
-lastValue (Cell l) = lastMay l
+unpacked ∷ Getter (Safe a) a
+unpacked f s = Safe <$> f (unpack s)
 
-
-replaceInCell ∷ Int → a → Cell a → Cell a
-replaceInCell ix x (Cell l) = Cell (take ix l <> [x] <> drop (ix + 1) l)
-
-
-addToCell ∷ a → Cell a → Cell a
-addToCell x (Cell l) = Cell (l <> [x])
-
-
-deleteFromCell ∷ (Eq a) ⇒ a → Cell a → Cell a
-deleteFromCell x (Cell l) = Cell (x `delete` l)
-
-
-isEmpty ∷ Cell a → Bool
-isEmpty (Cell l) = null l
-
---------------------------------------------------------------------------------
-
-class WorldMapReadAPI wm where
-    type WorldMapObject wm ∷ *
-
-    desc               ∷ wm String
-    cellAt             ∷ V2 Int → wm (Cell (WorldMapObject wm))
-    interestingObjects ∷ V2 Int → Range → (WorldMapObject wm → Bool) → wm [V2 Int] -- TODO make tuple of (V2 INt, Int)
-    oob                ∷ V2 Int → wm Bool
-    castRay            ∷ WorldPosition → WorldPosition → wm [(V2 Int, Bool)]
-
-
-maxCellIndex ∷ (WorldMapReadAPI w, Functor w) ⇒ V2 Int → w Int
-maxCellIndex v = subtract 1 . length . cellValues <$> cellAt v
-
-
-objectAt ∷ (WorldMapReadAPI w, Functor w) ⇒ WorldPosition → w (Maybe (WorldMapObject w))
-objectAt (v, i) = valueAt i <$> cellAt v
-
-
-class (WorldMapReadAPI wm) ⇒ WorldMapAPI wm where
-    modifyCell  ∷ V2 Int → (Cell (WorldMapObject wm) → Cell (WorldMapObject wm)) → wm ()
-    replaceCell ∷ V2 Int → Cell (WorldMapObject wm) → wm ()
-
---------------------------------------------------------------------------------
 
 -- | Type variables
---   a: gameplay data
-data WorldMap a = WorldMap {
-      _wm_width   ∷ Width
-    , _wm_height  ∷ Height
-    , _wm_data    ∷ V.Vector (Cell a)
-    , _wm_desc    ∷ String
-    , _wm_spawns  ∷ V.Vector (V2 Int)
+--   b: base layer data
+--   o: gameplay data
+data WorldMap b o = WorldMap {
+      _wm_size   ∷ (Width, Height, Depth)
+    , _wm_base   ∷ V.Vector b
+    , _wm_data   ∷ V.Vector o
+    , _wm_desc   ∷ String
+    , _wm_spawns ∷ V.Vector (Safe (V3 Int))
     }
+    deriving (Show)
 makeLenses ''WorldMap
 
 
-instance CoordVector (WorldMap a) where
-    width  = view wm_width
-    height = view wm_height
+instance Bifunctor WorldMap where
+    bimap f g = (wm_data %~ fmap g) . (wm_base %~ fmap f)
+        
 
+instance CoordVector (WorldMap b o) where
+    width  = view (wm_size._1)
+    height = view (wm_size._2)
 
-newWorldMap ∷ Width → Height → a →  WorldMap a
-newWorldMap w h x =
+--------------------------------------------------------------------------------
+
+newWorldMap ∷ Width → Height → Depth → b → o →  WorldMap b o
+newWorldMap w h d b x =
     WorldMap {
-      _wm_width   = w
-    , _wm_height  = h
-    , _wm_data    = V.replicate (fromIntegral (squared w h)) (pure x)
-    , _wm_desc    = "Debug generated map!"
-    , _wm_spawns  = V.fromList [V2 0 0]
+      _wm_size   = (w, h, d)
+    , _wm_base   = V.replicate (fromIntegral (squared w h)) b
+    , _wm_data   = V.replicate (fromIntegral (cubed w h d)) x
+    , _wm_desc   = "Debug generated map!"
+    , _wm_spawns = V.fromList [Safe (V3 0 0 0)]
     }
 
 
-fromTileMap ∷ ∀ a. (Eq a) ⇒ TileMap → (Tile → Either String a) → Either String (WorldMap a)
-fromTileMap tm t2o = do
-    let maybeObjects  i   = coordLin tm i `M.lookup` (tm^.m_positioned)
-        addPositioned i o = maybe (Right o) (fmap ((o<>) . Cell) . traverse t2o) (maybeObjects i)
-    mapData ←  V.imapM addPositioned =<< transposeAndMerge <$> traverse (layerToObject (tm^.m_tileset)) (tm^.m_layers)
-    pure $ WorldMap { _wm_width   = width tm
-                    , _wm_height  = height tm
-                    , _wm_data    = mapData
-                    , _wm_desc    = tm^.m_desc
-                    , _wm_spawns  = V.fromList $ findAll '╳' (V.head $ tm^.m_layers) -- TODO this has to be proofed for the future a bit
-                    }
+fromTileMap ∷ (Eq o) ⇒ (Tile → Either String b) → (Tile → Either String o) → TileMap → Either String (WorldMap b o)
+fromTileMap t2b t2o tm = 
+    let baseLayer  = views m_layers head tm
+        dataLayers = views m_layers tail tm
+        depth      = views m_layers (subtract 1 . fromIntegral . length)
+    in  do
+        base           ← layerToVector (tm ^. m_tileset) t2b baseLayer
+        layeredObjects ← traverse (layerToVector (tm ^. m_tileset) t2o) dataLayers
+        pure $ WorldMap
+            { _wm_size   = (width tm, height tm, depth tm)
+            , _wm_base   = base
+            , _wm_data   = V.concat layeredObjects
+            , _wm_desc   = tm ^. m_desc
+            , _wm_spawns = positionsOfX baseLayer -- TODO this has to be proofed for the future a bit
+            }
     where
-        layerToObject ∷ Tileset → TileLayer → Either String (V.Vector a)
-        layerToObject ts tl = traverse (charToObject ts) (tl^.l_data)
+        positionsOfX bl = let toSpawnPos = Safe . (V3 <$> view _x <*> view _y <*> const 0)
+                          in  toSpawnPos <$> V.fromList (findAll '╳' bl)
 
-        charToObject ∷ Tileset → Char → Either String a
-        charToObject ts c = let maybeTile = c `M.lookup` ts
-                                err       = error ("Char " <> [c] <> " doesn't exist in the tileset!") -- No no no, use alternative
-                            in  maybe err t2o maybeTile
+        --maybeObjects  i = coordLin tm i `M.lookup` (tm^.m_positioned)
 
-        transposeAndMerge ∷ V.Vector (V.Vector a) → V.Vector (Cell a)
-        transposeAndMerge ls = V.fromList $ mergeIntoList ls <$> [0..squareSize - 1]
-            where
-                squareSize = fromIntegral . (squared <$> width <*> height) $ tm
+        --addPositioned i o = maybe (Right o) (fmap ((o<>) . Cell) . traverse t2o) (maybeObjects i)
 
-        mergeIntoList ∷ V.Vector (V.Vector a) → Int → Cell a
-        mergeIntoList ls i = V.foldl' appendIfDifferent mempty ls
-            where
-                appendIfDifferent (Cell []) v = Cell [v V.! i]
-                appendIfDifferent (Cell l)  v =
-                    if last l == v V.! i
-                        then Cell l
-                        else Cell (l ++ [v V.! i])
+        layerToVector ∷ Tileset → (Tile → Either String a) → TileLayer → Either String (V.Vector a)
+        layerToVector ts fo = traverse (charToObject ts fo) . view l_data
+
+        charToObject ∷ Tileset → (Tile → Either String a) → Char → Either String a
+        charToObject ts fo c =
+            let maybeObj = c `M.lookup` ts
+            in  fo =<< maybeToEither ("Char " <> [c] <> " doesn't exist in the tileset!") maybeObj
+
+
+coordToIndex ∷ WorldMap b o → Safe (V3 Int) → Safe Int
+coordToIndex m (unpack → V3 x y z) = Safe (x + fromIntegral (width m) * (y + fromIntegral (height m) * z))
+
+
+indexToCoord ∷ WorldMap b o → Safe Int → Safe (V3 Int)
+indexToCoord (view wm_size → (w, h, d)) (Safe i) =
+    let area = fromIntegral (squared w h)
+        z = i `div` area
+        y = (i `mod` area) `div` fromIntegral w
+        x = (i `mod` area) `mod` fromIntegral w
+    in  Safe (V3 x y z)
+
+
+checkBounds ∷ WorldMap b o → V3 Int → Either OobError (Safe (V3 Int))
+checkBounds (view wm_size → (w, h, d)) v@(V3 x y z)
+    | x <  0              = Left (WidthBound Underflow)
+    | x >= fromIntegral w = Left (WidthBound Overflow)
+    | y <  0              = Left (HeightBound Underflow)
+    | y >= fromIntegral h = Left (HeightBound Overflow)
+    | z <  0              = Left (DepthBound Underflow)
+    | z >= fromIntegral d = Left (DepthBound Overflow)
+    | otherwise  = Right (Safe v)
+
+
+clipToBounds ∷ WorldMap b o → V3 Int → Safe (V3 Int)
+clipToBounds (view wm_size → (w, h, d)) v@(V3 x y z) = Safe (V3 (safe w x) (safe h y) (safe d z))
+    where
+        safe r = max 0 . min (fromIntegral r - 1)
+
+
+checkBounds' ∷ WorldMap b o → Int → Either RangeError (Safe Int)
+checkBounds' (view wm_size → (w, h, d)) i
+    | i <  0                          = Left Underflow
+    | i >= fromIntegral (cubed w h d) = Left Overflow
+    | otherwise                       = Right (Safe i)
+
+
+clipToBounds' ∷ WorldMap b o → Int → Safe Int
+clipToBounds' (views wm_data length → r) = Safe . max 0 . min (fromIntegral r - 1)
+
+
+baseAt ∷ WorldMap b o → Safe (V3 Int) → b
+baseAt wm (view (unpacked._xy) → v) =
+    let ix = linCoord wm v
+    in  views wm_base (V.! ix) wm
+
+
+cellAt ∷ WorldMap b o → Safe (V3 Int) → o
+cellAt wm v =
+    let ix = unpack (coordToIndex wm v)
+    in  views wm_data (V.! ix) wm
+
+
+column ∷ WorldMap b o → Safe (V3 Int) → [Safe (V3 Int)]
+column m (unpack → v) = clipToBounds m . V3 (v ^. _x) (v ^. _y) . fromIntegral <$> depthRange
+    where
+        depthRange = [0..views (wm_size._3) (subtract 1) m]
+
+
+interestingObjects ∷ WorldMap b o → Safe (V3 Int) → Int → (o → Bool) → [Safe (V3 Int)]
+interestingObjects wm (unpack → v) (max 0 → r) ff =
+    let inBoundPoints = rights (checkBounds wm <$> points)
+    in  foldr collectPoints [] inBoundPoints
+    where
+        collectPoints ∷ Safe (V3 Int) → [Safe (V3 Int)] → [Safe (V3 Int)]
+        collectPoints x l =
+            let o = cellAt wm x
+            in  bool l (x : l) (ff o)
+
+        points ∷ [V3 Int]
+        points = do
+            (V2 x y) ← floodFillRange (fromIntegral r) (v ^. _xy)
+            V3 x y <$> [0..views (wm_size._3) fromIntegral wm]
+
+
+-- TODO upgrade to be a proper 3D raycast!
+castRay ∷ (VisibleAPI o) ⇒ WorldMap b o → Safe (V3 Int) → Safe (V3 Int) → [Safe (V2 Int, Bool)]
+castRay wm (unpack → s) (unpack → t) =
+    let line        = drop 1 (bla (s ^. _xy) (t ^. _xy)) -- Drop 's'
+        boundedLine = rights (checkBounds wm . v3f <$> line)
+    in  findHits <$> boundedLine
+    where
+        findHits p =
+            let c           = cellAt wm p
+                goesThrough = isSeeThrough c || Visibility.height c < (s ^. _z)  -- && Visibility.height c < th
+            in  Safe (view _xy (unpack p), goesThrough)
+
+        v3f = V3 <$> view _x <*> view _y <*> const 0
 
 --------------------------------------------------------------------------------
 
-newtype WorldMapM o a = WorldMapM { runWorldMapM ∷ State (WorldMap o) a }
-                      deriving (Functor, Applicative, Monad, MonadState (WorldMap o))
+newtype WorldMapM b o a = WorldMapM { runWorldMapM ∷ State (WorldMap b o) a }
+                      deriving (Functor, Applicative, Monad, MonadState (WorldMap b o))
 
 
-runWorldMap ∷ WorldMapM o a → WorldMap o → (a, WorldMap o)
+runWorldMap ∷ WorldMapM b o a → WorldMap b o → (a, WorldMap b o)
 runWorldMap wmm = runState (runWorldMapM wmm)
 
 
-evalWorldMap ∷ WorldMapM o a → WorldMap o → a
-evalWorldMap wmm = fst . runWorldMap wmm
+evalWorldMap ∷ WorldMapM b o a → WorldMap b o → a
+evalWorldMap wmm = evalState (runWorldMapM wmm)
 
 
-execWorldMap ∷ WorldMapM o a → WorldMap o → WorldMap o
-execWorldMap wmm = snd . runWorldMap wmm
+execWorldMap ∷ WorldMapM b o a → WorldMap b o → WorldMap b o
+execWorldMap wmm = execState (runWorldMapM wmm)
 
 --------------------------------------------------------------------------------
 
-instance (VisibleAPI a) ⇒ WorldMapReadAPI (WorldMapM a) where
-    type WorldMapObject (WorldMapM a) = a
+modifyCell ∷ Safe (V3 Int) → (o → o) → WorldMapM b o ()
+modifyCell v f = do
+    m ← get
+    wm_data %= V.modify (\vec →
+            let i = unpack (coordToIndex m v)
+            in  MV.read vec i >>= MV.write vec i . f
+        )
 
-    desc = use wm_desc
-
-    -- TODO partial function! :-O
-    cellAt v = get >>= \m → uses wm_data (fromMaybe mempty . (V.!? linCoord m v))
-
-    interestingObjects v r ff = do
-        points ← filterM (fmap not . oob) (floodFillRange r v)
-        foldM collectObjects [] points
-        where
-            collectObjects l x = cellAt x >>= \o → pure $ bool l (x : l) (or $ ff <$> o)
-
-    oob = gets . flip outOfBounds
-
-    castRay (s, sh) (t, _) = traverse findHits =<< filterM (fmap not . oob) (drop 1 $ bla s t) -- Dropping originating V2 
-        where
-            findHits p = do
-                c ← cellAt p
-                let goesThrough = isSeeThrough c || Visibility.height c < sh  -- && Visibility.height c < th
-                pure (p, goesThrough)
-
-
-
-instance (VisibleAPI a) ⇒ WorldMapAPI (WorldMapM a) where
-    modifyCell v f = do
-        m ← get
-        wm_data %= V.modify (\vec → let i = linCoord m v in  MV.read vec i >>= MV.write vec i . f)
-
-    replaceCell v c = modifyCell v (const c)

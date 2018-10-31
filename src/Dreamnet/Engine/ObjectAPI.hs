@@ -12,8 +12,9 @@ module Dreamnet.Engine.ObjectAPI
 ) where
 
 import Control.Monad.Free (Free(..))
-import Linear             (V2)
+import Linear             (V2, V3)
 
+import Dreamnet.Engine.WorldMap
 import Dreamnet.Engine.Conversation
 import Dreamnet.Engine.Object
 
@@ -40,23 +41,23 @@ class ObjectAPI o where
     type ObjectAPIState o ∷ *
     type ObjectAPIConversation o ∷ * → *
 
-    position        ∷ o (V2 Int, Int)
-    move            ∷ V2 Int → o ()
+    position        ∷ o (Safe (V3 Int))
+    move            ∷ Safe (V3 Int) → o ()
     passable        ∷ o Bool
     setPassable     ∷ Bool → o () -- Creates a state, creates and object. NO! ..... What?
     seeThrough      ∷ o Bool
     setSeeThrough   ∷ Bool → o ()
-    canSee          ∷ V2 Int → o Bool
+    canSee          ∷ Safe (V3 Int) → o Bool
     changeSymbol    ∷ Symbol → o ()
     changeMat       ∷ String → o ()
     message         ∷ String → o ()
     doTalk          ∷ (ObjectAPIConversation o) () → o ()
     operateComputer ∷ o ()
-    scanRange       ∷ Word → (ObjectAPIState o → Bool) → o [(V2 Int, ObjectAPIState o)]
-    acquireTarget   ∷ TargetSelectionStyle → o (V2 Int)
-    spawnNewObject  ∷ V2 Int → ObjectAPIState o → o ()
-    removeObject    ∷ V2 Int → Int → o ()
-    findObject      ∷ ObjectAPIState o → o (Maybe (V2 Int, Int))
+    scanRange       ∷ Int → (ObjectAPIState o → Bool) → o [(Safe (V3 Int), ObjectAPIState o)]
+    acquireTarget   ∷ TargetSelectionStyle → o (Safe (V3 Int))
+    spawnNewObject  ∷ Safe (V3 Int) → ObjectAPIState o → o ()
+    removeObject    ∷ Safe (V3 Int) → o ()
+    findObject      ∷ ObjectAPIState o → o (Maybe (Safe (V3 Int)))
 
     --interact      ∷ InteractionType a → V2 Int → Int → o ()
     -- Keep adding primitives until you can describe all Map Objects as programs
@@ -64,25 +65,26 @@ class ObjectAPI o where
 --------------------------------------------------------------------------------
 -- TODO this object monad really doesn't have to exist. Everything could be
 --      implemented simply through WorldAPI.
-data ObjectF s a = Position ((V2 Int, Int) → a)
-                 | Move (V2 Int) a
-                 | Passable (Bool → a)
-                 | SetPassable Bool a
-                 | SeeThrough (Bool → a)
-                 | SetSeeThrough Bool a
-                 | CanSee (V2 Int) (Bool → a)
-                 | ChangeSymbol Symbol a
-                 | ChangeMat String a
-                 | Message String a
-                 | DoTalk (Free (ConversationF s) ()) a
-                 | OperateComputer a
-                 | ScanRange Word (s → Bool) ([(V2 Int, s)] → a)
-                 | AcquireTarget TargetSelectionStyle (V2 Int → a)
-                 | SpawnNewObject (V2 Int) s a
-                 | RemoveObject (V2 Int) Int a
-                 | FindObject s (Maybe (V2 Int, Int) → a)
-                 -- | Interact (InteractionType s) (V2 Int) Int a
-                 deriving(Functor)
+data ObjectF s a =
+      Position        (Safe (V3 Int) → a)
+    | Move            (Safe (V3 Int)) a
+    | Passable        (Bool → a)
+    | SetPassable     Bool a
+    | SeeThrough      (Bool → a)
+    | SetSeeThrough   Bool a
+    | CanSee          (Safe (V3 Int)) (Bool → a)
+    | ChangeSymbol    Symbol a
+    | ChangeMat       String a
+    | Message         String a
+    | DoTalk          (Free (ConversationF s) ()) a
+    | OperateComputer a
+    | ScanRange       Int (s → Bool) ([(Safe (V3 Int), s)] → a)
+    | AcquireTarget   TargetSelectionStyle (Safe (V3 Int) → a)
+    | SpawnNewObject  (Safe (V3 Int)) s a
+    | RemoveObject    (Safe (V3 Int)) a
+    | FindObject      s (Maybe (Safe (V3 Int)) → a)
+    -- | Interact (InteractionType s) (V2 Int) Int a
+    deriving(Functor)
 
 
 instance ObjectAPI (Free (ObjectF s)) where
@@ -119,7 +121,7 @@ instance ObjectAPI (Free (ObjectF s)) where
 
     spawnNewObject v s = Free $ SpawnNewObject v s (Pure ())
 
-    removeObject v i = Free $ RemoveObject v i (Pure ())
+    removeObject v = Free $ RemoveObject v (Pure ())
 
     findObject s = Free $ FindObject s Pure
 

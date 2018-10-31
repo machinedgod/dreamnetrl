@@ -7,6 +7,8 @@ module Dreamnet.Engine.Utils
 , lines'
 
 , interpolateMonoid, interpolateEnum, interpolateSucc, interpolatePred
+
+, maybeToEither
 ) where
 
 
@@ -161,3 +163,11 @@ interpolateSucc x = interpolateEnum x (succSafe x)
 
 interpolatePred ∷ (Enum a, Eq a, Bounded a) ⇒ a → Float → a
 interpolatePred x = interpolateEnum x (predSafe x)
+
+--------------------------------------------------------------------------------
+
+maybeToEither ∷ a → Maybe b → Either a b
+maybeToEither d Nothing  = Left d
+maybeToEither _ (Just x) = Right x
+
+

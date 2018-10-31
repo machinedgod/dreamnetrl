@@ -51,7 +51,7 @@ genericWeapon _ (OperateOn s) = do
     mv ← findObject s
     case mv of
         Just v → do
-            uncurry removeObject v
+            removeObject v
             message ("Boom boom! " <> show s <> " is dead!")
         Nothing →
             message "Well, there's nothing there?"

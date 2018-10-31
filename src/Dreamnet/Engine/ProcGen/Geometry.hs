@@ -15,7 +15,7 @@ module Dreamnet.Engine.ProcGen.Geometry
 where
 
 
-import Control.Lens           (makeLenses, (%~))
+import Control.Lens           (makeLenses, (%~), view, views, _1, _2)
 import Linear          hiding (rotate)
 import Numeric.Natural
 
@@ -80,20 +80,19 @@ ngonShape w (fromIntegral → n) =
 --------------------------------------------------------------------------------
 
 data Canvas = Canvas {
-      _c_width  ∷ Width
-    , _c_height ∷ Height
+      _c_size   ∷ (Width, Height)
     , _c_data   ∷ V.Vector Char
     }
 makeLenses ''Canvas
 
 
 instance CoordVector Canvas where
-    width  = _c_width
-    height = _c_height
+    width  = view (c_size._1)
+    height = view (c_size._2)
  
 
 newCanvas ∷ Width → Height → Char → Canvas
-newCanvas w h ch = Canvas w h (V.replicate (fromIntegral (squared w h)) ch)
+newCanvas w h ch = Canvas (w, h) (V.replicate (fromIntegral (squared w h)) ch)
 
 
 -- Will break into another column if you go over the width
@@ -111,10 +110,9 @@ rasterizeLine ch (p1, p2) c =
 drawCanvas ∷ Canvas → IO ()
 drawCanvas c = mapM_ putStrLn toListOfStrings
     where
-        toListOfStrings = let rows  = [0 .. fromIntegral (_c_height c - 1)]
-                              w     = fromIntegral (_c_width c)
+        toListOfStrings = let rows  = [0 .. views (c_size._2) (fromIntegral . subtract 1) c]
+                              w     = views (c_size._1) fromIntegral c
                               v     = _c_data c
                               row r = V.toList (V.take w (V.drop (w * r) v))
                           in  row <$> rows
-                                
 

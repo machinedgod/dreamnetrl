@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BlockArguments #-}
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
@@ -21,25 +22,27 @@ where
 
 
 import Prelude            hiding (head, (!!))
-import Safe                      (succSafe, predSafe, at, atMay, fromJustNote)
-import Control.Lens              (view, views, (%~), (^.), set, _Just, preview,
-                                  previews, use)
+import Safe                      (succSafe, predSafe, at, atMay, headNote)
+import Control.Lens              (Lens', view, views, set, _Just, preview,
+                                  previews, uses, traversed, toListOf, index,
+                                  _1)
+import Control.Lens.Operators
 import Control.Monad             (void, join)
 import Control.Monad.Free        (Free(..))
 import Control.Monad.Trans       (lift)
 import Control.Monad.State       (execState, modify, get)
 import Control.Monad.Random      (MonadRandom)
-import Control.Monad.IO.Class    (MonadIO)
+import Control.Monad.IO.Class    (MonadIO, liftIO)
 import Data.Functor              (($>))
-import Data.Bifunctor            (bimap, first)
+import Data.Bifunctor            (bimap)
 import Data.Semigroup            ((<>))
 import Data.Bool                 (bool)
 import Data.List                 (genericLength, elemIndex)
 import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
 import Data.Foldable             (traverse_)
 import Data.Maybe                (fromMaybe, fromJust)
-import Data.Singletons           (withSomeSing)
-import Linear                    (V2(V2), _x, _y)
+import Data.Singletons           (withSomeSing, fromSing)
+import Linear                    (V2(V2), V3(V3), _x, _y, _z, _xy)
 
 import qualified Data.Vector as V
 import qualified Data.Map    as M
@@ -47,13 +50,15 @@ import qualified UI.NCurses  as C
 import qualified Config.Dyre as Dyre (wrapMain, defaultParams, projectName,
                                       realMain, showError)
 
+import Dreamnet.Engine.TileMap
 import Dreamnet.Engine.Conversation
-import qualified Dreamnet.Engine.Visibility as Visibility (height)
 import Dreamnet.Engine.Character
 import Dreamnet.Engine.Object
-import qualified Dreamnet.Engine.Input as Input
+import qualified Dreamnet.Engine.Visibility as Vis
+import qualified Dreamnet.Engine.Input      as Input
 import Dreamnet.Engine.Direction
 import Dreamnet.Engine.Iteration
+import Dreamnet.Engine.Utils (maybeToEither)
 
 import Dreamnet.Rendering.Renderer
 import Dreamnet.Game
@@ -64,27 +69,6 @@ import Design.GameCharacters
 import Design.Items
 
 --------------------------------------------------------------------------------
-
-{-
-data GameFlowEvent = GFEWorldEvent Input.WorldEvent
-                   | GFEUIEvent Input.UIEvent
-                   | GFETargetEvent Input.TargetEvent
-
-$(genSingletons [ ''GameFlowEvent ])
-
-class GameStateFlow (gsi ∷ GameStateEnum) (ev ∷ GameFlowEvent) where
-    type FlowOutState gsi ev ∷ *
-    gameStateFlow ∷ GameState gsi → Sing ev → FlowOutState gsi ev 
-
-
-instance GameStateFlow 'Normal ('GFEWorldEvent ('Input.Move k)) where
-    type FlowOutState 'Normal ('GFEWorldEvent ('Input.Move k)) = GameState 'Normal
-    gameStateFlow (StNormal w) (SGFEWorldEvent (Input.SMove d)) =
-        updateVisible $ StNormal $ flip execWorld w $ do
-            movePlayer (dirToVec' d)
-            increaseTurn
--}
-
 
 choiceChs ∷ String
 choiceChs = "fdsahjkltrewyuiopvcxzbnmFDSAHJKLTREWYUIOPVCXZBNM"
@@ -132,15 +116,14 @@ dreamnet dd = C.runCurses $ do
             x ← runRenderer (innerLoop g) r
             case fst x of
                 (Just (SomeGS gs)) → loopTheLoop gs (snd x)
-                Nothing            → pure ()
+                Nothing            → pure () -- Quit the game if we get no game state
 
-        innerLoop ∷ GameState gs→ DreamnetMonad (Maybe SomeGameState)
+        innerLoop ∷ GameState gs → DreamnetMonad (Maybe SomeGameState)
         innerLoop = \case
             gs@(StNormal w) → do
                 renderNormal w
                 flush
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
-                    --ev@(Input.SMove _)         → pure (Just (SomeGS (gameStateFlow gs (SGFEWorldEvent ev))))
                     ev@(Input.SMove _)         → pure (Just (SomeGS (processNormal gs ev)))
                     ev@(Input.SMoveCamera _)   → pure (Just (SomeGS (processNormal gs ev)))
                     ev@Input.SExamine          → pure (Just (SomeGS (processNormal gs ev)))
@@ -159,7 +142,7 @@ dreamnet dd = C.runCurses $ do
                     ev@Input.SCharacterSheet   → pure (Just (SomeGS (processNormal gs ev)))
                     ev@Input.SSwitchToTactical → pure (Just (either SomeGS SomeGS (processNormal gs ev)))
                     ev@Input.SSwitchToHud      → pure (Just (SomeGS (processNormal gs ev)))
-                    ev@Input.SBackToMainMenu   → pure Nothing
+                    Input.SBackToMainMenu      → pure Nothing
 
             gs@(StExamination w _) → do
                 renderExamination
@@ -167,7 +150,7 @@ dreamnet dd = C.runCurses $ do
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
                     ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
                     ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
 
             gs@(StConversation w _ (Free cn')) → do
@@ -177,24 +160,24 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
                     ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
                     ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
             (StConversation w _ (Pure _)) → do
                 renderNormal w
                 flush
                 pure (Just $ SomeGS (StNormal w))
 
-            gs@(StComputerOperation w (v,ix) cd) → do
+            gs@(StComputerOperation w v cd) → do
                 renderComputerOperation cd
                 flush
                 lift (Input.nextEvent gs ()) >>= \case
                     Input.PassThroughBack    → pure (Just (SomeGS (StNormal (execWorld saveWorldData w))))
-                    (Input.PassThrough '\n') → pure (Just (SomeGS (StComputerOperation w  (v,ix) (snd $ runComputer commitInput cd))))
-                    (Input.PassThrough '\b') → pure (Just (SomeGS (StComputerOperation w (v,ix) (snd $ runComputer backspace cd))))
-                    (Input.PassThrough c)    → pure (Just (SomeGS (StComputerOperation w (v,ix) (snd $ runComputer (typeIn c) cd))))
+                    (Input.PassThrough '\n') → pure (Just (SomeGS (StComputerOperation w v (snd $ runComputer commitInput cd))))
+                    (Input.PassThrough '\b') → pure (Just (SomeGS (StComputerOperation w v (snd $ runComputer backspace cd))))
+                    (Input.PassThrough c)    → pure (Just (SomeGS (StComputerOperation w v (snd $ runComputer (typeIn c) cd))))
                     --ev                       → Just . SomeGS <$> processComputerOperation gs ev
                 where
-                    saveWorldData = modifyObjectAt (v, ix) (pure . set o_state (Computer cd))
+                    saveWorldData = modifyCellM v (set (wc_contents._Just.o_state) (Computer cd))
 
             gs@(StHudTeam w i) → do
                 renderHudTeam w i
@@ -207,7 +190,7 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
                     ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
                     ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
                         
             gs@(StHudMessages w) → do
@@ -219,7 +202,7 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
                     ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
                     ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
             gs@(StHudWatch w _ _) → do
                 renderHudWatch w
@@ -232,7 +215,7 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.STab SNext)         → Just . SomeGS <$> processUI gs ev
                     ev@(Input.STab SPrevious)     → Just . SomeGS <$> processUI gs ev
                     ev@Input.SSelectChoice        → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
             gs@(StInventoryUI w) → do
                 renderInventoryUI
@@ -240,7 +223,7 @@ dreamnet dd = C.runCurses $ do
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
                     ev@(Input.SMoveCursor SNorth) → Just . SomeGS <$> processUI gs ev
                     ev@(Input.SMoveCursor SSouth) → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack              → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack                 → pure (Just (SomeGS (StNormal w)))
                     _                             → pure (Just (SomeGS gs))
             gs@(StSkillsUI w ch) → do
                 renderSkillsUI ch
@@ -248,7 +231,7 @@ dreamnet dd = C.runCurses $ do
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
                     ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
                     ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack          → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack             → pure (Just (SomeGS (StNormal w)))
                     _                         → pure (Just (SomeGS gs))
             gs@(StEquipmentUI w ch) → do
                 renderEquipmentUI ch
@@ -256,7 +239,7 @@ dreamnet dd = C.runCurses $ do
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
                     ev@(Input.STab SNext)     → Just . SomeGS <$> processUI gs ev
                     ev@(Input.STab SPrevious) → Just . SomeGS <$> processUI gs ev
-                    ev@Input.SUiBack          → pure (Just (SomeGS (StNormal w)))
+                    Input.SUiBack             → pure (Just (SomeGS (StNormal w)))
                     _                         → pure (Just (SomeGS gs))
 
             gs@(StTargetSelectionAdjactened w tp _) → do
@@ -267,7 +250,7 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
                     ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
                     ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
-                    ev@Input.STargetBack       → pure (Just (SomeGS (StNormal w)))
+                    Input.STargetBack          → pure (Just (SomeGS (StNormal w)))
 
             gs@(StTargetSelectionDistant w tp _) → do
                 renderTargetSelectionDistant w tp
@@ -277,7 +260,7 @@ dreamnet dd = C.runCurses $ do
                     ev@(Input.SMoveTarget _)   → pure (Just (SomeGS (processTarget gs ev)))
                     ev@(Input.SSmartTarget _)  → pure (Just (SomeGS (processTarget gs ev)))
                     ev@Input.SConfirmTarget    → pure (Just (processTarget gs ev))
-                    ev@Input.STargetBack       → pure (Just (SomeGS (StNormal w)))
+                    Input.STargetBack          → pure (Just (SomeGS (StNormal w)))
 
             gs@(StChoiceSelection w chs i f) → do
                 renderChoiceSelection chs i
@@ -292,133 +275,120 @@ dreamnet dd = C.runCurses $ do
 
 newGame ∷ DesignData → C.Curses (GameState 'Normal)
 newGame dd = do
-    sm  ← loadTileMap (view dd_dev_startingMap dd)
+    sm  ← either error id <$> liftIO (loadTileMap (view dd_dev_startingMap dd))
     pure $ StNormal $ newWorld
-                    (either error id $ fromTileMap sm objectFromTile)
+                    (either error id $ fromTileMap baseFromTile (objectFromTile dd) sm)
                     (playerPerson carla)
                     --(playerPerson ("Carla" `M.lookup` view dd_characters dd))
     where
-        -- 1) This *could* all be just a single thing. Object type really does not matter here.
-        -- 2) Actually, it does, because Object carries a specific state, later used by object programs
-        objectFromTile ∷ Tile → Either String (Object States)
-        objectFromTile t@(ttype → "Base") = Object sy "concrete" <$> t `readPassable` 1 <*> t `readSeeThrough` 2 <*> (bool 4 0 <$> t `readPassable` 1) <*> pure st
-            where
-                sy = Symbol $ view t_char t
-                st = (Prop "Floor" "A floor")
-
-        objectFromTile t@(ttype → "Prop") = Object sy <$> m <*> t `readPassable` 2 <*> t `readSeeThrough` 3 <*> h <*> st
-            where
-                sy = Symbol $ view t_char t
-                m  = maybeToEither "Material property missing on 'Prop' tile, ix: 4" (4 `readStringProperty` t)
-                h  = maybeToEither "Height property missing on 'Prop' tile, ix: 5" (5 `readIntProperty` t)
-                st = Prop
-                        <$> maybeToEither "Name property missing on 'Prop' tile, ix: 1" (1 `readStringProperty` t)
-                        <*> maybeToEither "Description property missing on 'Prop' tile, ix: 6" (6 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Person") = Object sy m p s h <$> st
-            where
-                sy = Symbol '@'
-                m  = "blue"
-                p  = False
-                s  = True
-                h  = 3
-                st = pure . Person
-                        =<< (\n → maybeToEither ("No character with name '" <> n <> "' defined.") (n `M.lookup` view dd_characters dd))
-                        =<< maybeToEither "Name property missing for 'Person' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile (ttype → "Spawn") = -- TODO shitty hardcoding, spawns should probably be generalized somehow!)
-            objectFromTile (Tile '.' (V.fromList [ "Base", "True", "True" ]))
-
-        objectFromTile t@(ttype → "Camera") = Object sy m p s h <$> st
-            where
-                sy = Symbol $ view t_char t
-                m  = "green light"
-                p  = True
-                s  = True
-                h  = 1
-                st = (`Camera` 0) . Faction
-                        <$> maybeToEither "Faction property missing for 'Camera' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Computer") = pure $ Object sy m p s h st
-            where
-                sy = Symbol $ view t_char t
-                m  = "metal"
-                p  = False
-                s  = True
-                h  = 1
-                st = Computer (ComputerData "" []) -- TODO define some data!
-
-        objectFromTile t@(ttype → "Clothes") = Object sy m p s h <$> st
-            where
-                sy  = Symbol $ view t_char t
-                m   = "cloth"
-                p   = True
-                s   = True
-                h   = 0
-                st  = pure . Clothes
-                        =<< (\cid → maybeToEither ("WearableItem " <> cid <> " isn't defined!") (cid `M.lookup` clothesDict))
-                        =<< maybeToEither "Clothes name property missing for 'Clothes' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Weapon") = Object sy m p s h <$> st
-            where
-                sy  = Symbol $ view t_char t
-                m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                st  = pure . Weapon
-                        =<< (\wid → maybeToEither ("WeaponItem " <> wid <> " isn't defined!") (M.lookup wid weaponsDict))
-                        =<< maybeToEither "Weapon name property missing for 'Weapon' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Ammo") = Object sy m p s h <$> st
-            where
-                sy  = Symbol $ view t_char t
-                m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                st  = pure . Ammo
-                        =<< (\aid → maybeToEither ("AmmoItem " <> aid <> " isn't defined!") (M.lookup aid ammoDict))
-                        =<< maybeToEither "Ammo name property missing for 'Ammo' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Throwable") = Object sy m p s h <$> st
-            where
-                sy  = Symbol $ view t_char t
-                m   = "metal"
-                p   = True
-                s   = True
-                h   = 0
-                st  = pure . Throwable
-                        =<< (\tid → maybeToEither ("ThrowableItem " <> tid <> " isn't defined!") (tid `M.lookup` throwableDict))
-                        =<< maybeToEither "Throwable name property missing for 'Throwable' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t@(ttype → "Consumable") = Object sy m p s h <$> st
-            where
-                sy  = Symbol $ view t_char t
-                m   = "red"
-                p   = True
-                s   = True
-                h   = 0
-                st  = pure . Consumable 
-                        =<< (\cid → maybeToEither ("ConsumableItem " <> cid <> " isn't defined!") $ cid `M.lookup` consumableDict)
-                        =<< maybeToEither "Consumable name property missing for 'Consumable' tile, ix: 1" (1 `readStringProperty` t)
-
-        objectFromTile t =
-            Left $ "Can't convert Tile type into Object: " <> show t
-        -- TODO Errrrrr, this should be done through the tileset???
-
         playerPerson ∷ DreamnetCharacter → Object States
         playerPerson = Object (Symbol '@') "metal" False True 3 . Person
 
-        maybeToEither ∷ a → Maybe b → Either a b
-        maybeToEither d Nothing  = Left d
-        maybeToEither _ (Just x) = Right x
 
-        readPassable ∷ Tile → Int → Either String Bool
+
+baseFromTile ∷ Tile → Either String WorldBase
+baseFromTile t@(ttype → "Base")  = Right $ mkBase (Symbol (view t_char t)) False
+baseFromTile t@(ttype → "Spawn") = Right $ mkBase (Symbol (view t_char t)) True
+baseFromTile _                   = Left  $ "Non-base tile in base layer"
+
+
+-- 1) This *could* all be just a single thing. Object type really does not matter here.
+-- 2) Actually, it does, because Object carries a specific state, later used by object programs
+objectFromTile ∷ DesignData → Tile → Either String WorldCell
+objectFromTile dd (ttype → "Base") = pure emptyCell
+objectFromTile dd t@(ttype → "Prop") = mkCell <$> (Object sy <$> m <*> t `readPassable` 2 <*> t `readSeeThrough` 3 <*> h <*> st)
+    where
+        sy = Symbol $ view t_char t
+        m  = maybeToEither "Material property missing on 'Prop' tile, ix: 4" (4 `readStringProperty` t)
+        h  = maybeToEither "Height property missing on 'Prop' tile, ix: 5" (5 `readIntProperty` t)
+        st = Prop
+                <$> maybeToEither "Name property missing on 'Prop' tile, ix: 1" (1 `readStringProperty` t)
+                <*> maybeToEither "Description property missing on 'Prop' tile, ix: 6" (6 `readStringProperty` t)
+        --readPassable ∷ Tile → Int → Either String Bool
         readPassable t i = maybeToEither ("Passable property missing on tile '" <> ttype t <> "', ix: " <> show i) (i `readBoolProperty` t)
-
-        readSeeThrough ∷ Tile → Int → Either String Bool
+        --readSeeThrough ∷ Tile → Int → Either String Bool
         readSeeThrough t i = maybeToEither ("SeeThrough property missing on tile '" <> ttype t <> "', ix: " <> show i) (i `readBoolProperty` t)
+
+objectFromTile dd t@(ttype → "Person") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy = Symbol '@'
+        m  = "blue"
+        p  = False
+        s  = True
+        h  = 3
+        st = pure . Person
+                =<< (\n → maybeToEither ("No character with name '" <> n <> "' defined.") (n `M.lookup` view dd_characters dd))
+                =<< maybeToEither "Name property missing for 'Person' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Camera") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy = Symbol $ view t_char t
+        m  = "green light"
+        p  = True
+        s  = True
+        h  = 1
+        st = (`Camera` 0) . Faction
+                <$> maybeToEither "Faction property missing for 'Camera' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Computer") = mkCell <$> (pure $ Object sy m p s h st)
+    where
+        sy = Symbol $ view t_char t
+        m  = "metal"
+        p  = False
+        s  = True
+        h  = 1
+        st = Computer (ComputerData "" []) -- TODO define some data!
+objectFromTile dd t@(ttype → "Clothes") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy  = Symbol $ view t_char t
+        m   = "cloth"
+        p   = True
+        s   = True
+        h   = 0
+        st  = pure . Clothes
+                =<< (\cid → maybeToEither ("WearableItem " <> cid <> " isn't defined!") (cid `M.lookup` clothesDict))
+                =<< maybeToEither "Clothes name property missing for 'Clothes' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Weapon") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy  = Symbol $ view t_char t
+        m   = "metal"
+        p   = True
+        s   = True
+        h   = 0
+        st  = pure . Weapon
+                =<< (\wid → maybeToEither ("WeaponItem " <> wid <> " isn't defined!") (M.lookup wid weaponsDict))
+                =<< maybeToEither "Weapon name property missing for 'Weapon' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Ammo") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy  = Symbol $ view t_char t
+        m   = "metal"
+        p   = True
+        s   = True
+        h   = 0
+        st  = pure . Ammo
+                =<< (\aid → maybeToEither ("AmmoItem " <> aid <> " isn't defined!") (M.lookup aid ammoDict))
+                =<< maybeToEither "Ammo name property missing for 'Ammo' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Throwable") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy  = Symbol $ view t_char t
+        m   = "metal"
+        p   = True
+        s   = True
+        h   = 0
+        st  = pure . Throwable
+                =<< (\tid → maybeToEither ("ThrowableItem " <> tid <> " isn't defined!") (tid `M.lookup` throwableDict))
+                =<< maybeToEither "Throwable name property missing for 'Throwable' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t@(ttype → "Consumable") = mkCell <$> (Object sy m p s h <$> st)
+    where
+        sy  = Symbol $ view t_char t
+        m   = "red"
+        p   = True
+        s   = True
+        h   = 0
+        st  = pure . Consumable 
+                =<< (\cid → maybeToEither ("ConsumableItem " <> cid <> " isn't defined!") $ cid `M.lookup` consumableDict)
+                =<< maybeToEither "Consumable name property missing for 'Consumable' tile, ix: 1" (1 `readStringProperty` t)
+objectFromTile dd t =
+    Left $ "Can't convert Tile type into Object: " <> show t
+-- TODO Errrrrr, this should be done through the tileset???
 
 --------------------------------------------------------------------------------
 
@@ -438,15 +408,14 @@ class ProcessTarget (gsi ∷ GameStateEnum) (ev ∷ Input.TargetEvent) where
 
 --------------------------------------------------------------------------------
 
-cellObject ∷ WorldPosition → World → Maybe (Object States)
-cellObject p = evalWorld (objectAt p)
-
-
 instance ProcessNormal 'Normal ('Input.Move k) where
     type GameStateOut 'Normal ('Input.Move k) = GameState 'Normal
     processNormal (StNormal w) (Input.SMove d) =
         updateVisible $ StNormal $ flip execWorld w $ do
-            movePlayer (dirToVec' d)
+            --let v2 = dirToVec' d
+            --    v3 = V3 (v2 ^. _x) (v2 ^. _y) 0
+            movePlayer (fromSing d)
+            --movePlayer =<< uses w_map (`clipToBounds` v3)
             increaseTurn
 
 
@@ -458,109 +427,88 @@ instance ProcessNormal 'Normal ('Input.MoveCamera k) where
 
 instance ProcessNormal 'Normal 'Input.Examine where
     type GameStateOut 'Normal 'Input.Examine = GameState 'TargetSelectionDistant
-    processNormal (StNormal w) _ = withTargetDistant w $ \(v, i) →
-        case cellObject (v, i) w of
-            Nothing → SomeGS $ StNormal (execWorld increaseTurn w)
-                --doWorld (setStatus "There's nothing here." *> increaseTurn)
-            Just o → bool (SomeGS describeWorld) (runExamineObject v i o) (notOnPlayer v)
+    processNormal (StNormal w) _ = withTargetDistant w $ \v →
+        fromMaybe
+            (SomeGS $ StNormal (execWorld increaseTurn w))
+            do
+                o ← preview (wc_contents._Just) (cellAt (view w_map w) v)
+                pure $ bool (SomeGS describeWorld) (runExamineObject v o) (notOnPlayer v)
         where
-            notOnPlayer v  = views w_player ((/=v) . fst) w
+            notOnPlayer v  = views w_player (/=v) w
             program o ch   = programForState ch (view o_state o) Examine
             --describeWorld  = do
             --    let d = evalWorld desc w
             --    setScroll (newScrollData (V2 2 1) (V2 60 20) Nothing d)
             --    pure (StExamination w d)
-            describeWorld  = StExamination w (evalWorld desc w)
-            runExamineObject ∷ V2 Int → Int → Object States → SomeGameState
-            runExamineObject v i o =
-                case preview (o_state._Person) (evalWorld (playerObject w) w) of
-                    Nothing → SomeGS (StNormal w)
-                    Just ch → runProgramAsPlayer w (v, i) (program o ch)
-                    --Just ch → case runProgramAsPlayer w v i (program o ch) of
-                    --    gs@(SomeGS (StConversation _ ps (Free cn))) → conversationUpdateUi (view ch_nickName <$> ps) cn *> pure gs
-                    --    gs                                          → pure gs
+            describeWorld  = StExamination w (w ^. w_map.wm_desc)
+            runExamineObject ∷ Safe (V3 Int) → Object States → SomeGameState
+            runExamineObject v o = fromMaybe (SomeGS (StNormal w)) do
+                runProgramAsPlayer w v . program o <$> preview (o_state._Person) (playerObject w)
+                --Just ch → case runProgramAsPlayer w v i (program o ch) of
+                --    gs@(SomeGS (StConversation _ ps (Free cn))) → conversationUpdateUi (view ch_nickName <$> ps) cn *> pure gs
+                --    gs                                          → pure gs
 
 
 instance ProcessNormal 'Normal 'Input.Operate where
     type GameStateOut 'Normal 'Input.Operate = GameState 'TargetSelectionAdjactened
     processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
-        case cellObject t w of
-            Nothing →  SomeGS (StNormal w)
-            Just o → case preview (o_state._Person) (evalWorld (playerObject w) w) of
-                Nothing → SomeGS (StNormal w)
-                Just ch → runProgramAsPlayer w t (program o ch)
+        fromMaybe (SomeGS (StNormal w)) do
+            o  ← preview (wc_contents._Just) (cellAt (view w_map w) t)
+            ch ← preview (o_state._Person) (playerObject w)
+            pure (runProgramAsPlayer w t (program o ch))
         where
             program o ch = programForState ch (view o_state o) Operate
 
 
 instance ProcessNormal 'Normal 'Input.ExamineHeld where
     type GameStateOut 'Normal 'Input.ExamineHeld = Either (GameState 'Normal) SomeGameState
-    processNormal (StNormal w) _ =
-        let mres = do
-                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w)
-                pch ← preview (o_state._Person) (evalWorld (playerObject w) w)
-                pure $ runProgramAsPlayer w (view w_player w) (programForState pch ho Examine)
-        in  case mres of
-                Just x  → Right x
-                Nothing → Left (StNormal w)
+    processNormal (StNormal w) _ = maybeToEither (StNormal w) do
+        ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (playerObject w)
+        pch ← preview (o_state._Person) (playerObject w)
+        pure $ runProgramAsPlayer w (view w_player w) (programForState pch ho Examine)
 
 
 instance ProcessNormal 'Normal 'Input.OperateHeld where
     type GameStateOut 'Normal 'Input.OperateHeld = GameState 'Normal
-    processNormal (StNormal w) _ =
-        let mres = do
-                ho  ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w)
-                pch ← preview (o_state._Person) (evalWorld (playerObject w) w)
-                pure $ runProgramAsPlayer w (view w_player w) (programForState pch ho Operate)
-        in  case mres of
-                Just x  → case x of
-                    -- TODO BLATANTLY WRONG BUT FIXING COMPILATION NOW
-                    (SomeGS gs@(StNormal _)) → gs
-                    _                        → StNormal w
-                Nothing → StNormal $ flip execWorld w $ do
-                        -- TODO as much as the device wants!
-                        increaseTurn
-                        --setStatus "You aren't carrying anything in your hands."
+    processNormal (StNormal w) _ = fromMaybe (StNormal (execWorld increaseTurn w)) do
+        ho    ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (playerObject w)
+        pch   ← preview (o_state._Person) (playerObject w) 
+        -- Have to pattern match on x to uncover SomeGS
+        pure $
+            case runProgramAsPlayer w (view w_player w) (programForState pch ho Operate) of
+                -- TODO BLATANTLY WRONG BUT FIXING COMPILATION NOW
+                (SomeGS gs@(StNormal _)) → gs
+                _                        → StNormal w
 
 
+-- TODO obtain target should happen inside Object Program, and then interpreter
+--      can either show UI for the player, or use "brain"/Simulation to select
+--      one for the NPC's
+-- Also, the range should be item's range
 instance ProcessNormal 'Normal 'Input.OperateHeldOn where
     type GameStateOut 'Normal 'Input.OperateHeldOn = Either (GameState 'Normal) (GameState 'TargetSelectionDistant)
-    processNormal (StNormal w) _ =
-        case join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (evalWorld (playerObject w) w) of
-            Nothing → Left (StNormal w)
-                --doWorld $ setStatus "You aren't carrying anything in your hands."
-            Just ho →
-                -- TODO obtain target should happen inside Object Program, and then interpreter
-                --      can either show UI for the player, or use "brain"/Simulation to select
-                --      one for the NPC's
-                -- Also, the range should be item's range
-                Right $ withTargetDistant w $ \t →
-                    case cellObject t w of
-                        Nothing → SomeGS (StNormal w)
-                            --doWorld (setStatus "Nothing there.")
-                        Just o  →
-                            case preview (o_state._Person) (evalWorld (playerObject w) w) of
-                                Nothing → SomeGS (StNormal w)
-                                Just ch →
-                                    -- TODO which of the game states should take precedence?
-                                    let so          = view o_state o
-                                    in  case runProgramAsPlayer w (view w_player w) (programForState ch ho (OperateOn so)) of
-                                            (SomeGS gs) → runProgramAsPlayer (dreamnetWorld gs) t (programForState ch so (OperateWith ho))
+    processNormal (StNormal w) _ = maybeToEither (StNormal w) do
+        ho ← join $ previews (o_state._Person) (slotWrapperItem . primaryHandSlot) (playerObject w)
+        pure $ withTargetDistant w $ \t → fromMaybe (SomeGS (StNormal w)) do
+            o  ← preview (wc_contents._Just) (cellAt (w ^. w_map) t)
+            ch ← preview (o_state._Person) (playerObject w)
+            -- TODO which of the game states should take precedence?
+            let so = view o_state o
+            pure $
+                case runProgramAsPlayer w (view w_player w) (programForState ch ho (OperateOn so)) of
+                    (SomeGS gs) → runProgramAsPlayer (dreamnetWorld gs) t (programForState ch so (OperateWith ho))
 
 
 instance ProcessNormal 'Normal 'Input.Talk where
     type GameStateOut 'Normal 'Input.Talk = GameState 'TargetSelectionAdjactened
     processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
-        case cellObject t w of
-            Nothing → SomeGS (StNormal (execWorld increaseTurn w))
-                --setStatus "Trying to talk to someone, but there's no one there."
-            Just o → case preview (o_state._Person) (evalWorld (playerObject w) w) of
-                Nothing → SomeGS (StNormal w)
-                Just ch → runProgramAsPlayer w t (program o ch)
+        fromMaybe (SomeGS (StNormal w)) do
+            o  ← preview (wc_contents._Just) (cellAt (w ^. w_map) t)
+            ch ← preview (o_state._Person) (playerObject w)
+            pure $ runProgramAsPlayer w t (program o ch)
                 --Just ch → case runProgramAsPlayer w (v, i) (program o ch) of
                 --    gs@(SomeGS (StConversation _ ps (Free cn))) → conversationUpdateUi (view ch_name <$> ps) cn *> pure gs
                 --    gs                                          → pure gs
-                        
         where
             program o ch = programForState ch (view o_state o) Talk
 
@@ -568,10 +516,9 @@ instance ProcessNormal 'Normal 'Input.Talk where
 instance ProcessNormal 'Normal 'Input.Get where
     type GameStateOut 'Normal 'Input.Get = GameState 'TargetSelectionAdjactened
     processNormal (StNormal w) _ = withTargetAdjactened w $ \t →
-        case cellObject t w of
-            Nothing → SomeGS (StNormal w)
-                --setStatus "There's nothing here."
-            Just o  → SomeGS $ StNormal $ flip execWorld w $ do
+        SomeGS $ StNormal $ fromMaybe w do
+            o ← preview (wc_contents._Just.o_state) (cellAt (w ^. w_map) t)
+            pure $ flip execWorld w do
                 -- Fugly
                 -- One way around:
                 -- o_state contains some kind of a 'pointer'
@@ -580,8 +527,8 @@ instance ProcessNormal 'Normal 'Input.Get where
                 -- Second way:
                 -- withState type of function that does something as long as the State
                 -- is of the actual correct type, and does nothing if it isn't
-                changePlayer (o_state._Person %~ pickUp (view o_state o))
-                modifyCell (fst t) (deleteFromCell o)
+                changePlayer (wc_contents._Just.o_state._Person %~ pickUp o)
+                modifyCellM t (const emptyCell)
                 increaseTurn
         
 
@@ -592,7 +539,7 @@ instance ProcessNormal 'Normal 'Input.Wear where
     processNormal (StNormal w) _ = withChoice w xs $ \i →
         let (side, slot) = vs `at` i
         in  SomeGS $ StNormal $ flip execWorld w $ do
-                changePlayer (o_state._Person %~ (tryWear side slot <*> slotWrapperItem . primaryHandSlot))
+                changePlayer (wc_contents._Just.o_state._Person %~ (tryWear side slot <*> slotWrapperItem . primaryHandSlot))
                 increaseTurn
         where
             tryWear side slot ch (Just i) = flip execState ch $ do
@@ -631,11 +578,11 @@ instance ProcessNormal 'Normal 'Input.StoreIn where
     type GameStateOut 'Normal 'Input.StoreIn = GameState 'ChoiceSelection
     processNormal (StNormal w) _ =
         -- TODO storing stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
-        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld (playerObject w) w)
+        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (playerObject w)
             xs            = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
         in  withChoice w xs $ \i → 
                 SomeGS $ StNormal $ flip execWorld w $ do
-                    changePlayer $ o_state._Person %~ (tryStore (containerList `at` i) <*> slotWrapperItem . primaryHandSlot)
+                    changePlayer (wc_contents._Just.o_state._Person %~ (tryStore (containerList `at` i) <*> slotWrapperItem . primaryHandSlot))
                     increaseTurn
         where
             appendToContainer ∷ States → Maybe States → Maybe States
@@ -652,7 +599,7 @@ instance ProcessNormal 'Normal 'Input.PullFrom where
     type GameStateOut 'Normal 'Input.PullFrom = GameState 'ChoiceSelection
     processNormal (StNormal w) _ =
         -- TODO make this single-step choice (show containers and items as tree)
-        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (evalWorld (playerObject w) w)
+        let containerList = fromMaybe [] $ previews (o_state._Person) equippedContainers (playerObject w)
             xs            = zip choiceChs $ fromJust . preview (_Just._Clothes.wi_name) . slotWrapperItem <$> containerList
         in  withChoice w xs $ \i → 
             let sw       = containerList `at` i
@@ -661,7 +608,7 @@ instance ProcessNormal 'Normal 'Input.PullFrom where
             in  SomeGS $ withChoice w xs2 $ \i2 →
                     let item = itemList `at` i2
                     in  SomeGS $ StNormal $ flip execWorld w $ do
-                            changePlayer $ o_state._Person %~ execState (pullFrom sw item)
+                            changePlayer (wc_contents._Just.o_state._Person %~ execState (pullFrom sw item))
                             -- TODO pulling stuff might take more than one turn! We need support for multi-turn actions (with a tiny progress bar :-))
                             increaseTurn
         where
@@ -674,7 +621,7 @@ instance ProcessNormal 'Normal 'Input.PullFrom where
                 modify $ modifySlotContent
                              (slotWrapperOrientation sw)
                              (slotWrapperType sw)
-                             (\(Just (Clothes wi)) → Just $ Clothes $ wi_storedItems %~ filter (item /=) $ wi)
+                             (_Just._Clothes.wi_storedItems %~ filter (item /=))
 
 
 instance ProcessNormal 'Normal 'Input.Wait where
@@ -689,14 +636,14 @@ instance ProcessNormal 'Normal ('Input.SetStance i) where
         SPrevious → updateFunc predSafe
         where
             updateFunc f   = updateVisible (StNormal (execWorld (updateStance f) w))
-            updateStance f = changePlayer (o_state._Person.ch_stance %~ f)
+            updateStance f = changePlayer (wc_contents._Just.o_state._Person.ch_stance %~ f)
 
 
 instance ProcessNormal 'Normal 'Input.InventorySheet where
     type GameStateOut 'Normal 'Input.InventorySheet = GameState 'InventoryUI
     processNormal (StNormal w) _ =
         let itemList = maybe [] listOfItemsFromContainers $
-                            preview (o_state._Person) (evalWorld (playerObject w) w)
+                            preview (o_state._Person) (playerObject w)
         --setScroll (newScrollData' (V2 1 1) (V2 60 30) (Just "Inventory sheet") itemList)
         in  StInventoryUI w
 
@@ -709,7 +656,7 @@ instance ProcessNormal 'Normal 'Input.CharacterSheet where
 instance ProcessNormal 'Normal 'Input.SwitchToTactical where
     type GameStateOut 'Normal 'Input.SwitchToTactical = Either (GameState 'Normal) (GameState 'ChoiceSelection)
     processNormal (StNormal w) _ =
-        let teamChars = evalWorld (fmap (fromJust . preview (o_state._Person)) <$> teamObjects w) w
+        let teamChars = fromJust . preview (o_state._Person) <$> teamObjects w
         in  if not (null teamChars)
                 then
                     let xs = zip choiceChs (view ch_name <$> teamChars)
@@ -811,7 +758,7 @@ instance ProcessUI 'Conversation 'Input.SelectChoice where
         pure (StConversation w ps n)
     processUI (StConversation w ps (Free (CReceiveItem _ o n))) _ = do
         -- TODO incorrect, only player now receives items!
-        let w' = execWorld (changePlayer (o_state._Person %~ pickUp o)) w
+        let w' = execWorld (changePlayer (wc_contents._Just.o_state._Person %~ pickUp o)) w
         case n of
             (Free cn) → conversationUpdateUi (view ch_nickName <$> ps) cn
             _         → pure ()
@@ -916,7 +863,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'South) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'South) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SSouth) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 3) . genericLength . fmap memberPosition <$> use w_team) w
+            tp = min (i + 3) . genericLength $ toListOf (w_team.traversed.tm_memberPosition) w
 
 
 instance ProcessUI 'HudTeam ('Input.MoveCursor 'North) where
@@ -928,7 +875,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'East) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'East) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SEast) = pure (StHudTeam w tp)
         where
-            tp = evalWorld (min (i + 1) . genericLength . fmap memberPosition <$> use w_team) w
+            tp = min (i + 1) . genericLength $ toListOf (w_team.traversed.tm_memberPosition) w
 
 
 instance ProcessUI 'HudTeam 'Input.SelectChoice where
@@ -1018,17 +965,21 @@ instance ProcessUI 'EquipmentUI ('Input.Tab i) where
 
 --------------------------------------------------------------------------------
 
+updateSafeVec ∷ World → Lens' (V3 Int) a → (a → a) → Safe (V3 Int) → Safe (V3 Int)
+updateSafeVec w l f = clipToBounds (w ^. w_map) . (l %~ f) . unpack
+
+
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveReticule d) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w (_, i) f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (dirToVec' d, i) f
+    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (updateSafeVec w _xy (+ dirToVec' d) (view w_player w)) f
 
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveTarget i) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveTarget i) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w (tp, (max 0 (i - 1))) f
-    processTarget (StTargetSelectionAdjactened w (tp, i) f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w (tp, (min (i + 1) maxi)) f
+    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w (updateSafeVec w _z (max 0 . (subtract 1)) tp) f
+    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w (updateSafeVec w _z maxi tp) f
         where
-            maxi =  evalWorld (maxCellIndex . (tp +) . fst =<< use w_player) w
+            maxi i = min (i + 1) $ view (w_player.unpacked._z) w + i
 
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
@@ -1038,25 +989,23 @@ instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
 
 instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionAdjactened 'Input.ConfirmTarget = SomeGameState
-    processTarget (StTargetSelectionAdjactened w tp f) _ = runWithTarget f ((+ppos) `first`  tp)
-        where
-            ppos = evalWorld (fst <$> use w_player) w
+    processTarget (StTargetSelectionAdjactened w tp f) _ = runWithTarget f (updateSafeVec w _xy (+ view (w_player.unpacked._xy) w) tp)
 
 --------------------------------------------------------------------------------
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionDistant ('Input.MoveReticule d) = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveReticule d) = StTargetSelectionDistant w (tp + dirToVec' d, i) f
+    processTarget (StTargetSelectionDistant w tp f) (Input.SMoveReticule d) = StTargetSelectionDistant w (updateSafeVec w _xy (+ dirToVec' d) tp) f
 
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.MoveTarget i) where
     type TgGameStateOut 'TargetSelectionDistant ('Input.MoveTarget i) = GameState 'TargetSelectionDistant
-    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveTarget SNext) = StTargetSelectionDistant w (tp, lowerTarget) f
+    processTarget (StTargetSelectionDistant w tp f) (Input.SMoveTarget SNext) = StTargetSelectionDistant w (updateSafeVec w _z lowerTarget tp) f
         where
-            lowerTarget = max 0 (i - 1)
-    processTarget (StTargetSelectionDistant w (tp, i) f) (Input.SMoveTarget SPrevious) = StTargetSelectionDistant w (tp, min (i + 1) maxi) f
+            lowerTarget i = max 0 (i - 1)
+    processTarget (StTargetSelectionDistant w tp f) (Input.SMoveTarget SPrevious) = StTargetSelectionDistant w (updateSafeVec w _z maxi tp) f
         where
-            maxi = evalWorld (maxCellIndex tp) w
+            maxi i = min (i + 1) $ length (column (w ^. w_map) tp)
 
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.SmartTarget i) where
@@ -1107,19 +1056,20 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 
 --------------------------------------------------------------------------------
 
---render ∷ (RenderAPI r, Monad r) ⇒ GameState g e → r ()
-
 renderNormal ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderNormal w = do
     renderWorld w
+    --renderPlayer w
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
     updateHud =<< drawWatch False (view w_turn w)
+
 
 renderExamination ∷ (RenderAPI r, Monad r) ⇒ r ()
 renderExamination = do
     updateUi clear
     updateUi =<< drawInformation
+
 
 renderConversation ∷ (RenderAPI r, Monad r) ⇒ ConversationF a b → r ()
 renderConversation CChoice{} = do
@@ -1176,12 +1126,12 @@ renderEquipmentUI ch = do
     updateUi clear
     updateUi =<< drawEquipmentDoll ch
 
-renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
-renderTargetSelectionAdjactened w (tp, i) = do
-    let pp = views w_player fst w
+renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
+renderTargetSelectionAdjactened w (unpack → tp) = do
+    let pp = views w_player unpack w
     white ← style s_colorWhite
     green ← style s_colorGreen
-    renderCellContentsToStatus w (pp + tp, i)
+    renderCellColumnToStatus w (clipToBounds (view w_map w) (pp + tp))
     updateMain $ do
         RenderAction $ do
             C.setColor white
@@ -1190,7 +1140,7 @@ renderTargetSelectionAdjactened w (tp, i) = do
                 , "h.l"
                 , "bjn"
                 ]
-        draw' (pp + tp) (charForVec tp) [C.AttributeColor green]
+        draw' ((pp + tp) ^. _xy) (charForVec (tp ^. _xy)) [C.AttributeColor green]
     where
         charForVec (V2 -1  -1) = 'y'
         charForVec (V2  0  -1) = 'k'
@@ -1203,12 +1153,13 @@ renderTargetSelectionAdjactened w (tp, i) = do
         charForVec _           = '.'
 
 
-renderTargetSelectionDistant ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
+renderTargetSelectionDistant ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
 renderTargetSelectionDistant w tp = do
     renderWorld w
     green ← style s_colorGreen
-    renderCellContentsToStatus w tp
-    updateMain $ draw' (fst tp) 'X' [C.AttributeColor green]
+    renderCellColumnToStatus w tp
+    updateMain $ draw' (unpack tp ^. _xy) 'X' [C.AttributeColor green]
+
 
 renderChoiceSelection ∷ (RenderAPI r, Monad r) ⇒ [(Char, String)] → Int → r ()
 renderChoiceSelection xs i = do
@@ -1234,42 +1185,60 @@ renderChoiceSelection xs i = do
                 else C.setColor cnohl
             drawString (2 ∷ Int) (l + 2) (ch : " - " <> str)
 
+--------------------------------------------------------------------------------
 
 renderWorld ∷ (RenderAPI r, Monad r) ⇒ World → r ()
-renderWorld w =
-    let m = view w_map w
-        d = views wm_data (fmap (fromMaybe (error "No last value in the map Cell!") . lastValue)) m
-        v = view w_vis w
-    in  updateMain =<< drawMap ((\(Symbol ch) → ch) . view o_symbol) (view o_material) (width m) d v
+renderWorld w = 
+    let wm = view w_map w
+    in  updateMain =<<
+            drawMap
+                (cellChar wm . getTopCoord wm)
+                (cellMat wm . getTopCoord wm)
+                (const Vis.Visible)
+                (width w)
+                (height w)
+    where
+        getTopCoord wm = headNote "Empty column!" . column wm . indexToCoord wm . clipToBounds' wm
+        cellChar wm v  = fromMaybe (fromBase wm v) $ preview (wc_contents._Just.o_symbol.s_char) (cellAt wm v)
+        cellMat wm v   = fromMaybe "default"       $ preview (wc_contents._Just.o_material)      (cellAt wm v) 
+        fromBase wm v  = view (wb_contents._1.s_char) (baseAt wm v)
 
 
+renderPlayer ∷ (RenderAPI r, Monad r) ⇒ World → r ()
+renderPlayer w = updateMain (draw' (view (w_player.unpacked._xy) w) '@' [])
 
-renderCellContentsToStatus ∷ (RenderAPI r, Monad r) ⇒ World → WorldPosition → r ()
-renderCellContentsToStatus w (v, i) = do
+
+renderCellColumnToStatus ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
+renderCellColumnToStatus w v = do
     white ← style s_colorWhite
     green ← style s_colorGreen
 
-    let cellContents = evalWorld (cellContentsString <$> cellAt v) w
-    updateHud (f cellContents white green)
+    let columnContents ∷ [String]
+        columnContents = show . preview (wc_contents._Just.o_state) . cellAt (w ^. w_map) <$> column (w ^. w_map) v 
+    updateHud (f columnContents white green)
     where
-        cellContentsString = fmap (\c → show (view o_state c) <> ", " <> show (Visibility.height c)) . cellValues
-        f xs h noh = clearStatus *> statusOrigin >>= \(start,padding,_) → RenderAction $
-            traverse_ (\(y, s) → drawStringWithHighlight start y s (y == i + padding) h noh) $ zip [padding..] xs
-        drawStringWithHighlight x y s h colh colnoh = do
-            C.moveCursor (fromIntegral y) (fromIntegral x)
-            if h
-                then C.setColor colnoh
-                else C.setColor colh
+        f xs hilight nohilight = do
+            clearStatus
+            statusOrigin >>= \(start,padding,_) → RenderAction $
+                traverse_ (drawCellContent hilight nohilight start padding) (zip [padding..] xs)
+        
+        drawCellContent ∷ C.ColorID → C.ColorID → Int → Int → (Int, String) → C.Update ()
+        drawCellContent hilight nohilight start padding (y, s) = do
+            C.moveCursor (fromIntegral y) (fromIntegral  start)
+            if y == (unpack v ^. _z) + padding
+                then C.setColor nohilight
+                else C.setColor hilight
             C.drawString s
 
 
 
 
+-- TODO actually uncomment team code to return, err, team
 completeTeam ∷ World → [DreamnetCharacter]
 completeTeam w =
-    let p = flip evalWorld w $ use w_player >>= \t → 
-                               fromJustNote "complTeam" . valueAt (snd t) <$> cellAt (fst t)
-    in  [(\(Person chp) → chp) (p ^. o_state)]
+    case preview (o_state._Person) (playerObject w) of
+        Nothing → []
+        Just p  → [p]
     {-
     let t = flip evalWorld w $ team >>= 
                                traverse (fmap fromJustNote . teamMemberPosition) >>=

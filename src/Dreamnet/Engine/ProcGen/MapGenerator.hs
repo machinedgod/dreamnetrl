@@ -12,6 +12,7 @@ import Control.Lens           ((%=), (.=), (^.), (^?), uses, view,
 import Control.Monad.Random   (MonadRandom, getRandomR)
 import Control.Monad.State    (MonadState, execStateT, get)
 import Data.Semigroup         ((<>))
+import Data.Either            (rights)
 import Numeric.Natural        (Natural)
 import Linear                 (V2(V2))
 
@@ -74,7 +75,7 @@ cityMapSize = foldr largest (0, 0)
 -- TODO add 'isValid' that checks that all necessary files are present for
 -- a filename in list
 loadPredefined ∷ IO [TileMap]
-loadPredefined = traverse (loadTileMap . ("res/" <>)) maps
+loadPredefined = rights <$> traverse (loadTileMap . ("res/" <>)) maps
     where
         maps = [ "apartment0"
                , "bar"

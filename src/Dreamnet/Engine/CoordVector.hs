@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Dreamnet.Engine.CoordVector
-( Width(..), Height(..), Depth(..), CoordVector(..), squared
+( Width(..), Height(..), Depth(..), CoordVector(..), squared, cubed
 
 , linCoord', linCoord, coordLin', coordLin, outOfBounds
 ) where
@@ -55,6 +55,10 @@ class CoordVector c where
 
 squared ∷ Width → Height → Natural
 squared (Width w) (Height h) = w * h
+
+
+cubed ∷ Width → Height → Depth → Natural
+cubed (Width w) (Height h) (Depth d) = w * h * d
 
 
 linCoord' ∷ Width → V2 Int → Int

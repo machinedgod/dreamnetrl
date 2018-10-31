@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Dreamnet.Engine.Object
-( Symbol(Symbol)
+( Symbol(Symbol), s_char
 
 , Object(Object), o_symbol, o_material, o_passable, o_seeThrough, o_height
 , o_state
@@ -17,8 +17,10 @@ import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 
-newtype Symbol = Symbol Char
+newtype Symbol = Symbol { _s_char ∷ Char }
                deriving (Eq, Show)
+makeLenses ''Symbol
+
 
 instance Semigroup Symbol where
     (Symbol ' ') <> (Symbol ch') = Symbol ch'

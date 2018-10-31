@@ -12,9 +12,9 @@ module Dreamnet.Rendering.Renderer
 
 , newChoiceData, selectNext, selectPrevious
 
-, s_unknown, s_visibilityUnknown, s_visibilityKnown, s_colorBlack, s_colorRed,
-  s_colorGreen, s_colorYellow, s_colorBlue, s_colorMagenta, s_colorCyan,
-  s_colorWhite
+, s_materials, s_unknown, s_visibilityUnknown, s_visibilityKnown, s_colorBlack
+, s_colorRed, s_colorGreen, s_colorYellow, s_colorBlue, s_colorMagenta
+, s_colorCyan, s_colorWhite
 
 , Camera
 , RendererEnvironment, newRenderEnvironment
@@ -26,9 +26,9 @@ module Dreamnet.Rendering.Renderer
 
 , draw', draw, drawString, drawList
 
-, clear, drawMap, drawTeamHud, clearStatus, drawStatus, statusOrigin, drawWatch,
-  drawCharacterSheet, drawEquipmentDoll, drawInformation, drawChoice,
-  drawComputer
+, clear, drawMap, drawTeamHud, clearStatus, drawStatus, statusOrigin, drawWatch
+, drawCharacterSheet, drawEquipmentDoll, drawInformation, drawChoice
+, drawComputer
 ) where
 
 
@@ -187,7 +187,7 @@ newRenderEnvironment = do
 
     pure $
         RendererEnvironment {
-          _rd_styles     = styles 
+          _rd_styles     = styles
 
         , _rd_mainWindow = mainWin
         , _rd_hudWindow  = hudWin
@@ -344,6 +344,26 @@ clear ∷ RenderAction ()
 clear = RenderAction C.clear
 
 
+drawMap ∷ (RenderAPI r, Monad r) ⇒ (Int → Char) → (Int → String) → (Int → Visibility) → Width → Height → r (RenderAction ())
+drawMap chf matf visf w h = do
+    u ← style s_visibilityUnknown
+    k ← style s_visibilityKnown
+    sequence_ <$> mapM (drawTile u k) coordsToDraw
+    where
+        coordsToDraw ∷ [Int]
+        coordsToDraw = fromIntegral <$> [ fromIntegral row * fromIntegral w + fromIntegral col | col ← [0..w - 1], row ← [0..h - 1] ]
+
+        drawTile u k i = do
+            m ← lookupMaterial (matf i)
+            pure $
+                uncurry (draw' (coordLin' w i)) $
+                    case visf i of
+                        Unknown → (' ', u)
+                        Known   → (chf i, k)
+                        Visible → (chf i, m)
+
+
+{-
 drawMap ∷ (RenderAPI r, Monad r) ⇒ (a → Char) → (a → String) → Width → V.Vector a → V.Vector Visibility → r (RenderAction ())
 drawMap chf matf (fromIntegral → w) dat vis = do
     u ← style s_visibilityUnknown
@@ -372,6 +392,7 @@ drawMap chf matf (fromIntegral → w) dat vis = do
             let oln i = V.drop (fromIntegral $ wh * (y' + i)) v
                 ldata = V.drop (fromIntegral $ wh - w' - x') . V.take (fromIntegral w') . V.drop (fromIntegral x')
             in  fold $ ldata . oln <$> [0..h']
+            -}
 
 
 

@@ -153,6 +153,7 @@ data States = Prop        String String
             | Ammo        AmmoItem
             | Throwable   ThrownWeaponItem
             | Consumable  ConsumableItem
+            -- | Pile     States
             deriving(Eq)
 makePrisms ''States
 
