@@ -9,17 +9,17 @@ module Dreamnet.Engine.TileMap
 
 , ttype, readBoolProperty, readWordProperty, readIntProperty, readStringProperty
 
-, TileLayer, l_data, newTileLayer
+, TileLayer, l_size, l_data, newTileLayer
 
-, Tileset, TileMap, m_layers, m_tileset, m_positioned, m_desc, newTileMap,
-  tileAt, changeTile, findAll
+, Tileset, TileMap, m_width, m_height, m_layers, m_tileset, m_positioned, m_desc
+, newTileMap, tileAt, changeTile, findAll
 
 , loadTileMap
 ) where
 
 import Safe
 
-import Control.Lens           (makeLenses, view, (^.), (.~), element)
+import Control.Lens           (makeLenses, view, (^.), (.~), element, _1, _2)
 import Control.Monad          ((<=<))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Semigroup         ((<>))
@@ -73,20 +73,20 @@ readStringProperty i = (V.!? i) . view t_data
 --------------------------------------------------------------------------------
 
 data TileLayer = TileLayer {
-      _l_width      ∷ Word
-    , _l_height     ∷ Word
-    , _l_data       ∷ V.Vector Char
+      _l_size ∷ (Width, Height)
+    , _l_data ∷ V.Vector Char
     }
     deriving(Show)
 makeLenses ''TileLayer
 
+
 instance CoordVector TileLayer where
-    width  = view l_width
-    height = view l_height
+    width  = view (l_size._1)
+    height = view (l_size._2)
 
 
 newTileLayer ∷ Width → Height → Char → TileLayer
-newTileLayer w h c = TileLayer w h (V.replicate (fromIntegral $ w * h) c)
+newTileLayer w h c = TileLayer (w, h) (V.replicate (fromIntegral $ squared w h) c)
 
 
 tileAt ∷ TileLayer → Tileset → V2 Int → Tile
@@ -151,8 +151,7 @@ loadTileMap fp = do
     desc   ← liftIO $ readFile (makeFilename fp "desc")
     pos    ← readPositioned (makeFilename fp "positioned")
 
-    let w = head layers ^.l_width
-        h = head layers ^.l_height
+    let (w, h) = head layers ^. l_size
     return $ TileMap
         (fromIntegral w)
         (fromIntegral h)
@@ -192,7 +191,7 @@ readLayer fp i = do
     let w     = findWidth mapStr
         h     = findHeight mapStr
         ldata = cleanNewlines mapStr
-    return $ TileLayer w h ldata
+    return $ TileLayer (w, h) ldata
     where
         findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
         findHeight    = fromIntegral . length . filter (=='\n')

@@ -131,7 +131,7 @@ newWorldMap w h x =
     WorldMap {
       _wm_width   = w
     , _wm_height  = h
-    , _wm_data    = V.replicate (fromIntegral (w * h)) (pure x)
+    , _wm_data    = V.replicate (fromIntegral (squared w h)) (pure x)
     , _wm_desc    = "Debug generated map!"
     , _wm_spawns  = V.fromList [V2 0 0]
     }
@@ -160,7 +160,7 @@ fromTileMap tm t2o = do
         transposeAndMerge ∷ V.Vector (V.Vector a) → V.Vector (Cell a)
         transposeAndMerge ls = V.fromList $ mergeIntoList ls <$> [0..squareSize - 1]
             where
-                squareSize = fromIntegral (width tm * height tm)
+                squareSize = fromIntegral . (squared <$> width <*> height) $ tm
 
         mergeIntoList ∷ V.Vector (V.Vector a) → Int → Cell a
         mergeIntoList ls i = V.foldl' appendIfDifferent mempty ls

@@ -93,7 +93,7 @@ newWorld m p =
         , _w_player = (ppos, pix)
         , _w_team   = []
         , _w_map    = map
-        , _w_vis    = V.replicate (fromIntegral $ width m * height m) mempty
+        , _w_vis    = V.replicate (fromIntegral $ squared <$> width <*> height $ m) mempty
         }
 
 

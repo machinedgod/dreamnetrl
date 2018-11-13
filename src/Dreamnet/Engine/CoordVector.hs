@@ -1,30 +1,64 @@
-{-# LANGUAGE UnicodeSyntax, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Dreamnet.Engine.CoordVector
-( Width
-, Height
-, CoordVector(..)
-, linCoord'
-, linCoord
-, coordLin'
-, coordLin
-, outOfBounds
+( Width(..), Height(..), Depth(..), CoordVector(..), squared
+
+, linCoord', linCoord, coordLin', coordLin, outOfBounds
 ) where
 
-import Linear (V2(V2))
+
+import Data.Bifunctor       (bimap)
+import Control.Monad.Random (Random, randomR, random)
+import Numeric.Natural      (Natural)
+import Linear               (V2(V2))
 
 --------------------------------------------------------------------------------
 
-type Width  = Word
-type Height = Word
+newtype Width = Width  Natural
+               deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
+newtype Height = Height Natural
+               deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
+newtype Depth = Depth Natural
+               deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
+
+instance Random Width where
+    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+                             in  (Width (fromIntegral x), g')
+
+    random g = let (a ∷ Integer, g') = random g
+               in  (Width (fromIntegral a), g')
+
+
+instance Random Height where
+    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+                             in  (Height (fromIntegral x), g')
+
+    random g = let (a ∷ Integer, g') = random g
+               in  (Height (fromIntegral a), g')
+
+
+instance Random Depth where
+    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+                             in  (Depth (fromIntegral x), g')
+
+    random g = let (a ∷ Integer, g') = random g
+               in  (Depth (fromIntegral a), g')
+--------------------------------------------------------------------------------
+
 
 class CoordVector c where
     width  ∷ c → Width
     height ∷ c → Height
 
 
+squared ∷ Width → Height → Natural
+squared (Width w) (Height h) = w * h
+
+
 linCoord' ∷ Width → V2 Int → Int
-linCoord' (fromIntegral → w) (V2 x y) = y * w + x
+linCoord' (Width w) (V2 x y) = y * fromIntegral w + x
 {-# INLINE linCoord' #-}
 
 
@@ -35,9 +69,9 @@ linCoord c = linCoord' (width c)
 
 
 coordLin' ∷ Width → Int → V2 Int
-coordLin' (fromIntegral → w) i =
-    let x = i `mod` w
-        y = i `div` w
+coordLin' (Width w) i =
+    let x = i `mod` fromIntegral w
+        y = i `div` fromIntegral w
     in  V2 x y 
 {-# INLINE coordLin' #-}
 

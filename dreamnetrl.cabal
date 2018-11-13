@@ -73,6 +73,10 @@ executable dreamnetrl
                         Dreamnet.Engine.Object
                         Dreamnet.Engine.ObjectAPI
                         Dreamnet.Engine.WorldMap
+                        Dreamnet.Engine.ProcGen.Common
+                        Dreamnet.Engine.ProcGen.Geometry
+                        Dreamnet.Engine.ProcGen.MapGenerator
+                        Dreamnet.Engine.ProcGen.BuildingGenerator
                         Dreamnet.ObjectStates
                         Dreamnet.ObjectAPI2
                         Dreamnet.World
