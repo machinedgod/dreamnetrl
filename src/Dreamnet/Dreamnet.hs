@@ -22,7 +22,7 @@ where
 
 
 import Prelude            hiding (head, (!!))
-import Safe                      (succSafe, predSafe, at, atMay, headNote)
+import Safe                      (succSafe, predSafe, at, atMay, lastNote)
 import Control.Lens              (Lens', view, views, set, _Just, preview,
                                   previews, uses, traversed, toListOf, index,
                                   _1)
@@ -40,7 +40,7 @@ import Data.Bool                 (bool)
 import Data.List                 (genericLength, elemIndex)
 import Data.List.NonEmpty        (NonEmpty(..), toList, (!!))
 import Data.Foldable             (traverse_)
-import Data.Maybe                (fromMaybe, fromJust)
+import Data.Maybe                (fromMaybe, fromJust, isJust, listToMaybe)
 import Data.Singletons           (withSomeSing, fromSing)
 import Linear                    (V2(V2), V3(V3), _x, _y, _z, _xy)
 
@@ -287,9 +287,10 @@ newGame dd = do
 
 
 baseFromTile ∷ Tile → Either String WorldBase
-baseFromTile t@(ttype → "Base")  = Right $ mkBase (Symbol (view t_char t)) False
-baseFromTile t@(ttype → "Spawn") = Right $ mkBase (Symbol (view t_char t)) True
-baseFromTile _                   = Left  $ "Non-base tile in base layer"
+baseFromTile t@(ttype → "Base")   = Right $ mkBase (Symbol (view t_char t)) False
+baseFromTile t@(ttype → "Spawn")  = Right $ mkBase (Symbol (view t_char t)) True
+baseFromTile t@(ttype → "Stairs") = Right $ mkBase (Symbol (view t_char t)) True
+baseFromTile _                    = Left  $ "Non-base tile in base layer"
 
 
 -- 1) This *could* all be just a single thing. Object type really does not matter here.
@@ -1059,7 +1060,6 @@ listOfItemsFromContainers ch = concat $ makeItemList <$> equippedContainers ch
 renderNormal ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderNormal w = do
     renderWorld w
-    --renderPlayer w
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
     updateHud =<< drawWatch False (view w_turn w)
@@ -1187,25 +1187,28 @@ renderChoiceSelection xs i = do
 
 --------------------------------------------------------------------------------
 
+-- TODO render blinking when player is underneath something
 renderWorld ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderWorld w = 
     let wm = view w_map w
     in  updateMain =<<
-            drawMap
-                (cellChar wm . getTopCoord wm)
-                (cellMat wm . getTopCoord wm)
-                (const Vis.Visible)
-                (width w)
-                (height w)
+            drawMap (charF wm) (matF wm) (const Vis.Visible) (width w) (height w)
     where
-        getTopCoord wm = headNote "Empty column!" . column wm . indexToCoord wm . clipToBounds' wm
-        cellChar wm v  = fromMaybe (fromBase wm v) $ preview (wc_contents._Just.o_symbol.s_char) (cellAt wm v)
-        cellMat wm v   = fromMaybe "default"       $ preview (wc_contents._Just.o_material)      (cellAt wm v) 
-        fromBase wm v  = view (wb_contents._1.s_char) (baseAt wm v)
+        topNonEmptyCoord wm = listToMaybe . filter (views wc_contents isJust) . fmap (cellAt wm)
 
+        fromBase wm v = view (wb_contents._1.s_char) (baseAt wm v)
 
-renderPlayer ∷ (RenderAPI r, Monad r) ⇒ World → r ()
-renderPlayer w = updateMain (draw' (view (w_player.unpacked._xy) w) '@' [])
+        charF wm i =
+            let coord = indexToCoord wm (clipToBounds' wm i)
+            in  case topNonEmptyCoord wm (reverse (column wm coord)) of
+                    Nothing → fromBase wm coord
+                    Just wc → fromJust $ preview (wc_contents._Just.o_symbol.s_char) wc
+
+        matF wm i =
+            let coord = indexToCoord wm (clipToBounds' wm i)
+            in  case topNonEmptyCoord wm (reverse (column wm coord)) of
+                    Nothing → "default"
+                    Just wc → fromJust $ preview (wc_contents._Just.o_material) wc
 
 
 renderCellColumnToStatus ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()

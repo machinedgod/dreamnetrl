@@ -3,6 +3,8 @@ define(`REDSHIRT', `$1,Person,<RS>,ALLIANCE')dnl
 .,Base
 ╳,Spawn
 " ",Base
+>,Stairs,"res/job"
+<,Stairs,"res/job"
 ═,Prop,Wall,False,False,concrete,4,"A wall"
 ║,Prop,Wall,False,False,concrete,4,"A wall"
 ╔,Prop,Wall,False,False,concrete,4,"A wall"
@@ -37,5 +39,3 @@ define(`REDSHIRT', `$1,Person,<RS>,ALLIANCE')dnl
 
 ',Prop,Door,True,True,wood,0,"Just a common door."
 +,Prop,Door,False,False,wood,4,"Just a common door."
->,Prop,Stairs,True,True,metal,4,"Stairs."
-<,Prop,Stairs,False,True,metal,4,"Stairs."

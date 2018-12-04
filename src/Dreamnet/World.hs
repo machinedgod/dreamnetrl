@@ -33,16 +33,17 @@ module Dreamnet.World
 import Prelude hiding (interact, rem, map)
 import Safe           (fromJustNote)
 
-import Control.Lens               (makeLenses, (%=), (.=), (+=), use, uses, view,
-                                   views, (.~), _Just, (^?), preview, (^.))
+import Control.Lens               (makeLenses, use, uses, view, views, _Just,
+                                   preview)
+import Control.Lens.Operators
 import Control.Monad              (when, (>=>), join, foldM, void)
 import Control.Monad.Trans        (lift)
 import Control.Monad.Except       (ExceptT(ExceptT))
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT, exceptToMaybeT)
 import Control.Monad.Free         (Free(..))
 import Control.Monad.State.Strict (MonadState, State, runState, evalState,
-                                   execState)
-import Linear                     (V2(V2), V3(V3), _x, _y, _z)
+                                   execState, get)
+import Linear                     (V2(V2), V3(V3), _x, _y, _z, _xy)
 import Data.Foldable              (traverse_, for_)
 import Data.List                  (elemIndex)
 import Data.Maybe                 (fromMaybe, catMaybes)
@@ -202,26 +203,31 @@ increaseTurn ∷ WorldM ()
 increaseTurn = w_turn += 1
 
 
---movePlayer ∷ V3 Int → WorldM ()
 movePlayer ∷ Direction → WorldM ()
-movePlayer (dirToVec → v) = use w_player >>= \pp → 
-    cellAtM pp >>= \o →
-        checkBoundsM (unpack pp + V3 (v ^. _x) (v ^. _y) (unpack pp ^. _z)) >>= \case 
-            Right np → do
-                moveObject pp np
-                w_player .= np
-            Left e → error (show e)
-    {-
-    cellAtM pp >>= \o →
-        void $ runMaybeT do
-            np   ← exceptToMaybeT $ ExceptT (checkBoundsM (unpack pp + unpack v))
-            tv   ← lift (cellAtM np)
-            pass ← MaybeT $ pure (preview (wc_contents._Just.o_passable) tv)
-            when pass $ lift do
-                -- TODO replace with height management
-                moveObject pp np
-                w_player .= np
-                -}
+movePlayer d = do
+    pp ← use w_player
+    --checkBoundsM (unpack pp + d `sameLevelAs` unpack pp) >>= \case
+    -- TODO when moving few levels down, make noise?
+    let np = _z .~ 0 $ unpack pp + sameLevelAs d (unpack pp)
+    tryMove pp np >>= \case
+        False → void $ tryMove pp (_z +~ 1 $ np) -- On top of...
+        True  → pure ()
+    where
+        tryMove pp v =
+            checkBoundsM v >>= \case
+                Left oob → pure False
+                Right np → do
+                    canWalk ← passableOrEmptyCell <$> cellAtM np
+                    if canWalk
+                        then do
+                            moveObject pp np
+                            w_player .= np
+                            pure True
+                        -- TODO repeat the move part of code for the cell on top, and if it doesn'twork, bail!
+                        else
+                            pure False
+        passableOrEmptyCell = fromMaybe True . preview (wc_contents._Just.o_passable)
+        sameLevelAs d       = _xy .~ view _xy (dirToVec d)
 
 
 changePlayer ∷ (WorldCell → WorldCell) → WorldM ()
