@@ -16,6 +16,7 @@ graphmod:
 
 
 run:
-	@urxvt --font ${FONT} -e ${EXECUTABLE}
+#	@urxvt --font ${FONT} -e ${EXECUTABLE}
+	@urxvt --font ${FONT}
 
 #------------------------------------------------------------------------------- 

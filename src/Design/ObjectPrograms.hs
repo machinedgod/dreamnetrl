@@ -105,9 +105,9 @@ genericDoor ∷ (DreamnetObjectAPI States o) ⇒ InteractionType States → o ()
 genericDoor Examine =
     passable >>= message . ("Just a common door. They're " <>) . bool "closed." "opened."
 genericDoor Operate = do
-    c ← passable >>= setPassable . not >> passable
-    setSeeThrough c
-    changeSymbol $ bool (Symbol '+') (Symbol '/') c
+    setPassable . not =<< passable
+    setSeeThrough =<< passable
+    changeSymbol . bool (Symbol '+') (Symbol '/') =<< passable
 genericDoor Talk =
     doTalk $ do
         talk 0   "Open sesame!"
