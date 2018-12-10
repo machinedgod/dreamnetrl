@@ -242,8 +242,8 @@ dreamnet dd = C.runCurses $ do
                     Input.SUiBack             → pure (Just (SomeGS (StNormal w)))
                     _                         → pure (Just (SomeGS gs))
 
-            gs@(StTargetSelectionAdjactened w tp _) → do
-                renderTargetSelectionAdjactened w tp
+            gs@(StTargetSelectionAdjactened w d z _) → do
+                renderTargetSelectionAdjactened w d z
                 flush
                 lift (Input.nextEvent gs ()) >>= \e → e `withSomeSing` \case
                     ev@(Input.SMoveReticule _) → pure (Just (SomeGS (processTarget gs ev)))
@@ -966,19 +966,15 @@ instance ProcessUI 'EquipmentUI ('Input.Tab i) where
 
 --------------------------------------------------------------------------------
 
-updateSafeVec ∷ WorldMap b o → Lens' (V3 Int) a → (a → a) → Safe (V3 Int) → Safe (V3 Int)
-updateSafeVec wm l f = clipToBounds wm . (l %~ f) . unpack
-
-
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveReticule d) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (updateSafeVec (w ^. w_map) _xy (+ dirToVec' d) (view w_player w)) f
+    processTarget (StTargetSelectionAdjactened w _ z f) (Input.SMoveReticule d) = StTargetSelectionAdjactened w (Just (fromSing d)) z f
 
 
 instance ProcessTarget 'TargetSelectionAdjactened ('Input.MoveTarget i) where
     type TgGameStateOut 'TargetSelectionAdjactened ('Input.MoveTarget i) = GameState 'TargetSelectionAdjactened
-    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w (updateSafeVec (w ^. w_map) _z (max 0 . (subtract 1)) tp) f
-    processTarget (StTargetSelectionAdjactened w tp f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w (updateSafeVec (w ^. w_map) _z maxi tp) f
+    processTarget (StTargetSelectionAdjactened w d z f) (Input.SMoveTarget SNext)     = StTargetSelectionAdjactened w d (max 0 (subtract 1 z)) f
+    processTarget (StTargetSelectionAdjactened w d z f) (Input.SMoveTarget SPrevious) = StTargetSelectionAdjactened w d (maxi z) f
         where
             maxi i = min (i + 1) $ view (w_player.unpacked._z) w + i
 
@@ -990,9 +986,17 @@ instance ProcessTarget 'TargetSelectionAdjactened ('Input.SmartTarget i) where
 
 instance ProcessTarget 'TargetSelectionAdjactened 'Input.ConfirmTarget where
     type TgGameStateOut 'TargetSelectionAdjactened 'Input.ConfirmTarget = SomeGameState
-    processTarget (StTargetSelectionAdjactened w tp f) _ = runWithTarget f (updateSafeVec (w ^. w_map) _xy (+ view (w_player.unpacked._xy) w) tp)
+    processTarget (StTargetSelectionAdjactened w d z f) _ =
+        let dv = (V3 <$> view _x <*> view _y <*> const z) . dirToVec <$> d
+            tv = fromMaybe (view w_player w) $
+                    clipToBounds (w ^. w_map) . (+ view (w_player.unpacked) w) <$> dv
+        in  runWithTarget f tv
 
 --------------------------------------------------------------------------------
+
+updateSafeVec ∷ WorldMap b o → Lens' (V3 Int) a → (a → a) → Safe (V3 Int) → Safe (V3 Int)
+updateSafeVec wm l f = clipToBounds wm . (l %~ f) . unpack
+
 
 instance ProcessTarget 'TargetSelectionDistant ('Input.MoveReticule d) where
     type TgGameStateOut 'TargetSelectionDistant ('Input.MoveReticule d) = GameState 'TargetSelectionDistant
@@ -1126,23 +1130,26 @@ renderEquipmentUI ch = do
     updateUi clear
     updateUi =<< drawEquipmentDoll ch
 
-renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
-renderTargetSelectionAdjactened w (unpack → tp) = do
-    let pp = views w_player unpack w
-    white ← style s_colorWhite
-    green ← style s_colorGreen
-    renderCellColumnToStatus w (clipToBounds (view w_map w) tp)
-    --renderCellColumnToStatus w (clipToBounds (view w_map w) (pp + tp))
-    updateMain $ do
-        RenderAction $ do
-            C.setColor white
-            (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) pp
-                [ "yku"
-                , "h.l"
-                , "bjn"
-                ]
-        draw' (tp ^. _xy) (charForVec ((tp - pp) ^. _xy)) [C.AttributeColor green]
-        --draw' ((pp + tp) ^. _xy) (charForVec (tp ^. _xy)) [C.AttributeColor green]
+renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → Maybe Direction → Int → r ()
+renderTargetSelectionAdjactened w md z =
+    let pp = view w_player w 
+    in  case md of
+            Nothing → renderCellColumnToStatus w pp
+            Just d  → let d3 = V3 (dirToVec d ^. _x) (dirToVec d ^. _y) z
+                          tp = clipToBounds (w ^. w_map) $ d3 + unpack pp
+                      in  do
+                          white ← style s_colorWhite
+                          green ← style s_colorGreen
+                          renderCellColumnToStatus w tp
+                          updateMain do
+                              RenderAction do
+                                  C.setColor white
+                                  (drawList <$> subtract 1 . view _x <*> subtract 1 . view _y) (unpack pp)
+                                      [ "yku"
+                                      , "h.l"
+                                      , "bjn"
+                                      ]
+                              draw' (tp ^. unpacked._xy) (charForVec (dirToVec d)) [C.AttributeColor green]
     where
         charForVec (V2 -1  -1) = 'y'
         charForVec (V2  0  -1) = 'k'

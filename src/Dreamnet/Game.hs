@@ -47,6 +47,7 @@ import qualified Data.Set    as S (fromList)
 
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.Object
+import Dreamnet.Engine.Direction
 
 import Dreamnet.World
 import Dreamnet.ObjectStates
@@ -124,41 +125,41 @@ data GameState ∷ GameStateEnum → * where
     StSkillsUI    ∷ World → DreamnetCharacter → GameState 'SkillsUI
     StEquipmentUI ∷ World → DreamnetCharacter → GameState 'EquipmentUI
 
-    StTargetSelectionAdjactened ∷ World → Safe (V3 Int)          → TargetActivationF → GameState 'TargetSelectionAdjactened
+    StTargetSelectionAdjactened ∷ World → Maybe Direction  → Int → TargetActivationF → GameState 'TargetSelectionAdjactened
     StTargetSelectionDistant    ∷ World → Safe (V3 Int)          → TargetActivationF → GameState 'TargetSelectionDistant
     StChoiceSelection           ∷ World → [(Char, String)] → Int → ChoiceActivationF → GameState 'ChoiceSelection
 
 
 dreamnetWorld ∷ GameState gse → World
-dreamnetWorld (StNormal w)                        = w
-dreamnetWorld (StExamination w _)                 = w
-dreamnetWorld (StConversation w _ _)              = w
-dreamnetWorld (StComputerOperation w _ _)         = w
-dreamnetWorld (StHudTeam w _)                     = w
-dreamnetWorld (StHudMessages w)                   = w
-dreamnetWorld (StHudWatch w _ _)                  = w
-dreamnetWorld (StInventoryUI w)                   = w
-dreamnetWorld (StSkillsUI w _)                    = w
-dreamnetWorld (StEquipmentUI w _)                 = w
-dreamnetWorld (StTargetSelectionAdjactened w _ _) = w
-dreamnetWorld (StTargetSelectionDistant w _ _)    = w
-dreamnetWorld (StChoiceSelection w _ _ _)         = w
+dreamnetWorld (StNormal w)                          = w
+dreamnetWorld (StExamination w _)                   = w
+dreamnetWorld (StConversation w _ _)                = w
+dreamnetWorld (StComputerOperation w _ _)           = w
+dreamnetWorld (StHudTeam w _)                       = w
+dreamnetWorld (StHudMessages w)                     = w
+dreamnetWorld (StHudWatch w _ _)                    = w
+dreamnetWorld (StInventoryUI w)                     = w
+dreamnetWorld (StSkillsUI w _)                      = w
+dreamnetWorld (StEquipmentUI w _)                   = w
+dreamnetWorld (StTargetSelectionAdjactened w _ _ _) = w
+dreamnetWorld (StTargetSelectionDistant w _ _)      = w
+dreamnetWorld (StChoiceSelection w _ _ _)           = w
 
 
 modifyWorld ∷ (World → World) → GameState gse → GameState gse
-modifyWorld wf (StNormal w)                        = StNormal (wf w)
-modifyWorld wf (StExamination w s)                 = StExamination (wf w) s
-modifyWorld wf (StConversation w cs c)             = StConversation (wf w) cs c
-modifyWorld wf (StComputerOperation w v cd)        = StComputerOperation (wf w) v cd
-modifyWorld wf (StHudTeam w i)                     = StHudTeam (wf w) i
-modifyWorld wf (StHudMessages w)                   = StHudMessages (wf w)
-modifyWorld wf (StHudWatch w hs mm)                = StHudWatch (wf w) hs mm
-modifyWorld wf (StInventoryUI w)                   = StInventoryUI (wf w)
-modifyWorld wf (StSkillsUI w ch)                   = StSkillsUI (wf w) ch
-modifyWorld wf (StEquipmentUI w ch)                = StEquipmentUI (wf w) ch
-modifyWorld wf (StTargetSelectionAdjactened w t f) = StTargetSelectionAdjactened (wf w) t f
-modifyWorld wf (StTargetSelectionDistant w t f)    = StTargetSelectionDistant (wf w) t f
-modifyWorld wf (StChoiceSelection w xs i f)        = StChoiceSelection (wf w) xs i f
+modifyWorld wf (StNormal w)                          = StNormal (wf w)
+modifyWorld wf (StExamination w s)                   = StExamination (wf w) s
+modifyWorld wf (StConversation w cs c)               = StConversation (wf w) cs c
+modifyWorld wf (StComputerOperation w v cd)          = StComputerOperation (wf w) v cd
+modifyWorld wf (StHudTeam w i)                       = StHudTeam (wf w) i
+modifyWorld wf (StHudMessages w)                     = StHudMessages (wf w)
+modifyWorld wf (StHudWatch w hs mm)                  = StHudWatch (wf w) hs mm
+modifyWorld wf (StInventoryUI w)                     = StInventoryUI (wf w)
+modifyWorld wf (StSkillsUI w ch)                     = StSkillsUI (wf w) ch
+modifyWorld wf (StEquipmentUI w ch)                  = StEquipmentUI (wf w) ch
+modifyWorld wf (StTargetSelectionAdjactened w d z f) = StTargetSelectionAdjactened (wf w) d z f
+modifyWorld wf (StTargetSelectionDistant w t f)      = StTargetSelectionDistant (wf w) t f
+modifyWorld wf (StChoiceSelection w xs i f)          = StChoiceSelection (wf w) xs i f
 
 --------------------------------------------------------------------------------
 
@@ -181,7 +182,7 @@ runProgramAsPlayer w p prg =
 
 
 withTargetAdjactened ∷ World → (Safe (V3 Int) → SomeGameState) → GameState 'TargetSelectionAdjactened
-withTargetAdjactened w f = StTargetSelectionAdjactened w (view w_player w) (TargetActivationF f)
+withTargetAdjactened w f = StTargetSelectionAdjactened w Nothing (w ^. w_player.unpacked._z) (TargetActivationF f)
 
 
 withTargetDistant ∷ World → (Safe (V3 Int) → SomeGameState) → GameState 'TargetSelectionDistant
