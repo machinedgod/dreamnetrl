@@ -1,11 +1,15 @@
-{-# LANGUAGE UnicodeSyntax, LambdaCase, TupleSections, NegativeLiterals, ViewPatterns #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds -fno-warn-type-defaults #-}
+{-# LANGUAGE UnicodeSyntax              #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE NegativeLiterals           #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 module Dreamnet.Rendering.Renderer
 ( newScrollData, newScrollData', scrollUp, scrollDown
@@ -34,15 +38,14 @@ module Dreamnet.Rendering.Renderer
 
 import Safe                      (atDef)
 import Control.Lens              (Lens', makeLenses, view, views, use, uses,
-                                  (^.), (%=), (.=))
+                                  (%=), (.=))
 import Control.Monad.Trans       (MonadTrans, lift)
 import Control.Monad.State       (MonadState, StateT, runStateT, evalStateT,
                                   execStateT)
-import Linear                    (V2(V2), _x, _y)
-import Data.Semigroup            ((<>))
+import Linear                    (V2(V2))
 import Data.Maybe                (fromMaybe, isJust)
 import Data.Bifunctor            (second)
-import Data.Foldable             (traverse_, forM_, fold)
+import Data.Foldable             (traverse_, forM_)
 import Data.Char                 (digitToInt)
 import Data.List                 (genericLength, genericReplicate)
 import Data.Bool                 (bool)
@@ -52,7 +55,7 @@ import qualified UI.NCurses  as C
 import qualified Data.Map    as M
 import qualified Data.Vector as V
 
-import Dreamnet.Engine.Utils (lines')
+import Dreamnet.Engine.Utils (fmt)
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Visibility
 
@@ -567,7 +570,7 @@ drawStatus sel msg = do
         -- Message
         let lns = if null msg
                     then []
-                    else lines' (fromIntegral len) length " " (words msg)
+                    else fmt (fromIntegral len) length " " (words msg)
         drawList start padding lns
 
 
@@ -864,7 +867,7 @@ drawComputer cd = RenderAction $ do
                  (Just $ C.Glyph '╮' [])
                  (Just $ C.Glyph '╰' [])
                  (Just $ C.Glyph '╯' [])
-    -- TODO need lines' here
+    -- TODO need fmt here
     drawList 2 1 (view cd_frameBuffer cd)
     drawString 2 28 (pad 58 ("> " <> view cd_inputBuffer cd))
 

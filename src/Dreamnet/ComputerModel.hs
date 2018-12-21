@@ -1,18 +1,19 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE NegativeLiterals           #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 -- | APIs for building and using computers
 module Dreamnet.ComputerModel
 ( ComputerAPI(..)
 
-, ComputerData(ComputerData)
-, cd_inputBuffer
-, cd_frameBuffer
+, ComputerData(ComputerData), cd_inputBuffer, cd_frameBuffer
 
-, ComputerM
-, runComputer
+, ComputerM, runComputer
 ) where
 
 import Prelude hiding (read)
@@ -21,7 +22,6 @@ import Control.Lens               (makeLenses, uses, (%=), (.=), (<>=))
 import Control.Monad.Trans        (lift)
 import Control.Monad.State        (MonadState, State, runState)
 import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT)
-import Data.Semigroup             ((<>))
 import Data.Char                  (toLower)
 import Data.List                  (intercalate)
 import Data.Maybe                 (fromMaybe)

@@ -8,7 +8,6 @@ where
 
 import Control.Monad.Reader (Reader, runReader)
 
-import Dreamnet.ObjectStates
 import Dreamnet.World
 
 

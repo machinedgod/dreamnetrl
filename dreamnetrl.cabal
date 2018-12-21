@@ -50,7 +50,7 @@ executable dreamnetrl
   -- .hs or .lhs file containing the Main module.
   main-is:             Main.hs
 
-  ghc-options:         -Wall -Werror=incomplete-patterns
+  ghc-options:         -Wall -Werror=incomplete-patterns -threaded
   -- ghc-options:         -rtsopts -prof -fprof-auto -fprof-cafs -Wall
 
   extra-libraries:     tinfo
@@ -68,6 +68,7 @@ executable dreamnetrl
                         Dreamnet.Engine.CoordVector
                         Dreamnet.Engine.Input
                         Dreamnet.Engine.TileMap
+                        Dreamnet.Engine.Voxel
                         Dreamnet.Engine.Utils
                         Dreamnet.Engine.Visibility
                         Dreamnet.Engine.Object
@@ -81,6 +82,9 @@ executable dreamnetrl
                         Dreamnet.ObjectAPI2
                         Dreamnet.World
                         Dreamnet.Game
+                        Dreamnet.ProcessNormal
+                        Dreamnet.ProcessUI
+                        Dreamnet.ProcessTarget
                         Dreamnet.Rendering.ChoiceData
                         Dreamnet.Rendering.Renderer
                         Dreamnet.Rendering.ScrollData

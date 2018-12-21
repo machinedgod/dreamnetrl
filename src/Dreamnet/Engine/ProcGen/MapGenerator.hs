@@ -1,5 +1,5 @@
-{-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UnicodeSyntax     #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 module Dreamnet.Engine.ProcGen.MapGenerator
@@ -11,7 +11,6 @@ import Control.Lens           ((%=), (.=), (^.), (^?), uses, view,
                                _1, _2, traversed, index, mapMOf_)
 import Control.Monad.Random   (MonadRandom, getRandomR)
 import Control.Monad.State    (MonadState, execStateT, get)
-import Data.Semigroup         ((<>))
 import Data.Either            (rights)
 import Numeric.Natural        (Natural)
 import Linear                 (V2(V2))

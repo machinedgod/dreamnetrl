@@ -12,7 +12,7 @@ module Dreamnet.Engine.ObjectAPI
 ) where
 
 import Control.Monad.Free (Free(..))
-import Linear             (V2, V3)
+import Linear             (V3)
 
 import Dreamnet.Engine.WorldMap
 import Dreamnet.Engine.Conversation

@@ -13,8 +13,10 @@ import Data.Singletons    (fromSing)
 import Data.Singletons.TH (genSingletons)
 
 
-data Iteration = Next | Previous
-               deriving (Eq, Ord, Show, Read, Enum)
+data Iteration 
+    = Next 
+    | Previous
+    deriving (Eq, Ord, Show, Read, Enum)
 $(genSingletons [ ''Iteration ])
 
 

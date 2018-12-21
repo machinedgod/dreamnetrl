@@ -9,100 +9,52 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Dreamnet.World
 ( module Dreamnet.Engine.WorldMap
 , module Dreamnet.Engine.ObjectAPI
 
-, WorldBase, wb_contents, mkBase, TeamMember, tm_memberPosition
-, WorldCell, wc_contents, emptyCell, mkCell, predIfJust
+, TeamMember, tm_memberPosition
 
-, playerObject, teamObjects, collectNonNothings
+, playerObject, teamObjects
 
-, World, w_turn, w_player, w_team, w_map, w_vis, newWorld
+, World(..), w_turn, w_player, w_team, w_map, w_vis, newWorld
 
-, WorldM, runWorld, evalWorld, execWorld
+, WorldM, runWorld, evalWorld, execWorld, doMap
 
-, increaseTurn, movePlayer, changePlayer, joinTeam, moveObject, setVisibility
+, increaseTurn, movePlayer, changePlayer, joinTeam, setVisibility
 , runObjectMonadForAI
-
-, cellAtM, modifyCellM, checkBoundsM, collectNonNothingsM
 ) where
 
 
 import Prelude hiding (interact, rem, map)
 import Safe           (fromJustNote)
 
-import Control.Lens               (makeLenses, use, uses, view, views, _Just,
-                                   preview)
+import Control.Lens               (makeLenses, use, uses, view, views, _Just)
 import Control.Lens.Operators
-import Control.Monad              (when, (>=>), join, foldM, void)
-import Control.Monad.Trans        (lift)
-import Control.Monad.Except       (ExceptT(ExceptT))
-import Control.Monad.Trans.Maybe  (MaybeT(MaybeT), runMaybeT, exceptToMaybeT)
+import Control.Monad              (void)
 import Control.Monad.Free         (Free(..))
 import Control.Monad.State.Strict (MonadState, State, runState, evalState,
-                                   execState, get)
-import Linear                     (V2(V2), V3(V3), _x, _y, _z, _xy)
-import Data.Foldable              (traverse_, for_)
-import Data.List                  (elemIndex)
-import Data.Maybe                 (fromMaybe, catMaybes)
+                                   execState)
+import Linear                     (V2, V3, _z, _xy)
 
-import qualified Data.Vector as V (Vector, imap, replicate, head)
-import qualified Data.Set    as S (Set, member, map)
+import qualified Data.Vector as V (Vector, replicate, head)
+import qualified Data.Set    as S (Set)
 
 import Dreamnet.Engine.CoordVector
 import Dreamnet.Engine.Direction
 import Dreamnet.Engine.Object
 import Dreamnet.Engine.ObjectAPI
 import Dreamnet.Engine.WorldMap
-import Dreamnet.Engine.Utils       (maybeToEither)
-
-import qualified Dreamnet.Engine.Visibility as Vis
+import Dreamnet.Engine.Visibility
 
 import Dreamnet.ObjectStates
 
 --------------------------------------------------------------------------------
 
-type SpawnLocation = Bool
-
-
-newtype WorldBase = WorldBase { _wb_contents ∷ (Symbol, SpawnLocation) }
-makeLenses ''WorldBase
-
-
-mkBase ∷ Symbol → SpawnLocation → WorldBase
-mkBase s = WorldBase . (,) s
-
---------------------------------------------------------------------------------
-
 newtype TeamMember = TeamMember { _tm_memberPosition ∷ Safe (V3 Int) }
 makeLenses ''TeamMember
-
---------------------------------------------------------------------------------
-
-newtype WorldCell = WorldCell { _wc_contents ∷ Maybe (Object States) }
-                  deriving(Eq)
-makeLenses ''WorldCell
-
-instance Vis.VisibleAPI WorldCell where
-    isSeeThrough (WorldCell (Just o)) = Vis.isSeeThrough o
-    isSeeThrough _                    = True
-
-    height (WorldCell (Just o)) = Vis.height o
-    height _                    = 0 -- when empty (nothing) is height zero or one?
-
-
-emptyCell ∷ WorldCell
-emptyCell = WorldCell Nothing
-
-
-mkCell ∷ Object States → WorldCell
-mkCell = WorldCell . Just
-
-
-predIfJust ∷ (Object States → Bool) → (WorldCell → Bool)
-predIfJust f = maybe False f . view wc_contents
 
 --------------------------------------------------------------------------------
 
@@ -115,8 +67,8 @@ data World = World {
       _w_turn   ∷ Int
     , _w_player ∷ Safe (V3 Int)
     , _w_team   ∷ [TeamMember]
-    , _w_map    ∷ WorldMap WorldBase WorldCell
-    , _w_vis    ∷ V.Vector Vis.Visibility
+    , _w_map    ∷ WorldMap Symbol (Object States)
+    , _w_vis    ∷ V.Vector Visibility
     }
 makeLenses ''World
 
@@ -126,22 +78,41 @@ instance CoordVector World where
     height = views w_map height
 
 
-newWorld ∷ WorldMap WorldBase WorldCell → Object States → World
+newWorld ∷ WorldMap Symbol (Object States) → Object States → World
 newWorld wm p =
-    let ppos = views wm_spawns V.head wm 
-        map = execWorldMap (modifyCell ppos (const (mkCell p))) wm
-    in  World {
-          _w_turn   = 0
-        , _w_player = ppos
-        , _w_team   = []
-        , _w_map    = map
-        , _w_vis    = V.replicate (fromIntegral $ squared <$> width <*> height $ map) mempty
-        }
+    World {
+      _w_turn   = 0
+    , _w_player = ppos
+    , _w_team   = []
+    , _w_map    = execWorldMap spawnPlayer wm
+    --, _w_map    = execWorldMap (spawnPlayer *> setupLinks) wm
+    , _w_vis    = V.replicate (fromIntegral $ squared <$> width <*> height $ wm) mempty
+    }
+    where
+        ppos        = views wm_spawns V.head wm 
+        spawnPlayer = spawnObject ppos p
+        {-
+        setupLinks  = do
+            wm ← get
+            w  ← width  <$> get
+            h  ← height <$> get
+            d  ← depth  <$> get
+            forM_ [0..w] $ \x →
+                forM_ [0..h] $ \y → do
+                    let sv     = clipToBounds wm (V3 x y 0)
+                        objCol = dropWhile (==EmptyCell) (column wm sv)
+                    objCol  
+                    --case objCol of
+                    --    []  → pure ()
+                    --    [x] → pure ()
+                    --    ls  → zip (repeat (head ls)) (drop 1 (column wm sv))
+                    -}
 
 
 playerObject ∷ World → Object States
 playerObject w =
-    let mPlayer = views w_player (_wc_contents . cellAt (view w_map w)) w
+    let map     = view w_map w
+        mPlayer = w ^? w_player.cellAtL map.followLinksL map._Just
     in  fromJustNote "Error retrieving player data, bad code!" mPlayer
 
 
@@ -149,15 +120,11 @@ teamObjects ∷ World → [Object States]
 teamObjects w = teamObject <$> view w_team w
     where
         teamObject (TeamMember tp) =
-            fromJustNote
-                "Team member referenced, but does not exist in the map at that position!"
-                (_wc_contents $ cellAt (view w_map w) tp)
+            let wm = view w_map w
+            in  fromJustNote
+                    "Team member referenced, but does not exist in the map at that position!"
+                    (objectAt wm tp)
 
-
-collectNonNothings ∷ WorldMap b WorldCell → Safe (V3 Int) → [(Safe (V3 Int), Object States)] → [(Safe (V3 Int), Object States)]
-collectNonNothings wm p l = maybe l collect $ _wc_contents (cellAt wm p)
-    where
-        collect = (:l) . (p,)
 
 --------------------------------------------------------------------------------
 
@@ -177,25 +144,12 @@ evalWorld wm = evalState (runWorldM wm)
 execWorld ∷ WorldM a → World → World
 execWorld wm = execState (runWorldM wm)
 
---------------------------------------------------------------------------------
--- TODO if I somehow replace visibility with ORD and maybe Min/Max, this would make these instances
---      that much more flexible!
 
-
-cellAtM ∷ Safe (V3 Int) → WorldM WorldCell
-cellAtM p = uses w_map (`cellAt` p)
-
-
-modifyCellM ∷ Safe (V3 Int) → (WorldCell → WorldCell) → WorldM () 
-modifyCellM p f = w_map %= execWorldMap (modifyCell p f)
-
-
-checkBoundsM ∷ V3 Int → WorldM (Either OobError (Safe (V3 Int)))
-checkBoundsM v = uses w_map (`checkBounds` v)
-
-
-collectNonNothingsM ∷ [(Safe (V3 Int), Object States)] → Safe (V3 Int) → WorldM [(Safe (V3 Int), Object States)]
-collectNonNothingsM l p = uses w_map $ \wm → collectNonNothings wm p l
+doMap ∷ WorldMapM Symbol (Object States) a → WorldM a
+doMap prg = do
+    (r, nm) ← uses w_map (runWorldMap prg)
+    w_map .= nm
+    pure r
 
 --------------------------------------------------------------------------------
 
@@ -214,37 +168,30 @@ movePlayer d = do
         True  → pure ()
     where
         tryMove pp v =
-            checkBoundsM v >>= \case
-                Left oob → pure False
+            uses w_map (`checkBounds` v) >>= \case
+                Left _ → pure False
                 Right np → do
-                    canWalk ← passableOrEmptyCell <$> cellAtM np
+                    canWalk ← uses w_map (`passableOrEmptyCell` np)
                     if canWalk
                         then do
-                            moveObject pp np
+                            doMap (moveObject pp np)
                             w_player .= np
                             pure True
                         -- TODO repeat the move part of code for the cell on top, and if it doesn'twork, bail!
                         else
                             pure False
-        passableOrEmptyCell = fromMaybe True . preview (wc_contents._Just.o_passable)
-        sameLevelAs d       = _xy .~ view _xy (dirToVec d)
+        passableOrEmptyCell = isEmptyAt
+        sameLevelAs d'      = _xy .~ view _xy (dirToVec d')
 
 
-changePlayer ∷ (WorldCell → WorldCell) → WorldM ()
-changePlayer f = use w_player >>= \pp → modifyCellM pp f
+changePlayer ∷ (DreamnetCharacter → DreamnetCharacter) → WorldM ()
+--changePlayer ∷ (Object States → Object States) → WorldM ()
+changePlayer f = use w_player >>= doMap . (`modifyObject` (o_state._Person %~ f))
 
 
 joinTeam ∷ Object States → WorldM ()
 joinTeam _ = pure ()
     --uses w_team (++[o])
-
-
--- TODO crashes if np is out of map bounds!!!
-moveObject ∷ Safe (V3 Int) → Safe (V3 Int) → WorldM ()
-moveObject cp np = do
-    o ← cellAtM cp
-    modifyCellM np (const o)
-    modifyCellM cp (const emptyCell)
 
 
 -- TODO Nuke when updateVisible disappears
@@ -266,30 +213,30 @@ runObjectMonadForAI ∷ (Safe (V3 Int), Object States) → Free (ObjectF (Object
 runObjectMonadForAI (cp, o) (Free (Position fv)) =
     runObjectMonadForAI (cp, o) (fv cp)
 runObjectMonadForAI (cp, o) (Free (Move v n)) =
-    moveObject cp v *>
+    doMap (moveObject cp v) *>
         runObjectMonadForAI (v, o) n
 runObjectMonadForAI (cp, o) (Free (Passable fn)) =
     runObjectMonadForAI (cp, o) (fn $ view o_passable o)
 runObjectMonadForAI (cp, o) (Free (SetPassable cl n)) =
     let no = o_passable .~ cl $ o
-    in  modifyCellM cp (const (mkCell no)) *>
+    in  doMap (modifyObject cp (const no)) *>
             runObjectMonadForAI (cp, no) n
 runObjectMonadForAI (cp, o) (Free (SeeThrough fn)) =
     runObjectMonadForAI (cp, o) (fn $ view o_seeThrough o)
 runObjectMonadForAI (cp, o) (Free (SetSeeThrough st n)) =
     let no = o_seeThrough .~ st $ o
-    in  modifyCellM cp (const (mkCell no)) *>
+    in  doMap (modifyObject cp (const no)) *>
             runObjectMonadForAI (cp, no) n
 runObjectMonadForAI (cp, o) (Free (CanSee v fs)) =
-    uses w_map (\wm → castRay wm cp v) >>= -- TODO add height!
+    uses w_map (\m → castRay m cp v) >>= -- TODO add height!
         runObjectMonadForAI (cp, o) . fs . and . fmap (snd . unpack)
 runObjectMonadForAI (cp, o) (Free (ChangeSymbol c n)) =
     let no = o_symbol .~ c $ o
-    in  modifyCellM cp (const (mkCell no)) *>
+    in  doMap (modifyObject cp (const no)) *>
             runObjectMonadForAI (cp, no) n
 runObjectMonadForAI (cp, o) (Free (ChangeMat m n)) =
     let no = o_material .~ m $ o
-    in  modifyCellM cp (const (mkCell no)) *>
+    in  doMap (modifyObject cp (const no)) *>
             runObjectMonadForAI (cp, no) n
 runObjectMonadForAI (cp, o) (Free (Message _ n)) =
     -- TODO repair, use some kind of "action" on NPC that marks what are they doing ATM
@@ -303,23 +250,25 @@ runObjectMonadForAI (cp, o) (Free (OperateComputer n)) =
     --setStatus ("Computer " <> show o <> " is being operated.") *>
     -- TODO repair NPC operating a computer
     runObjectMonadForAI (cp, o) n
-runObjectMonadForAI (cp, o) (Free (ScanRange r f fn)) =
-    uses w_map (\wm → interestingObjects wm cp r (predIfJust f)) >>= 
-        foldM collectNonNothingsM [] >>=
-            runObjectMonadForAI (cp, o) . fn
+runObjectMonadForAI (cp, o) (Free (ScanRange r f fn)) = do
+    wm ← use w_map
+    let obPoses = interestingObjects wm cp r (predIfJust wm f)
+    let obs     = foldr (collectNonEmpty wm) [] obPoses
+    runObjectMonadForAI (cp, o) (fn obs)
+    
 runObjectMonadForAI (cp, o) (Free (AcquireTarget s fn)) =
     case s of
         Freeform    → use w_player >>= runObjectMonadForAI (cp, o) . fn
         LineOfSight → use w_player >>= runObjectMonadForAI (cp, o) . fn
 runObjectMonadForAI (cp, o) (Free (SpawnNewObject v s n)) = do
-    modifyCellM v (const (mkCell s))
+    doMap (spawnObject v s)
     runObjectMonadForAI (cp, o) n
 runObjectMonadForAI (cp, o) (Free (RemoveObject v n)) = do
-    modifyCellM v (const emptyCell)
+    doMap (deleteObject v)
     runObjectMonadForAI (cp, o) n
 runObjectMonadForAI (cp, o) (Free (FindObject s fn)) = do
     xs ← use w_player >>= \pp →
-            uses w_map (\wm → interestingObjects wm pp 60 (predIfJust (s==)))
+        uses w_map (\wm → interestingObjects wm pp 60 (predIfJust wm (s==)))
     case xs of
         []    → runObjectMonadForAI (cp, o) (fn Nothing)
         (v:_) → runObjectMonadForAI (cp, o) (fn (Just v))

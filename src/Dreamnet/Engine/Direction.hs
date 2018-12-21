@@ -13,15 +13,16 @@ import Data.Singletons     (fromSing)
 import Data.Singletons.TH  (genSingletons)
 
 
-data Direction = North
-               | NorthEast
-               | East
-               | SouthEast
-               | South
-               | SouthWest
-               | West
-               | NorthWest
-               deriving (Eq, Ord, Show, Read, Enum)
+data Direction
+    = North
+    | NorthEast
+    | East
+    | SouthEast
+    | South
+    | SouthWest
+    | West
+    | NorthWest
+    deriving (Eq, Ord, Show, Read, Enum)
 $(genSingletons [ ''Direction ])
 
 

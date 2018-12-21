@@ -27,7 +27,7 @@ import Data.List    (intercalate, genericTake)
 
 import qualified Data.Vector as V (Vector, fromList)
 
-import Dreamnet.Engine.Utils (lines')
+import Dreamnet.Engine.Utils (fmt)
 
 --------------------------------------------------------------------------------
 
@@ -46,7 +46,7 @@ makeLenses ''ScrollData
 newScrollData ∷ V2 Integer → V2 Integer → Maybe String → String → ScrollData
 newScrollData p s t txt =
     ScrollData {
-      _sd_lines     = intercalate [""] $ lines' (views _x (subtract 6) s) (fromIntegral . length) " " . words <$> lines txt
+      _sd_lines     = intercalate [""] $ fmt (views _x (subtract 6) s) (fromIntegral . length) " " . words <$> lines txt
     , _sd_startLine = 0
     , _sd_title     = t
 

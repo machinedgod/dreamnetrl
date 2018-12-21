@@ -1,20 +1,24 @@
-{-# LANGUAGE UnicodeSyntax, TupleSections, LambdaCase, OverloadedStrings, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax     #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE NegativeLiterals  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 module Dreamnet.Engine.TileMap
 ( module Dreamnet.Engine.CoordVector
 
 , Tile(Tile), t_char, t_data
 
-, ttype, readBoolProperty, readWordProperty, readIntProperty, readStringProperty
+, ttype, readBoolProperty, readWordProperty, readIntProperty
+, readStringProperty
 
-, TileLayer, l_size, l_data, newTileLayer
+, TileLayer, l_size, l_data, newTileLayer, codeAt, tileAt, changeTile, findAll
+, loadLayer
 
 , Tileset, TileMap, m_size, m_layers, m_tileset, m_positioned, m_desc
-, newTileMap, tileAt, changeTile, findAll
-
-, loadTileMap
+, newTileMap, loadTileMap
 )
 where
 
@@ -23,7 +27,6 @@ import Safe
 
 import Control.Lens           (makeLenses, view, (^.), (.~), element, _1, _2)
 import Control.Monad          ((<=<))
-import Data.Semigroup         ((<>))
 import Data.Maybe             (fromMaybe)
 import Data.List              (elemIndex)
 import Data.List.NonEmpty     (NonEmpty(..))
@@ -91,11 +94,17 @@ newTileLayer ∷ Width → Height → Char → TileLayer
 newTileLayer w h c = TileLayer (w, h) (V.replicate (fromIntegral $ squared w h) c)
 
 
+codeAt ∷ TileLayer → V2 Int → Char
+codeAt tl v = (tl^.l_data) V.! linCoord tl v
+
+
 tileAt ∷ TileLayer → Tileset → V2 Int → Tile
-tileAt tl ts v = let char      = (tl^.l_data) V.! linCoord tl v
-                     maybeTile = char `M.lookup` ts
-                     err       = error $ "Couldn't find a Tile instance in the Tileset for the layer: " <> [char]
-                 in  fromMaybe err maybeTile
+tileAt tl ts v =
+    let char      = codeAt tl v
+        maybeTile = char `M.lookup` ts
+        err       = error $ "Couldn't find a Tile instance in the Tileset \
+                            \for the layer: " <> [char]
+    in  fromMaybe err maybeTile
 
 
 changeTile ∷ V2 Int → Tile → TileLayer → TileLayer
@@ -105,6 +114,19 @@ changeTile v t tl = l_data . element (linCoord tl v) .~ (t^.t_char) $ tl
 findAll ∷ Char → TileLayer → [V2 Int]
 findAll ch tl = let foldCoord i c l = bool l (coordLin tl i : l) (c == ch)
                 in  V.ifoldr foldCoord [] (tl^.l_data)
+
+
+loadLayer ∷ FilePath → IO TileLayer
+loadLayer fp = do
+    mapStr ← readFile fp
+    let w     = findWidth mapStr
+        h     = findHeight mapStr
+        ldata = cleanNewlines mapStr
+    pure $ TileLayer (w, h) ldata
+    where
+        findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
+        findHeight    = fromIntegral . length . filter (=='\n')
+        cleanNewlines = V.fromList . filter (/='\n')
 
 --------------------------------------------------------------------------------
 
@@ -191,16 +213,7 @@ layerCount fp = fromIntegral <$> countLayers 0
 
 
 readLayer ∷ FilePath → Word → IO TileLayer
-readLayer fp i = do
-    mapStr ← readFile (makeFilename' fp "layer" i)
-    let w     = findWidth mapStr
-        h     = findHeight mapStr
-        ldata = cleanNewlines mapStr
-    pure $ TileLayer (w, h) ldata
-    where
-        findWidth     = fromIntegral . fromMaybe 0 . elemIndex '\n'
-        findHeight    = fromIntegral . length . filter (=='\n')
-        cleanNewlines = V.fromList . filter (/='\n')
+readLayer fp i = loadLayer (makeFilename' fp "layer" i)
 
 
 readPositioned ∷ FilePath → IO (M.Map (V2 Int) [Tile])

@@ -1,25 +1,27 @@
-{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
+{-# LANGUAGE UnicodeSyntax    #-}
+{-# LANGUAGE NegativeLiterals #-}
 
 module Dreamnet.Engine.Utils
 ( --line
   bla, circle, floodFillRange
 
-, lines'
+, fmt
 
 , interpolateMonoid, interpolateEnum, interpolateSucc, interpolatePred
 
-, maybeToEither
+, maybeToError
 ) where
 
 
 import Prelude             hiding (succ, pred)
 import Safe                       (succSafe, predSafe)
 import Control.Lens               (use, (%=), _1, _2)
+import Control.Applicative        (Alternative ((<|>), empty))
 import Control.Monad              (unless)
+import Control.Monad.Except       (MonadError(..))
 import Control.Monad.State.Strict (State, execState)
 import Data.List                  (unfoldr)
 import Data.Foldable              (foldl')
-import Data.Monoid                ((<>), mempty)
 import Linear                     (V2(V2), distance)
 
 import qualified Data.Set as S (Set, empty, singleton, fromList, toList, insert,
@@ -125,20 +127,19 @@ floodFillRange r o = S.toList $ snd $ execState nearestNeighbor (S.singleton o, 
 
 --------------------------------------------------------------------------------
 
-lines' ∷ (Eq a, Monoid a, Ord b, Foldable t) ⇒ b → (a → b) → a → t a → [a]
-lines' l lf sep xs =
-    let (ln, r) = foldl' foo (mempty, []) xs
-    in  if null r && ln == mempty
+fmt ∷ (Ord b, Eq a, Monoid a, Foldable t) ⇒ b → (a → b) → a → t a → [a]
+fmt l lf sep xs =
+    let (ln, r) = foldl' foo (mempty, empty) xs
+    in  if r == [] && ln == mempty
           then error "Phrase longer than limit (cannot be separated by separator!)"
-          else if null r
-            then ln : []
-            else ln : lines' l lf sep r
+          else if r == []
+            then pure ln
+            else pure ln <|> fmt l lf sep r
     where
         foo (f, b) x
-            | b /= mempty = (f, b <> [x])
-            | otherwise   = if lf (f <> sep <> x) < l
-                              then (f <> sep <> x, b)
-                              else (f, [x])
+            | b /= mempty                           = (f, b <> pure x)
+            | b == mempty && lf (f <> sep <> x) < l = (f <> sep <> x, b)
+            | otherwise                             = (f, pure x)
 
 --------------------------------------------------------------------------------
 
@@ -155,19 +156,28 @@ interpolateEnum ∷ (Enum a) ⇒ a → a → Float → a
 interpolateEnum x n t =
     let xs = enumFromThen x n
     in  xs !! floor (t * fromIntegral (length xs))
+{-# INLINE interpolateEnum #-}
 
 
 interpolateSucc ∷ (Enum a, Eq a, Bounded a) ⇒ a → Float → a
 interpolateSucc x = interpolateEnum x (succSafe x)
+{-# INLINE interpolateSucc #-}
 
 
 interpolatePred ∷ (Enum a, Eq a, Bounded a) ⇒ a → Float → a
 interpolatePred x = interpolateEnum x (predSafe x)
+{-# INLINE interpolatePred #-}
 
 --------------------------------------------------------------------------------
 
+{-
 maybeToEither ∷ a → Maybe b → Either a b
 maybeToEither d Nothing  = Left d
 maybeToEither _ (Just x) = Right x
+-}
 
 
+maybeToError ∷ (MonadError a me) => a → Maybe b → me b
+maybeToError d Nothing  = throwError d
+maybeToError _ (Just x) = pure x
+{-# INLINE maybeToError #-}

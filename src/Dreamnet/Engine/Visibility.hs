@@ -25,5 +25,4 @@ instance Monoid Visibility where
 
 class VisibleAPI v where
     isSeeThrough ∷ v → Bool
-    height       ∷ v → Int
 

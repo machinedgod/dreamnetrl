@@ -11,121 +11,50 @@
 
 module Dreamnet.Engine.Character
 ( Orientation(..)
-, SlotType(..)
-, Slot(Slot)
-, s_item
-, slotType
-, slotOrientation
+, SlotType(..), Slot(Slot), s_item, slotType, slotOrientation
 
 , Stance(..)
 
-, MeleeCombatSkills(..)
-, mcs_remainingPoints
-, mcs_barehanded
-, mcs_knives
-, mcs_swords
-, mcs_staves
-, mcs_maces
-, sumMelee
-, RangedCombatSkills(..)
-, rcs_remainingPoints
-, rcs_guns
-, rcs_smgs
-, rcs_shotguns
-, rcs_assault
-, rcs_sniper
-, rcs_bows
-, rcs_crossbows
-, rcs_plasma
-, rcs_lasers
+, MeleeCombatSkills(..), mcs_remainingPoints, mcs_barehanded, mcs_knives
+, mcs_swords, mcs_staves, mcs_maces, sumMelee
+
+, RangedCombatSkills(..), rcs_remainingPoints, rcs_guns, rcs_smgs, rcs_shotguns
+, rcs_assault, rcs_sniper, rcs_bows, rcs_crossbows, rcs_plasma, rcs_lasers
 , sumRanged
-, ThrowingSkills(..)
-, ts_remainingPoints
-, ts_grenades
-, ts_knives
-, ts_shurikens
-, ts_stickies
-, sumThrowing
-, EngineeringSkills(..)
-, es_remainingPoints
-, es_assembly
-, es_modding
-, es_repair
-, es_analysis
-, es_juryrigging
-, sumEngineering
-, CommunicationSkills(..)
-, ss_remainingPoints
-, ss_smallTalk
-, ss_bodyLanguage
-, ss_neurolinguisticProgramming
-, ss_haggle
-, ss_interrogation
-, ss_seduction
+
+, ThrowingSkills(..), ts_remainingPoints, ts_grenades, ts_knives, ts_shurikens
+,ts_stickies, sumThrowing
+
+, EngineeringSkills(..), es_remainingPoints, es_assembly, es_modding, es_repair
+, es_analysis, es_juryrigging, sumEngineering
+
+, CommunicationSkills(..), ss_remainingPoints, ss_smallTalk, ss_bodyLanguage
+, ss_neurolinguisticProgramming, ss_haggle, ss_interrogation, ss_seduction
 , sumCommunication
-, InfiltrationSkills(..)
-, is_remainingPoints
-, is_blendInShadows
-, is_useOfCover
-, is_silentMovement
-, is_coverSwitchManeuver
-, sumInfiltration
 
-, Equipment(Equipment)
-, eq_leftHand
-, eq_rightHand
-, eq_head
-, eq_torso
-, eq_back
-, eq_belt
-, eq_leftArm
-, eq_rightArm
-, eq_leftThigh
-, eq_rightThigh
-, eq_leftShin
-, eq_rightShin
-, eq_leftFoot
-, eq_rightFoot
+, InfiltrationSkills(..), is_remainingPoints, is_blendInShadows, is_useOfCover
+, is_silentMovement, is_coverSwitchManeuver, sumInfiltration
 
-, Character
-, ch_name
-, ch_lastName
-, ch_nickName
-, ch_handedness
-, ch_description
-, ch_equipment
-, ch_stance
-, ch_faction
-, ch_conversation
-, ch_healthPoints
-, ch_maxHealthPoints
-, ch_experience
-, ch_meleeCombat
-, ch_rangedCombat
-, ch_throwing
-, ch_engineering
-, ch_communication
-, ch_infiltration
+, Equipment(Equipment), eq_leftHand, eq_rightHand, eq_head, eq_torso, eq_back
+, eq_belt, eq_leftArm, eq_rightArm, eq_leftThigh, eq_rightThigh, eq_leftShin
+, eq_rightShin, eq_leftFoot, eq_rightFoot
 
-, newCharacter
-, modifySlotContent
-, pickUp
+, Character, ch_name, ch_lastName, ch_nickName, ch_handedness, ch_description
+, ch_equipment, ch_stance, ch_faction, ch_conversation, ch_healthPoints
+, ch_maxHealthPoints, ch_experience, ch_meleeCombat, ch_rangedCombat
+, ch_throwing, ch_engineering, ch_communication, ch_infiltration
 
-, SlotWrapper(..)
-, slotWrapperOrientation
-, slotWrapperType
-, slotWrapperItem
-, slotsAsList
-, equippedSlots
-, primaryHandSlot
-, secondaryHandSlot
+, newCharacter, modifySlotContent, pickUp
+
+, SlotWrapper(..), slotWrapperOrientation, slotWrapperType, slotWrapperItem
+, slotsAsList, equippedSlots, primaryHandSlot, secondaryHandSlot
 ) where
 
 
-import Control.Lens            (makeLenses, makePrisms, view, views, (^.), (%~))
-import Data.Maybe              (isJust, isNothing)
-import Data.Singletons         (Demote, Sing, SingI, fromSing, sing)
-import Data.Singletons.TH      (genSingletons)
+import Control.Lens         (makeLenses, makePrisms, view, views, (^.), (%~))
+import Data.Maybe           (isJust, isNothing)
+import Data.Singletons      (Demote, Sing, SingI, fromSing, sing)
+import Data.Singletons.TH   (genSingletons)
 
 --------------------------------------------------------------------------------
 

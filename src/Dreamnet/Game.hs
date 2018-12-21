@@ -1,6 +1,10 @@
-{-# LANGUAGE UnicodeSyntax, LambdaCase, TupleSections, ViewPatterns #-}
+{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -29,18 +33,16 @@ module Dreamnet.Game
   updateVisible
 ) where
 
+import Prelude             hiding (map)
 import Safe                       (fromJustNote)
-import Control.Lens               (makeLenses, view, views, preview, (^?),
+import Control.Lens               (makeLenses, view, preview, (^?),
                                    (.~), _Just, (^..), (^.))
-import Control.Monad              (foldM)
 import Control.Monad.Free         (Free(Free, Pure))
 import Control.Monad.Reader       (Reader, runReader, ask, asks) 
-import Control.Monad.State        (get) 
 import Data.Bool                  (bool)
 import Data.Maybe                 (fromMaybe)
-import Data.List                  (elemIndex)
 import Data.List.NonEmpty         (NonEmpty((:|)))
-import Linear                     (V2(V2), V3(V3), _x, _y, _z, _xy)
+import Linear                     (V2, V3(V3), _x, _y, _z, _xy)
 
 import qualified Data.Map    as M (Map)
 import qualified Data.Set    as S (fromList)
@@ -48,6 +50,7 @@ import qualified Data.Set    as S (fromList)
 import Dreamnet.Engine.Utils
 import Dreamnet.Engine.Object
 import Dreamnet.Engine.Direction
+import Dreamnet.Engine.Visibility
 
 import Dreamnet.World
 import Dreamnet.ObjectStates
@@ -168,17 +171,28 @@ data SomeGameState = ∀ gse. SomeGS (GameState gse)
 --------------------------------------------------------------------------------
 
 -- TODO run only if Safe (V3 Int) actually contains an object!
+-- TODO this makes it impossible to run programs on held objects
 runProgramAsPlayer ∷ World → Safe (V3 Int) → Free (ObjectF States) () → SomeGameState
-runProgramAsPlayer w p prg =
-    let wc           = cellAt (view w_map w) p
-        (_, o', sgs) = case view wc_contents wc of
-                            Nothing → (p, wc, SomeGS (StNormal w))
-                            Just o  → let (p, o, sgs) = runReader (runObjectMonadForPlayer (p, o, StNormal w) prg) w
-                                      in  (p, mkCell o, sgs)
-    in  case sgs of -- Need case to pattern match on SomeGameState
-            (SomeGS gs) → SomeGS (updateVisible (modifyWorld (saveChanges o') gs))
+runProgramAsPlayer w p prg = fromMaybe (SomeGS (StNormal w)) $ do
+    o ← objectAt map p
+    --o ← cellAt map p ^? followLinksL w._Just
+    case runReader (runObjectMonadForPlayer (context o) prg) w of
+       (_, no, SomeGS gs) → pure $ SomeGS (updateVisible (modifyWorld (saveChanges no) gs))
     where
-        saveChanges o' = execWorld (modifyCellM p (const o'))
+        map         = w ^. w_map
+        context     = (p, , StNormal w)
+        saveChanges = execWorld . doMap . modifyObject p . const
+--runProgramAsPlayer w p prg = 
+--    let wc            = cellAt (w ^. w_map) p
+--        (_, no, rsgs) = maybe 
+--                            (p, wc, SomeGS (StNormal w))
+--                            (\o → let (np, nno, sgs) = runReader (pure (p, o, SomeGS $ StNormal w)) w
+--                                  in  (np, mkCell nno, sgs))
+--                            --Just o  → let (p, o, sgs) = runReader (runObjectMonadForPlayer (p, o, StNormal w) prg) w
+--                            (wc ^. wc_contents)
+--    in  case rsgs of -- Need case to pattern match on SomeGameState
+--            (SomeGS gs) → let saveChanges = execWorld . modifyCellM p . const
+--                          in  SomeGS (updateVisible (modifyWorld (saveChanges no) gs))
 
 
 withTargetAdjactened ∷ World → (Safe (V3 Int) → SomeGameState) → GameState 'TargetSelectionAdjactened
@@ -197,16 +211,17 @@ withChoice w lst f = StChoiceSelection w lst 0 (ChoiceActivationF f)
 updateVisible ∷ GameState gse → GameState gse
 updateVisible gs =
     let w          = dreamnetWorld gs
-        pp         = addStanceHeight (view w_player w) w
-        tps        = (`addStanceHeight` w) <$> (w ^.. w_team.traverse.tm_memberPosition)
-        raysForAll = (`pointsForOne` w) <$> (pp : tps)
+        m          = view w_map w
+        pp         = addStanceHeight (view w_player w) m
+        tps        = (`addStanceHeight` m) <$> (w ^.. w_team.traverse.tm_memberPosition)
+        raysForAll = (`pointsForOne` m) <$> (pp : tps)
         nw         = execWorld (setVisibility (S.fromList $ mconcat raysForAll)) w
     in  modifyWorld (const nw) gs
     
     -- NOTE resolving 'x' causes lag
     where
-        pointsForOne ∷ Safe (V3 Int) → World → [V2 Int]
-        pointsForOne p (view w_map → m) =
+        pointsForOne ∷ (VisibleAPI o) ⇒ Safe (V3 Int) → WorldMap b o → [V2 Int]
+        pointsForOne p m =
             let points = clipToBounds m . (\v → V3 (v ^. _x) (v ^. _y) 0) <$> circle 20 (unpack p ^. _xy)
                 rays   ∷ [[Safe (V2 Int, Bool)]]
                 rays   = castRay m p <$> points
@@ -221,14 +236,16 @@ updateVisible gs =
         -- TODO subtract 1 because standing on the floor counts as if we're in the second 'height box'
         --      floor has to count as having no height, and height calculations must use heights of all
         --      objects in the same cell, not the index itself!
-        addStanceHeight ∷ Safe (V3 Int) → World → Safe (V3 Int)
-        addStanceHeight v (view w_map → m) = clipToBounds m nv
+        addStanceHeight ∷ Safe (V3 Int) → WorldMap b (Object States) → Safe (V3 Int)
+        addStanceHeight v m = clipToBounds m nv
             where
                 nv   = V3 <$> view _x <*> view _y <*> const newZ $ unpack v
-                newZ = max 1 . min 4 . subtract 1 . (+ view _z (unpack v)) . stanceToHeight $ cellAt m v
+                newZ = max 1 . min 4 . subtract 1 . (+ view _z (unpack v)) .
+                            stanceToHeight m $ cellAt m v
 
-        stanceToHeight = go . fromJustNote "updateVisible!" . preview (wc_contents._Just.o_state._Person.ch_stance) 
+        stanceToHeight m = go . fromJustNote "updateVisible!" . preview stance
             where
+                stance     = followLinksL m._Just.o_state._Person.ch_stance
                 go Upright = 3
                 go Crouch  = 2
                 go Prone   = 1
@@ -241,7 +258,7 @@ type RunObjectMonadData o = (Safe (V3 Int), Object States, o)
 runObjectMonadForPlayer ∷ RunObjectMonadData (GameState gs) → Free (ObjectF States) () → Reader World (RunObjectMonadData SomeGameState)
 runObjectMonadForPlayer (cp, o, gs) (Free (Position fn)) =
     runObjectMonadForPlayer (cp, o, gs) (fn cp)
-runObjectMonadForPlayer (cp, o, gs) (Free (Move v n)) =
+runObjectMonadForPlayer (_, o, gs) (Free (Move v n)) =
     runObjectMonadForPlayer (v, o, gs) n
 runObjectMonadForPlayer (cp, o, gs) (Free (Passable fn)) =
     runObjectMonadForPlayer (cp, o, gs) (fn $ view o_passable o)
@@ -255,6 +272,7 @@ runObjectMonadForPlayer (cp, o, gs) (Free (SetSeeThrough b n)) =
     in  runObjectMonadForPlayer (cp, no, gs) n
 runObjectMonadForPlayer (cp, o, gs) (Free (CanSee v fn)) =
     asks (\w → castRay (view w_map w) cp v) >>=
+    --asks (\w → castRay (view w_map w) (const True) cp v) >>=
         runObjectMonadForPlayer (cp, o, gs) . fn . and . fmap (snd . unpack)
 runObjectMonadForPlayer (cp, o, gs) (Free (ChangeSymbol s n)) =
     let no = o_symbol .~ s $ o
@@ -262,9 +280,12 @@ runObjectMonadForPlayer (cp, o, gs) (Free (ChangeSymbol s n)) =
 runObjectMonadForPlayer (cp, o, gs) (Free (ChangeMat m n)) =
     let no = o_material .~ m $ o
     in  runObjectMonadForPlayer (cp, no, gs) n
-runObjectMonadForPlayer (cp, o, gs) (Free (Message _ n)) =
+runObjectMonadForPlayer (cp, o, _) (Free (Message m _)) =
     -- TODO repair set status!
-    runObjectMonadForPlayer (cp, o, gs) n
+    --runObjectMonadForPlayer (cp, o, gs) n
+    asks ((cp, o,) . SomeGS . flip StExamination m)
+    -- Old code, testing ^
+    --pure (cp, o, SomeGS gs)
 runObjectMonadForPlayer (cp, o, gs) (Free (DoTalk c n)) = do
     w ← ask
     fromMaybe 
@@ -281,9 +302,10 @@ runObjectMonadForPlayer (cp, o, gs) (Free (OperateComputer n)) = ask >>= \w →
         (\cd → runObjectMonadForPlayer (cp, o, StComputerOperation w cp cd) n)
         (o ^? (o_state._Computer))
 runObjectMonadForPlayer (cp, o, gs) (Free (ScanRange r f fn)) =
-    view w_map >>= \wm → 
-        let cells  = interestingObjects wm cp r (predIfJust (f . view o_state))
-            cells' = foldr (collectNonNothings wm) [] cells
+    ask >>= \w →
+        let wm     = view w_map w
+            cells  = interestingObjects wm cp r (predIfJust wm (f . view o_state))
+            cells' = foldr (collectNonEmpty wm) [] cells
         in  runObjectMonadForPlayer (cp, o, gs) (fn (fmap (view o_state) <$>cells'))
 runObjectMonadForPlayer (cp, o, gs) (Free (AcquireTarget s fn)) =
     case s of
@@ -301,15 +323,15 @@ runObjectMonadForPlayer (cp, o, gs) (Free (RemoveObject _ n)) =
     -- TODO fix RemoveObject
     runObjectMonadForPlayer (cp, o, gs) n
 runObjectMonadForPlayer (cp, o, gs) (Free (FindObject s fn)) = do
+    wm ← view w_map
     pp ← view w_player
-    xs ← asks (\w → interestingObjects (view w_map w) pp 60 (maybe False (s==) . preview (wc_contents._Just.o_state)))
-    case xs of
+    case interestingObjects wm pp 60 (interestFilter wm) of
         []    → runObjectMonadForPlayer (cp, o, gs) (fn Nothing)
         (v:_) → runObjectMonadForPlayer (cp, o, gs) (fn (Just v))
             --o ← asks (view (_Just.o_state) . cellAt v . view w_map)
             --let r = (v,) <$> mi
-            
+    where
+        interestFilter wm = maybe False (s==) . preview (followLinksL wm._Just.o_state)
 runObjectMonadForPlayer (cp, o, gs) (Pure ()) =
     pure (cp, o, SomeGS gs)
     
-

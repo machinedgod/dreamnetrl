@@ -10,19 +10,19 @@ import Dreamnet.Dreamnet
 -- WorldMap3D DEBUG
 --------------------------------------------------------------------------------
 import Control.Lens
+import Control.Applicative
 import Control.Monad
 import Data.Either
 import Data.Bool
-import Linear hiding (column)
 
-import qualified Data.Vector as V
+--import qualified Data.Vector as V
 import qualified UI.NCurses  as C
 
-import Dreamnet.Engine.Visibility hiding (height)
+import Dreamnet.Engine.Visibility
 import Dreamnet.Engine.TileMap
 import Dreamnet.Engine.WorldMap
 import Dreamnet.Engine.Object
-import Dreamnet.World
+import Dreamnet.ObjectStates
 import Dreamnet.Rendering.Renderer
 
 
@@ -37,17 +37,22 @@ newDrawMap = drawMap (fromMaybe ';') (const "default") 5 (view wm_data newMap) (
          -}
 
 
-barWorldMap ∷ IO (WorldMap Char (Maybe Char))
+barWorldMap ∷ IO (WorldMap Char Char)
 barWorldMap = worldMap <$> tmap
     where
         tmap ∷ IO TileMap
         tmap = fromRight undefined <$> loadTileMap "res/bar"
 
-        worldMap ∷ TileMap → WorldMap Char (Maybe Char)
+        worldMap ∷ TileMap → WorldMap Char Char
         worldMap tm = 
-            let baseF      = Right . view t_char
-                contentF t = bool (Right Nothing) (Right $ Just $ view t_char t) (view t_char t == ' ')
-            in  fromRight (error "Something happened while constructing a WorldMap") . fromTileMap baseF contentF $ tm
+            let baseF t    = Right (Base (view t_char t) True)
+                contentF t = pure $ bool
+                                        empty
+                                        (pure $ view t_char t)
+                                        (view t_char t == ' ')
+            in  fromRight
+                    (error "Something happened while constructing a WorldMap")
+                    . fromTileMap baseF contentF $ tm
 
 
 {-
@@ -69,21 +74,21 @@ renderTilemap tm = void $ C.runCurses do
                 -}
 
 
-renderNewMap ∷ WorldMap WorldBase WorldCell → Int → IO ()
-renderNewMap m z = C.runCurses do
+renderNewMap ∷ WorldMap Symbol (Object States) → Int → IO ()
+renderNewMap m _ = C.runCurses do
     newRenderEnvironment >>=
         void . execRenderer do
-            drawMap (cellChar . cellAt m . getTopCoord) (const "default") (const Visible) (width m) (height m) >>= updateMain
+            drawMap (objectChar . objectAt m . getTopCoord) (const "default") (const Visible) (width m) (height m) >>= updateMain
             --drawMap (cellChar . cellAt m . toV3AtZ . twoDCoord) (const "default") (const Visible) (width m) (height m) >>= updateMain
             flush
     C.defaultWindow >>=
         void . (`C.getEvent` Nothing)
     where
-        twoDCoord  = coordLin m
-        toV3AtZ v2 = clipToBounds m (V3 (v2 ^. _x) (v2 ^. _y) z)
-
+        --twoDCoord   = coordLin m
+        --toV3AtZ v2  = clipToBounds m (V3 (v2 ^. _x) (v2 ^. _y) z)
         getTopCoord = head . column m . indexToCoord m . clipToBounds' m
-        cellChar    = maybe ' ' id . preview (wc_contents._Just.o_symbol.s_char)
+        objectChar  ∷ Maybe (Object States) → Char
+        objectChar  = maybe ' ' (view (o_symbol.s_char))
 
 
 debugMain ∷ Int → IO ()

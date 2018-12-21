@@ -15,7 +15,6 @@ module Design.Items
 ) where
 
 import Control.Lens    (view)
-import Data.Semigroup  ((<>))
 
 import qualified Data.Map as M (Map, fromList, singleton)
 

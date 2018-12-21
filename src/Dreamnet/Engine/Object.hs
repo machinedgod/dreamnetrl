@@ -5,8 +5,7 @@
 module Dreamnet.Engine.Object
 ( Symbol(Symbol), s_char
 
-, Object(Object), o_symbol, o_material, o_passable, o_seeThrough, o_height
-, o_state
+, Object(Object), o_symbol, o_material, o_passable, o_seeThrough, o_state
 )
 where
 
@@ -37,7 +36,6 @@ data Object a = Object {
     , _o_material    ∷ String
     , _o_passable    ∷ Bool
     , _o_seeThrough  ∷ Bool
-    , _o_height      ∷ Int
 
     , _o_state ∷ a
     }
@@ -46,16 +44,15 @@ makeLenses ''Object
 
 
 instance Applicative Object where
-    pure = Object mempty "" False False 0
-    (Object s m ps st h f) <*> (Object s' m' ps' st' h' x) =
-        Object (s <> s') (m <> m') (ps || ps') (st || st') (h + h') (f x)
+    pure = Object mempty "" False False
+    (Object s m ps st f) <*> (Object s' m' ps' st' x) =
+        Object (s <> s') (m <> m') (ps || ps') (st || st') (f x)
 
 
 instance Monad Object where
-    (Object _ _ _ _ _ x)  >>= f = f x
+    (Object _ _ _ _ x) >>= f = f x
 
 
 instance VisibleAPI (Object a) where
     isSeeThrough = view o_seeThrough
-    height       = view o_height
 

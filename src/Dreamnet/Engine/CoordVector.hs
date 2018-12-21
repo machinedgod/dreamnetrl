@@ -3,20 +3,20 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Dreamnet.Engine.CoordVector
-( Width(..), Height(..), Depth(..), CoordVector(..), squared, cubed
+( Width(..), Height(..), Depth(..)
+, CoordVector(..), squared, cubed
 
 , linCoord', linCoord, coordLin', coordLin, outOfBounds
 ) where
 
 
-import Data.Bifunctor       (bimap)
 import Control.Monad.Random (Random, randomR, random)
 import Numeric.Natural      (Natural)
 import Linear               (V2(V2))
 
 --------------------------------------------------------------------------------
 
-newtype Width = Width  Natural
+newtype Width = Width Natural
                deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
 newtype Height = Height Natural
                deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
@@ -24,29 +24,31 @@ newtype Depth = Depth Natural
                deriving(Eq, Ord, Show, Read, Enum, Num, Real, Integral)
 
 instance Random Width where
-    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
-                             in  (Width (fromIntegral x), g')
+    randomR (wmin, wmax) g =
+        let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+        in  (Width (fromIntegral x), g')
 
     random g = let (a ∷ Integer, g') = random g
                in  (Width (fromIntegral a), g')
 
 
 instance Random Height where
-    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
-                             in  (Height (fromIntegral x), g')
+    randomR (wmin, wmax) g =
+        let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+        in  (Height (fromIntegral x), g')
 
     random g = let (a ∷ Integer, g') = random g
                in  (Height (fromIntegral a), g')
 
 
 instance Random Depth where
-    randomR (wmin, wmax) g = let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
-                             in  (Depth (fromIntegral x), g')
+    randomR (wmin, wmax) g =
+        let (x, g') = randomR (fromIntegral wmin ∷ Integer, fromIntegral wmax ∷ Integer) g
+        in  (Depth (fromIntegral x), g')
 
     random g = let (a ∷ Integer, g') = random g
                in  (Depth (fromIntegral a), g')
 --------------------------------------------------------------------------------
-
 
 class CoordVector c where
     width  ∷ c → Width

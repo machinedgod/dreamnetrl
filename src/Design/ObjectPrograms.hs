@@ -8,7 +8,6 @@ where
 
 import Control.Lens       (view, (^.))
 import Control.Monad.Free (Free)
-import Data.Semigroup     ((<>))
 import Data.Bool          (bool)
 
 import Dreamnet.Engine.Object

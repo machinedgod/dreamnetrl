@@ -1,34 +1,31 @@
-{-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE NegativeLiterals #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UnicodeSyntax       #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE NegativeLiterals    #-}
+{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 
 module Dreamnet.Engine.Input
 ( EventSource(nextEvent)
 
-, WorldEvent(..), SWorldEvent
+, WorldEvent(..), SWorldEvent(..)
 
-, UIEvent(..), SUIEvent
+, UIEvent(..), SUIEvent(..)
 
-, TargetEvent(..), STargetEvent
+, TargetEvent(..), STargetEvent(..)
 
 , ChoiceEvent(..)
 
 , PassThrough(..)
 
 , TacticalEvent(..)
-
-, Sing(..) --All singleton data families
 )
 where
 
@@ -40,7 +37,7 @@ import qualified UI.NCurses as C (Curses, defaultWindow, getEvent,
                                   Event(EventCharacter, EventSpecialKey),
                                   Key(KeyBackspace, KeyBackTab))
 
-import qualified Dreamnet.Game as G
+import qualified Dreamnet.Game as G -- TODO UUUUUGH!!! Need to take it out!
 import Dreamnet.Engine.Direction
 import Dreamnet.Engine.Iteration
 
@@ -55,11 +52,12 @@ class EventSource (gsi ∷ G.GameStateEnum) where
 
 --------------------------------------------------------------------------------
 
-data WorldEvent = 
+data WorldEvent =
       BackToMainMenu
     | Move       Direction
     | MoveCamera Direction
     | Examine
+    | DescribeEnvironment
     | Operate
     | ExamineHeld
     | OperateHeld
@@ -77,7 +75,7 @@ data WorldEvent =
     | SwitchToHud
 
 
-data ChoiceEvent = 
+data ChoiceEvent =
       ChoiceBack
     | ChoiceCharacter Char
 
@@ -111,7 +109,8 @@ instance EventSource 'G.Normal where
             worldEvent (C.EventCharacter 'U')  = Just $ MoveCamera NorthEast
             worldEvent (C.EventCharacter 'B')  = Just $ MoveCamera SouthWest
             worldEvent (C.EventCharacter 'N')  = Just $ MoveCamera SouthEast
-            worldEvent (C.EventCharacter 'e')  = Just   Examine
+            worldEvent (C.EventCharacter 'x')  = Just   Examine
+            worldEvent (C.EventCharacter 'D')  = Just   DescribeEnvironment
             worldEvent (C.EventCharacter 'o')  = Just   Operate
             worldEvent (C.EventCharacter 'E')  = Just   ExamineHeld
             worldEvent (C.EventCharacter 'f')  = Just   OperateHeld
@@ -257,9 +256,18 @@ nextTargetSelectionEvent = repeatUntilEvent targetEvent
 
 --------------------------------------------------------------------------------
 
+data TeammateSelectionDirect
+    = S1
+    | S2
+    | S3
+    | S4
+    | S5
+    | S6
+
+
 data TacticalEvent = MoveSelector         Direction
                    | SmartMoveSelector    Iteration
-                   | ToggleSelectedDirect Int
+                   | ToggleSelectedDirect TeammateSelectionDirect
                    | IssueOrder
                    | CancelPlan
                    | ExecutePlan
@@ -282,12 +290,12 @@ nextTacticalEvent = repeatUntilEvent tacticalEvent
         tacticalEvent (C.EventCharacter '\ESC')        = Just   CancelPlan
         tacticalEvent (C.EventCharacter '\n')          = Just   ExecutePlan
 
-        tacticalEvent (C.EventCharacter 'a')           = Just $ ToggleSelectedDirect 1
-        tacticalEvent (C.EventCharacter 'c')           = Just $ ToggleSelectedDirect 2
-        tacticalEvent (C.EventCharacter 'd')           = Just $ ToggleSelectedDirect 3
-        tacticalEvent (C.EventCharacter 'e')           = Just $ ToggleSelectedDirect 4
-        tacticalEvent (C.EventCharacter 'f')           = Just $ ToggleSelectedDirect 5
-        tacticalEvent (C.EventCharacter 'g')           = Just $ ToggleSelectedDirect 6
+        tacticalEvent (C.EventCharacter 'a')           = Just $ ToggleSelectedDirect S1
+        tacticalEvent (C.EventCharacter 'c')           = Just $ ToggleSelectedDirect S2
+        tacticalEvent (C.EventCharacter 'd')           = Just $ ToggleSelectedDirect S3
+        tacticalEvent (C.EventCharacter 'e')           = Just $ ToggleSelectedDirect S4
+        tacticalEvent (C.EventCharacter 'f')           = Just $ ToggleSelectedDirect S5
+        tacticalEvent (C.EventCharacter 'g')           = Just $ ToggleSelectedDirect S6
         tacticalEvent _                                = Nothing
 
 --------------------------------------------------------------------------------
@@ -302,5 +310,9 @@ repeatUntilEvent f =
 
 --------------------------------------------------------------------------------
 
--- TODO TacticalEvent has problems with Int
-$(genSingletons [ ''WorldEvent, ''UIEvent, ''TargetEvent ])
+$(genSingletons [ ''WorldEvent
+                , ''UIEvent
+                , ''TargetEvent
+                , ''TeammateSelectionDirect, ''TacticalEvent
+                ])
+
