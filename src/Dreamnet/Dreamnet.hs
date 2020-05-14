@@ -269,10 +269,9 @@ dreamnet dd = C.runCurses $ do
 newGame ∷ DesignData → C.Curses (GameState 'Normal)
 newGame dd = do
     sm  ← either error id <$> liftIO (loadTileMap (view dd_dev_startingMap dd))
-    pure $ StNormal $ newWorld
-                    (either error id $ fromTileMap baseFromTile (objectFromTile dd) sm)
-                    (playerPerson carla)
-                    --(playerPerson ("Carla" `M.lookup` view dd_characters dd))
+    pure $ StNormal $
+        newWorld (either error id $ fromTileMap baseFromTile (objectFromTile dd) sm)
+                 (playerPerson carla)
     where
         playerPerson ∷ DreamnetCharacter → Object States
         playerPerson = Object (Symbol '@') "metal" False True . Person

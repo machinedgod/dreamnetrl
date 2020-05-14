@@ -320,24 +320,24 @@ isEmptyAt wm v = case cellAt wm v of
 
 
 -- TODO ensure that, somehow, we can only ask for data positions on link cells or Data cells
-dataPosition ∷ WorldMap b o → Safe (V3 Int) → Maybe (Safe (V3 Int))
+dataPosition ∷ (Alternative f) ⇒ WorldMap b o → Safe (V3 Int) → f (Safe (V3 Int))
 dataPosition m v = case cellAt m v of
                     (Data _)             → pure v
                     (Link (LinkCell lv)) → dataPosition m lv
                     Empty                → empty
 
 
-followLinks ∷ WorldMap b o → Cell o → Maybe o
+followLinks ∷ (Monad m, Alternative m) ⇒ WorldMap b o → Cell o → m o
 followLinks _ (Data (DataCell _ os)) = pure os
 followLinks m (Link (LinkCell v))    = dataPosition m v >>= followLinks m . cellAt m
 followLinks _ Empty                  = empty
 
 
-followLinksL ∷ WorldMap b o → Getter (Cell o) (Maybe o)
+followLinksL ∷ (Monad m, Alternative m) ⇒ WorldMap b o → Getter (Cell o) (m o)
 followLinksL w = to (followLinks w)
 
 
-objectAt ∷ WorldMap b o → Safe (V3 Int) → Maybe o
+objectAt ∷ (Monad m, Alternative m) ⇒ WorldMap b o → Safe (V3 Int) → m o
 objectAt m p = followLinks m (cellAt m p)
 
 

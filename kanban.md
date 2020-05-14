@@ -65,14 +65,14 @@
 - Commands are interpolation functions that take increments/turns
     * [ ] Turn -> Character -> Character
     * [ ] isComplete
+- Command queues for Teammates
+- Issuing orders to teammates
 
 ## Testing/QA(1)
 
 
 ## Completed, ready to merge
 
-- Command queues for Teammates
-- Issuing orders to teammates
 
 ## Merged to master!
 
