@@ -36,7 +36,7 @@ data Projection
 
 
 newtype Grid (p ∷ Projection)
-    = Grid { ungrid ∷ TileLayer } 
+    = Grid { ungrid ∷ TileLayer }
     deriving (Show)
 
 
@@ -55,10 +55,10 @@ data VoxelGrid
 makeLenses ''VoxelGrid
 
 
-fromProjections ∷ (MonadError String me) 
-                ⇒ Grid 'Front 
-                → Grid 'Left 
-                → Grid 'Top 
+fromProjections ∷ (MonadError String me)
+                ⇒ Grid 'Front
+                → Grid 'Left
+                → Grid 'Top
                 → me VoxelGrid
 fromProjections (Grid fl) (Grid ll) (Grid tl) = do
     when(height fl /= height ll) $
@@ -67,9 +67,9 @@ fromProjections (Grid fl) (Grid ll) (Grid tl) = do
         throwError "Top projection height /= left projections width."
     when(width fl /= width tl) $
         throwError "Front and top projections widths aren't equal."
-    let w    = fl ^. l_size._1
-        h    = fl ^. l_size._2
-        d    = fromIntegral (tl ^. l_size._2)
+    let w    = fl ^. lSize._1
+        h    = fl ^. lSize._2
+        d    = fromIntegral (tl ^. lSize._2)
         grid = V.replicate (fromIntegral (cubed w h d)) Nothing
 
     -- Try 1: if voxel exist in all projections, it is solid.
@@ -77,8 +77,8 @@ fromProjections (Grid fl) (Grid ll) (Grid tl) = do
     let allCoords = (,,) <$> [0..w-1] <*> [0..h-1] <*> [0..d-1]
 
     pure $
-        VoxelGrid 
-            (w, h, d) 
+        VoxelGrid
+            (w, h, d)
             (V.modify (\vec → for_ allCoords (projectCoord w h vec)) grid)
     where
         projectCoord w h vec coord@(x, y, z) =
@@ -93,7 +93,7 @@ fromProjections (Grid fl) (Grid ll) (Grid tl) = do
 
 -- Works
 linCoord3D ∷ Width → Height → (Width, Height, Depth) → Int
-linCoord3D (fromIntegral → w) (fromIntegral → h) (x, y, z) = 
+linCoord3D (fromIntegral → w) (fromIntegral → h) (x, y, z) =
     (fromIntegral z * w * h) + (fromIntegral y * w) + fromIntegral x
 
 

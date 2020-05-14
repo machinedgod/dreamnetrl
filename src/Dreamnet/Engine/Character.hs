@@ -11,38 +11,38 @@
 
 module Dreamnet.Engine.Character
 ( Orientation(..)
-, SlotType(..), Slot(Slot), s_item, slotType, slotOrientation
+, SlotType(..), Slot(Slot), sItem, slotType, slotOrientation
 
 , Stance(..)
 
-, MeleeCombatSkills(..), mcs_remainingPoints, mcs_barehanded, mcs_knives
-, mcs_swords, mcs_staves, mcs_maces, sumMelee
+, MeleeCombatSkills(..), mcsRemainingPoints, mcsBarehanded, mcsKnives
+, mcsSwords, mcsStaves, mcsMaces, sumMelee
 
-, RangedCombatSkills(..), rcs_remainingPoints, rcs_guns, rcs_smgs, rcs_shotguns
-, rcs_assault, rcs_sniper, rcs_bows, rcs_crossbows, rcs_plasma, rcs_lasers
+, RangedCombatSkills(..), rcsRemainingPoints, rcsGuns, rcsSmgs, rcsShotguns
+, rcsAssault, rcsSniper, rcsBows, rcsCrossbows, rcsPlasma, rcsLasers
 , sumRanged
 
-, ThrowingSkills(..), ts_remainingPoints, ts_grenades, ts_knives, ts_shurikens
-,ts_stickies, sumThrowing
+, ThrowingSkills(..), tsRemainingPoints, tsGrenades, tsKnives, tsShurikens
+, tsStickies, sumThrowing
 
-, EngineeringSkills(..), es_remainingPoints, es_assembly, es_modding, es_repair
-, es_analysis, es_juryrigging, sumEngineering
+, EngineeringSkills(..), esRemainingPoints, esAssembly, esModding, esRepair
+, esAnalysis, esJuryrigging, sumEngineering
 
-, CommunicationSkills(..), ss_remainingPoints, ss_smallTalk, ss_bodyLanguage
-, ss_neurolinguisticProgramming, ss_haggle, ss_interrogation, ss_seduction
+, CommunicationSkills(..), ssRemainingPoints, ssSmallTalk, ssBodyLanguage
+, ssNeurolinguisticProgramming, ssHaggle, ssInterrogation, ssSeduction
 , sumCommunication
 
-, InfiltrationSkills(..), is_remainingPoints, is_blendInShadows, is_useOfCover
-, is_silentMovement, is_coverSwitchManeuver, sumInfiltration
+, InfiltrationSkills(..), isRemainingPoints, isBlendInShadows, isUseOfCover
+, isSilentMovement, isCoverSwitchManeuver, sumInfiltration
 
-, Equipment(Equipment), eq_leftHand, eq_rightHand, eq_head, eq_torso, eq_back
-, eq_belt, eq_leftArm, eq_rightArm, eq_leftThigh, eq_rightThigh, eq_leftShin
-, eq_rightShin, eq_leftFoot, eq_rightFoot
+, Equipment(Equipment), eqLeftHand, eqRightHand, eqHead, eqTorso, eqBack
+, eqBelt, eqLeftArm, eqRightArm, eqLeftThigh, eqRightThigh, eqLeftShin
+, eqRightShin, eqLeftFoot, eqRightFoot
 
-, Character, ch_name, ch_lastName, ch_nickName, ch_handedness, ch_description
-, ch_equipment, ch_stance, ch_faction, ch_conversation, ch_healthPoints
-, ch_maxHealthPoints, ch_experience, ch_meleeCombat, ch_rangedCombat
-, ch_throwing, ch_engineering, ch_communication, ch_infiltration
+, Character, chName, chLastName, chNickName, chHandedness, chDescription
+, chEquipment, chStance, chFaction, chConversation, chHealthPoints
+, chMaxHealthPoints, chExperience, chMeleeCombat, chRangedCombat
+, chThrowing, chEngineering, chCommunication, chInfiltration
 
 , newCharacter, modifySlotContent, pickUp
 
@@ -81,7 +81,7 @@ makePrisms ''SlotType
 
 -- TODO we probably should keep type as a single variable, and then join
 --      whatever we want in (Slot type, orientation, allowed items, etc)
-newtype Slot (o ∷ Maybe Orientation) (t ∷ SlotType) i = Slot { _s_item ∷ Maybe i }
+newtype Slot (o ∷ Maybe Orientation) (t ∷ SlotType) i = Slot { _sItem ∷ Maybe i }
                                                       deriving (Functor, Applicative, Monad)
 makeLenses ''Slot
 
@@ -108,15 +108,15 @@ makePrisms ''Stance
 
 -- All combat-related skills
 data MeleeCombatSkills = MeleeCombatSkills {
-      _mcs_remainingPoints ∷ Word
+      _mcsRemainingPoints ∷ Word
 
     -- Specific added bonuses applied when fighting barehanded
-    , _mcs_barehanded ∷ Word
+    , _mcsBarehanded ∷ Word
     -- Specific added bonuses applied when utilizing one of the weapons listed
-    , _mcs_knives     ∷ Word
-    , _mcs_swords     ∷ Word
-    , _mcs_staves     ∷ Word
-    , _mcs_maces      ∷ Word
+    , _mcsKnives     ∷ Word
+    , _mcsSwords     ∷ Word
+    , _mcsStaves     ∷ Word
+    , _mcsMaces      ∷ Word
     }
     deriving (Eq, Show)
 makeLenses ''MeleeCombatSkills
@@ -124,28 +124,28 @@ makeLenses ''MeleeCombatSkills
 
 sumMelee ∷ MeleeCombatSkills → Word
 sumMelee mcs = sum $ fmap (`view` mcs)
-    [ mcs_remainingPoints
-    , mcs_barehanded
-    , mcs_knives
-    , mcs_swords
-    , mcs_staves
-    , mcs_maces
+    [ mcsRemainingPoints
+    , mcsBarehanded
+    , mcsKnives
+    , mcsSwords
+    , mcsStaves
+    , mcsMaces
     ]
 
 
 data RangedCombatSkills = RangedCombatSkills {
-      _rcs_remainingPoints ∷ Word
+      _rcsRemainingPoints ∷ Word
 
     -- Specific added bonuses applied when fighting with specified weapon group
-    , _rcs_guns      ∷ Word
-    , _rcs_smgs      ∷ Word
-    , _rcs_shotguns  ∷ Word
-    , _rcs_assault   ∷ Word
-    , _rcs_sniper    ∷ Word
-    , _rcs_bows      ∷ Word
-    , _rcs_crossbows ∷ Word
-    , _rcs_plasma    ∷ Word
-    , _rcs_lasers    ∷ Word
+    , _rcsGuns      ∷ Word
+    , _rcsSmgs      ∷ Word
+    , _rcsShotguns  ∷ Word
+    , _rcsAssault   ∷ Word
+    , _rcsSniper    ∷ Word
+    , _rcsBows      ∷ Word
+    , _rcsCrossbows ∷ Word
+    , _rcsPlasma    ∷ Word
+    , _rcsLasers    ∷ Word
     }
     deriving (Eq, Show)
 makeLenses ''RangedCombatSkills
@@ -153,26 +153,26 @@ makeLenses ''RangedCombatSkills
 
 sumRanged ∷ RangedCombatSkills → Word
 sumRanged rcs = sum $ fmap (`view` rcs)
-    [ rcs_remainingPoints
-    , rcs_guns
-    , rcs_smgs
-    , rcs_shotguns
-    , rcs_assault
-    , rcs_sniper
-    , rcs_bows
-    , rcs_crossbows
-    , rcs_plasma
-    , rcs_lasers
+    [ rcsRemainingPoints
+    , rcsGuns
+    , rcsSmgs
+    , rcsShotguns
+    , rcsAssault
+    , rcsSniper
+    , rcsBows
+    , rcsCrossbows
+    , rcsPlasma
+    , rcsLasers
     ]
 
 
 data ThrowingSkills = ThrowingSkills {
-      _ts_remainingPoints ∷ Word
+      _tsRemainingPoints ∷ Word
 
-    , _ts_grenades  ∷ Word
-    , _ts_knives    ∷ Word
-    , _ts_shurikens ∷ Word
-    , _ts_stickies  ∷ Word
+    , _tsGrenades  ∷ Word
+    , _tsKnives    ∷ Word
+    , _tsShurikens ∷ Word
+    , _tsStickies  ∷ Word
     }
     deriving (Eq, Show)
 makeLenses ''ThrowingSkills
@@ -180,28 +180,28 @@ makeLenses ''ThrowingSkills
 
 sumThrowing ∷ ThrowingSkills → Word
 sumThrowing ts = sum $ fmap (`view` ts)
-    [ ts_remainingPoints
-    , ts_grenades
-    , ts_knives
-    , ts_shurikens
-    , ts_stickies
+    [ tsRemainingPoints
+    , tsGrenades
+    , tsKnives
+    , tsShurikens
+    , tsStickies
     ]
 
 
 -- Holds all the skills needed to deal with electronics
 data EngineeringSkills = EngineeringSkills {
-      _es_remainingPoints ∷ Word
+      _esRemainingPoints ∷ Word
 
     -- Ability to create new items from parts
-    , _es_assembly    ∷ Word
+    , _esAssembly    ∷ Word
     -- Ability to modify items to add new abilities or enhance/change existing
-    , _es_modding     ∷ Word
+    , _esModding     ∷ Word
     -- Ability to repair damaged and broken items
-    , _es_repair      ∷ Word
+    , _esRepair      ∷ Word
     -- Ability to figure out what certain item's abilities are
-    , _es_analysis    ∷ Word
+    , _esAnalysis    ∷ Word
     -- Ability to repurpose "garbage" into parts
-    , _es_juryrigging ∷ Word
+    , _esJuryrigging ∷ Word
     }
     deriving (Eq, Show)
 makeLenses ''EngineeringSkills
@@ -209,30 +209,30 @@ makeLenses ''EngineeringSkills
 
 sumEngineering ∷ EngineeringSkills → Word
 sumEngineering es = sum $ fmap (`view` es)
-    [ es_remainingPoints
-    , es_assembly
-    , es_modding
-    , es_repair
-    , es_analysis
-    , es_juryrigging
+    [ esRemainingPoints
+    , esAssembly
+    , esModding
+    , esRepair
+    , esAnalysis
+    , esJuryrigging
     ]
 
 
 data CommunicationSkills = CommunicationSkills {
-      _ss_remainingPoints ∷ Word
+      _ssRemainingPoints ∷ Word
 
     -- Extraction of information from smalltalk
-    , _ss_smallTalk                  ∷ Word
+    , _ssSmallTalk                  ∷ Word
     -- Ability to read body language to detect hidden context
-    , _ss_bodyLanguage               ∷ Word
+    , _ssBodyLanguage               ∷ Word
     -- Ability to implant ideas into other people's heads
-    , _ss_neurolinguisticProgramming ∷ Word
+    , _ssNeurolinguisticProgramming ∷ Word
     -- Ability to trade low-value items for high-value items
-    , _ss_haggle                     ∷ Word
+    , _ssHaggle                     ∷ Word
     -- Ability to extract information by coercion
-    , _ss_interrogation              ∷ Word
+    , _ssInterrogation              ∷ Word
     -- Ability to extract information through sexual attraction
-    , _ss_seduction                  ∷ Word
+    , _ssSeduction                  ∷ Word
     }
     deriving (Eq, Show)
 makeLenses ''CommunicationSkills
@@ -240,28 +240,28 @@ makeLenses ''CommunicationSkills
 
 sumCommunication ∷ CommunicationSkills → Word
 sumCommunication ss = sum $ fmap (`view` ss)
-    [ ss_remainingPoints
-    , ss_smallTalk
-    , ss_bodyLanguage
-    , ss_neurolinguisticProgramming
-    , ss_haggle
-    , ss_interrogation
-    , ss_seduction
+    [ ssRemainingPoints
+    , ssSmallTalk
+    , ssBodyLanguage
+    , ssNeurolinguisticProgramming
+    , ssHaggle
+    , ssInterrogation
+    , ssSeduction
     ]
 
 
 data InfiltrationSkills = InfiltrationSkills {
-      _is_remainingPoints ∷ Word
+      _isRemainingPoints ∷ Word
 
     -- Remaining visually undetected when outside light radius
-    , _is_blendInShadows      ∷ Word
+    , _isBlendInShadows      ∷ Word
     -- Remaining visually undetected when taking cover behind an object
-    , _is_useOfCover          ∷ Word
+    , _isUseOfCover          ∷ Word
     -- Remaining audibly undetected while moving (add groups for running, walking, and prone)
-    , _is_silentMovement      ∷ Word
+    , _isSilentMovement      ∷ Word
     -- Remaining audibly and visually undetected while switching covers with a roll
     -- Also affects max maneuvering distance
-    , _is_coverSwitchManeuver ∷ Word
+    , _isCoverSwitchManeuver ∷ Word
     }
     deriving(Eq, Show)
 makeLenses ''InfiltrationSkills
@@ -269,11 +269,11 @@ makeLenses ''InfiltrationSkills
 
 sumInfiltration ∷ InfiltrationSkills → Word
 sumInfiltration is = sum $ fmap (`view` is)
-    [ is_remainingPoints
-    , is_blendInShadows
-    , is_useOfCover
-    , is_silentMovement
-    , is_coverSwitchManeuver
+    [ isRemainingPoints
+    , isBlendInShadows
+    , isUseOfCover
+    , isSilentMovement
+    , isCoverSwitchManeuver
     ]
 
 --------------------------------------------------------------------------------
@@ -282,21 +282,21 @@ sumInfiltration is = sum $ fmap (`view` is)
 --      items or whole-body armours
 -- NOTE support for different types of items in different slots? Eg "Any" type of items or "Clothes" items?
 data Equipment i = Equipment {
-      _eq_leftHand  ∷ Slot ('Just 'LeftSide) 'Hand i
-    , _eq_rightHand ∷ Slot ('Just 'RightSide) 'Hand i
+      _eqLeftHand  ∷ Slot ('Just 'LeftSide) 'Hand i
+    , _eqRightHand ∷ Slot ('Just 'RightSide) 'Hand i
 
-    , _eq_head       ∷ Slot 'Nothing 'Head i
-    , _eq_torso      ∷ Slot 'Nothing 'Torso i
-    , _eq_back       ∷ Slot 'Nothing 'Back i
-    , _eq_belt       ∷ Slot 'Nothing 'Belt i
-    , _eq_leftArm    ∷ Slot ('Just 'LeftSide) 'Arm i
-    , _eq_rightArm   ∷ Slot ('Just 'RightSide) 'Arm i
-    , _eq_leftThigh  ∷ Slot ('Just 'LeftSide) 'Thigh i
-    , _eq_rightThigh ∷ Slot ('Just 'RightSide) 'Thigh i
-    , _eq_leftShin   ∷ Slot ('Just 'LeftSide) 'Shin i
-    , _eq_rightShin  ∷ Slot ('Just 'RightSide) 'Shin i
-    , _eq_leftFoot   ∷ Slot ('Just 'LeftSide) 'Foot i
-    , _eq_rightFoot  ∷ Slot ('Just 'RightSide) 'Foot i
+    , _eqHead       ∷ Slot 'Nothing 'Head i
+    , _eqTorso      ∷ Slot 'Nothing 'Torso i
+    , _eqBack       ∷ Slot 'Nothing 'Back i
+    , _eqBelt       ∷ Slot 'Nothing 'Belt i
+    , _eqLeftArm    ∷ Slot ('Just 'LeftSide) 'Arm i
+    , _eqRightArm   ∷ Slot ('Just 'RightSide) 'Arm i
+    , _eqLeftThigh  ∷ Slot ('Just 'LeftSide) 'Thigh i
+    , _eqRightThigh ∷ Slot ('Just 'RightSide) 'Thigh i
+    , _eqLeftShin   ∷ Slot ('Just 'LeftSide) 'Shin i
+    , _eqRightShin  ∷ Slot ('Just 'RightSide) 'Shin i
+    , _eqLeftFoot   ∷ Slot ('Just 'LeftSide) 'Foot i
+    , _eqRightFoot  ∷ Slot ('Just 'RightSide) 'Foot i
     }
     deriving(Eq, Show)
 makeLenses ''Equipment
@@ -304,23 +304,23 @@ makeLenses ''Equipment
 --------------------------------------------------------------------------------
 
 data Character i c f = Character {
-      _ch_name        ∷ String
-    , _ch_lastName    ∷ String
-    , _ch_nickName    ∷ String
-    , _ch_handedness  ∷ Orientation
-    , _ch_description ∷ String
-    , _ch_equipment   ∷ Equipment i
-    , _ch_stance      ∷ Stance
+      _chName        ∷ String
+    , _chLastName    ∷ String
+    , _chNickName    ∷ String
+    , _chHandedness  ∷ Orientation
+    , _chDescription ∷ String
+    , _chEquipment   ∷ Equipment i
+    , _chStance      ∷ Stance
 
-    , _ch_faction      ∷ f
-    , _ch_conversation ∷ c
+    , _chFaction      ∷ f
+    , _chConversation ∷ c
 
     -- Earned only through missions and combat,
     -- represents general experience
     -- Used to earn skillpoints in each of the skill branches
-    , _ch_healthPoints    ∷ Word  -- TODO better injury sysstem!
-    , _ch_maxHealthPoints ∷ Word  -- TODO better injury sysstem!
-    , _ch_experience      ∷ Word
+    , _chHealthPoints    ∷ Word  -- TODO better injury sysstem!
+    , _chMaxHealthPoints ∷ Word  -- TODO better injury sysstem!
+    , _chExperience      ∷ Word
 
     -- Skilltrees *only* affect chances of performing a certain task
     -- To train to a certain level, you need to purchase skillpoints
@@ -341,18 +341,18 @@ data Character i c f = Character {
     -- characters will simply run or walk to next cover. Highly skilled characters
     -- will perform fast and silent maneuver at the right time not to be seen
     -- by NPC's or cameras.
-    , _ch_meleeCombat   ∷ MeleeCombatSkills
-    , _ch_rangedCombat  ∷ RangedCombatSkills
-    , _ch_throwing      ∷ ThrowingSkills
-    , _ch_engineering   ∷ EngineeringSkills
-    , _ch_communication ∷ CommunicationSkills
-    , _ch_infiltration  ∷ InfiltrationSkills
+    , _chMeleeCombat   ∷ MeleeCombatSkills
+    , _chRangedCombat  ∷ RangedCombatSkills
+    , _chThrowing      ∷ ThrowingSkills
+    , _chEngineering   ∷ EngineeringSkills
+    , _chCommunication ∷ CommunicationSkills
+    , _chInfiltration  ∷ InfiltrationSkills
     }
     deriving (Show)
 makeLenses ''Character
 
 instance Eq (Character i c f) where
-    ch1 == ch2 = ch1 ^. ch_name == ch2 ^. ch_name
+    ch1 == ch2 = ch1 ^. chName == ch2 ^. chName
 
 --------------------------------------------------------------------------------
 
@@ -374,47 +374,47 @@ newCharacter ∷ String
              → Character i c f
 newCharacter n ln nn hnd d eq fac cn mhp msk rsk tsk esk csk isk =
     Character {
-      _ch_name        = n
-    , _ch_lastName    = ln
-    , _ch_nickName    = nn
-    , _ch_handedness  = hnd
-    , _ch_description = d
+      _chName        = n
+    , _chLastName    = ln
+    , _chNickName    = nn
+    , _chHandedness  = hnd
+    , _chDescription = d
 
-    , _ch_equipment  = eq
-    , _ch_stance     = Upright
+    , _chEquipment  = eq
+    , _chStance     = Upright
 
-    , _ch_faction      = fac
-    , _ch_conversation = cn
+    , _chFaction      = fac
+    , _chConversation = cn
 
-    , _ch_healthPoints    = mhp
-    , _ch_maxHealthPoints = mhp
-    , _ch_experience      = 0
+    , _chHealthPoints    = mhp
+    , _chMaxHealthPoints = mhp
+    , _chExperience      = 0
 
-    , _ch_meleeCombat   = msk
-    , _ch_rangedCombat  = rsk
-    , _ch_throwing      = tsk
-    , _ch_engineering   = esk
-    , _ch_communication = csk
-    , _ch_infiltration  = isk
+    , _chMeleeCombat   = msk
+    , _chRangedCombat  = rsk
+    , _chThrowing      = tsk
+    , _chEngineering   = esk
+    , _chCommunication = csk
+    , _chInfiltration  = isk
     }
 
 --------------------------------------------------------------------------------
 
 modifySlotContent ∷ Maybe Orientation → SlotType → (Maybe i → Maybe i) → Character i c f → Character i c f
-modifySlotContent (Just LeftSide)  Hand  f = ch_equipment.eq_leftHand.s_item %~ f
-modifySlotContent (Just RightSide) Hand  f = ch_equipment.eq_rightHand.s_item %~ f
-modifySlotContent _                Head  f = ch_equipment.eq_head.s_item %~ f
-modifySlotContent _                Torso f = ch_equipment.eq_torso.s_item %~ f
-modifySlotContent _                Back  f = ch_equipment.eq_back.s_item %~ f
-modifySlotContent _                Belt  f = ch_equipment.eq_belt.s_item %~ f
-modifySlotContent (Just LeftSide)  Arm   f = ch_equipment.eq_rightArm.s_item %~ f
-modifySlotContent (Just RightSide) Arm   f = ch_equipment.eq_rightArm.s_item %~ f
-modifySlotContent (Just LeftSide)  Thigh f = ch_equipment.eq_leftThigh.s_item %~ f
-modifySlotContent (Just RightSide) Thigh f = ch_equipment.eq_rightThigh.s_item %~ f
-modifySlotContent (Just LeftSide)  Shin  f = ch_equipment.eq_leftShin.s_item %~ f
-modifySlotContent (Just RightSide) Shin  f = ch_equipment.eq_rightShin.s_item %~ f
-modifySlotContent (Just LeftSide)  Foot  f = ch_equipment.eq_leftFoot.s_item %~ f
-modifySlotContent (Just RightSide) Foot  f = ch_equipment.eq_rightFoot.s_item %~ f
+modifySlotContent (Just LeftSide)  Hand  f = chEquipment.eqLeftHand   .sItem %~ f
+modifySlotContent (Just RightSide) Hand  f = chEquipment.eqRightHand  .sItem %~ f
+modifySlotContent _                Head  f = chEquipment.eqHead       .sItem %~ f
+modifySlotContent _                Torso f = chEquipment.eqTorso      .sItem %~ f
+modifySlotContent _                Back  f = chEquipment.eqBack       .sItem %~ f
+modifySlotContent _                Belt  f = chEquipment.eqBelt       .sItem %~ f
+modifySlotContent (Just LeftSide)  Arm   f = chEquipment.eqRightArm   .sItem %~ f
+modifySlotContent (Just RightSide) Arm   f = chEquipment.eqRightArm   .sItem %~ f
+modifySlotContent (Just LeftSide)  Thigh f = chEquipment.eqLeftThigh  .sItem %~ f
+modifySlotContent (Just RightSide) Thigh f = chEquipment.eqRightThigh .sItem %~ f
+modifySlotContent (Just LeftSide)  Shin  f = chEquipment.eqLeftShin   .sItem %~ f
+modifySlotContent (Just RightSide) Shin  f = chEquipment.eqRightShin  .sItem %~ f
+modifySlotContent (Just LeftSide)  Foot  f = chEquipment.eqLeftFoot   .sItem %~ f
+modifySlotContent (Just RightSide) Foot  f = chEquipment.eqRightFoot  .sItem %~ f
 modifySlotContent _                _     _ = id
 
 
@@ -440,46 +440,46 @@ slotWrapperType (SlotWrapper s) = slotType s
 
 
 slotWrapperItem ∷ SlotWrapper i → Maybe i
-slotWrapperItem (SlotWrapper s) = view s_item s
+slotWrapperItem (SlotWrapper s) = view sItem s
 
 
 slotsAsList ∷ Character i c f → [SlotWrapper i]
 slotsAsList ch = 
-    [ SlotWrapper $ ch ^. ch_equipment.eq_leftHand
-    , SlotWrapper $ ch ^. ch_equipment.eq_rightHand
-    , SlotWrapper $ ch ^. ch_equipment.eq_head
-    , SlotWrapper $ ch ^. ch_equipment.eq_torso
-    , SlotWrapper $ ch ^. ch_equipment.eq_back
-    , SlotWrapper $ ch ^. ch_equipment.eq_belt
-    , SlotWrapper $ ch ^. ch_equipment.eq_leftArm
-    , SlotWrapper $ ch ^. ch_equipment.eq_rightArm
-    , SlotWrapper $ ch ^. ch_equipment.eq_leftThigh
-    , SlotWrapper $ ch ^. ch_equipment.eq_rightThigh
-    , SlotWrapper $ ch ^. ch_equipment.eq_leftShin
-    , SlotWrapper $ ch ^. ch_equipment.eq_rightShin
-    , SlotWrapper $ ch ^. ch_equipment.eq_leftFoot
-    , SlotWrapper $ ch ^. ch_equipment.eq_rightFoot
+    [ SlotWrapper $ ch ^. chEquipment.eqLeftHand
+    , SlotWrapper $ ch ^. chEquipment.eqRightHand
+    , SlotWrapper $ ch ^. chEquipment.eqHead
+    , SlotWrapper $ ch ^. chEquipment.eqTorso
+    , SlotWrapper $ ch ^. chEquipment.eqBack
+    , SlotWrapper $ ch ^. chEquipment.eqBelt
+    , SlotWrapper $ ch ^. chEquipment.eqLeftArm
+    , SlotWrapper $ ch ^. chEquipment.eqRightArm
+    , SlotWrapper $ ch ^. chEquipment.eqLeftThigh
+    , SlotWrapper $ ch ^. chEquipment.eqRightThigh
+    , SlotWrapper $ ch ^. chEquipment.eqLeftShin
+    , SlotWrapper $ ch ^. chEquipment.eqRightShin
+    , SlotWrapper $ ch ^. chEquipment.eqLeftFoot
+    , SlotWrapper $ ch ^. chEquipment.eqRightFoot
     ]
 
 
 equippedSlots ∷ Character i c f → [SlotWrapper i]
 equippedSlots = filter hasItem . slotsAsList
     where
-        hasItem (SlotWrapper s) = views s_item isJust s
+        hasItem (SlotWrapper s) = views sItem isJust s
 
 
 primaryHandSlot ∷ Character i c f → SlotWrapper i
-primaryHandSlot ch = views ch_handedness fetch ch
+primaryHandSlot ch = views chHandedness fetch ch
     where
-        fetch LeftSide  = SlotWrapper (ch ^. ch_equipment.eq_leftHand)
-        fetch RightSide = SlotWrapper (ch ^. ch_equipment.eq_rightHand)
+        fetch LeftSide  = SlotWrapper (ch ^. chEquipment.eqLeftHand)
+        fetch RightSide = SlotWrapper (ch ^. chEquipment.eqRightHand)
 
 
 secondaryHandSlot ∷ Character i c f → SlotWrapper i
-secondaryHandSlot ch = views ch_handedness fetch ch
+secondaryHandSlot ch = views chHandedness fetch ch
     where
-        fetch LeftSide  = SlotWrapper (ch ^. ch_equipment.eq_rightHand)
-        fetch RightSide = SlotWrapper (ch ^. ch_equipment.eq_leftHand)
+        fetch LeftSide  = SlotWrapper (ch ^. chEquipment.eqRightHand)
+        fetch RightSide = SlotWrapper (ch ^. chEquipment.eqLeftHand)
 
 --------------------------------------------------------------------------------
 

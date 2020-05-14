@@ -179,7 +179,7 @@ characters =
 characterDictionary ∷ [DreamnetCharacter] → M.Map String DreamnetCharacter
 characterDictionary chs = M.fromList $ toNamedTuple <$> chs
     where
-        toNamedTuple = (,) <$> view ch_name <*> id
+        toNamedTuple = (,) <$> view chName <*> id
 
 --------------------------------------------------------------------------------
 

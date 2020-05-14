@@ -71,11 +71,11 @@ defaultDesignData ∷ (MonadIO r, MonadRandom r) ⇒ r DesignData
 defaultDesignData =
     pure $
         DesignData {
-          _dd_characters  = characterDictionary characters
-        --, _dd_dev_startingMap = "./res/job"
-        , _dd_dev_startingMap = "./res/bar"
-        --, _dd_dev_startingMap = "./res/apartmentblock"
-        --, _dd_dev_startingMap = "./res/apartment0"
+          _ddCharacters  = characterDictionary characters
+        --, _ddDevStartingMap = "./res/job"
+        , _ddDevStartingMap = "./res/bar"
+        --, _ddDevStartingMap = "./res/apartmentblock"
+        --, _ddDevStartingMap = "./res/apartment0"
         }
 
 
@@ -170,7 +170,7 @@ dreamnet dd = C.runCurses $ do
                     (Input.PassThrough c)    → pure (Just (SomeGS (StComputerOperation w v (snd $ runComputer (typeIn c) cd))))
                     --ev                       → Just . SomeGS <$> processComputerOperation gs ev
                 where
-                    saveWorldData = doMap (modifyObject v (o_state .~ Computer cd))
+                    saveWorldData = doMap (modifyObject v (oState .~ Computer cd))
 
             gs@(StHudTeam w i) → do
                 renderHudTeam w i
@@ -268,7 +268,7 @@ dreamnet dd = C.runCurses $ do
 
 newGame ∷ DesignData → C.Curses (GameState 'Normal)
 newGame dd = do
-    sm  ← either error id <$> liftIO (loadTileMap (view dd_dev_startingMap dd))
+    sm  ← either error id <$> liftIO (loadTileMap (view ddDevStartingMap dd))
     pure $ StNormal $
         newWorld (either error id $ fromTileMap baseFromTile (objectFromTile dd) sm)
                  (playerPerson carla)
@@ -279,9 +279,9 @@ newGame dd = do
 
 
 baseFromTile ∷ Tile → Either String (Base Symbol)
-baseFromTile t@(ttype → "Base")   = Right $ Base (Symbol (view t_char t)) False
-baseFromTile t@(ttype → "Spawn")  = Right $ Base (Symbol (view t_char t)) True
-baseFromTile t@(ttype → "Stairs") = Right $ Base (Symbol (view t_char t)) True
+baseFromTile t@(ttype → "Base")   = Right $ Base (Symbol (view tChar t)) False
+baseFromTile t@(ttype → "Spawn")  = Right $ Base (Symbol (view tChar t)) True
+baseFromTile t@(ttype → "Stairs") = Right $ Base (Symbol (view tChar t)) True
 baseFromTile _                    = Left  $ "Non-base tile in base layer"
 
 
@@ -291,7 +291,7 @@ objectFromTile ∷ (MonadError String me) ⇒ DesignData → Tile → me (Cell (
 objectFromTile _ (ttype → "Base") = pure empty
 objectFromTile _ t@(ttype → "Prop") = pure <$> (Object sy <$> m <*> t `readPassable` 2 <*> t `readSeeThrough` 3 <*> st)
     where
-        sy = Symbol $ view t_char t
+        sy = Symbol $ view tChar t
         m  = maybeToError "Material property missing on 'Prop' tile, ix: 4" (4 `readStringProperty` t)
         --h  = maybeToError "Height property missing on 'Prop' tile, ix: 5" (5 `readIntProperty` t)
         st = Prop
@@ -310,11 +310,11 @@ objectFromTile dd t@(ttype → "Person") = pure <$> (Object sy m p s <$> st)
         s  = True
         --h  = 3
         st = pure . Person
-                =<< (\n → maybeToError ("No character with name '" <> n <> "' defined.") (n `M.lookup` view dd_characters dd))
+                =<< (\n → maybeToError ("No character with name '" <> n <> "' defined.") (n `M.lookup` view ddCharacters dd))
                 =<< maybeToError "Name property missing for 'Person' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Camera") = pure <$> (Object sy m p s <$> st)
     where
-        sy = Symbol $ view t_char t
+        sy = Symbol $ view tChar t
         m  = "green light"
         p  = True
         s  = True
@@ -323,7 +323,7 @@ objectFromTile _ t@(ttype → "Camera") = pure <$> (Object sy m p s <$> st)
                 <$> maybeToError "Faction property missing for 'Camera' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Computer") = pure <$> (pure $ Object sy m p s st)
     where
-        sy = Symbol $ view t_char t
+        sy = Symbol $ view tChar t
         m  = "metal"
         p  = False
         s  = True
@@ -331,7 +331,7 @@ objectFromTile _ t@(ttype → "Computer") = pure <$> (pure $ Object sy m p s st)
         st = Computer (ComputerData "" []) -- TODO define some data!
 objectFromTile _ t@(ttype → "Clothes") = pure <$> (Object sy m p s <$> st)
     where
-        sy  = Symbol $ view t_char t
+        sy  = Symbol $ view tChar t
         m   = "cloth"
         p   = True
         s   = True
@@ -341,7 +341,7 @@ objectFromTile _ t@(ttype → "Clothes") = pure <$> (Object sy m p s <$> st)
                 =<< maybeToError "Clothes name property missing for 'Clothes' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Weapon") = pure <$> (Object sy m p s <$> st)
     where
-        sy  = Symbol $ view t_char t
+        sy  = Symbol $ view tChar t
         m   = "metal"
         p   = True
         s   = True
@@ -351,7 +351,7 @@ objectFromTile _ t@(ttype → "Weapon") = pure <$> (Object sy m p s <$> st)
                 =<< maybeToError "Weapon name property missing for 'Weapon' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Ammo") = pure <$> (Object sy m p s <$> st)
     where
-        sy  = Symbol $ view t_char t
+        sy  = Symbol $ view tChar t
         m   = "metal"
         p   = True
         s   = True
@@ -361,7 +361,7 @@ objectFromTile _ t@(ttype → "Ammo") = pure <$> (Object sy m p s <$> st)
                 =<< maybeToError "Ammo name property missing for 'Ammo' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Throwable") = pure <$> (Object sy m p s <$> st)
     where
-        sy  = Symbol $ view t_char t
+        sy  = Symbol $ view tChar t
         m   = "metal"
         p   = True
         s   = True
@@ -371,7 +371,7 @@ objectFromTile _ t@(ttype → "Throwable") = pure <$> (Object sy m p s <$> st)
                 =<< maybeToError "Throwable name property missing for 'Throwable' tile, ix: 1" (1 `readStringProperty` t)
 objectFromTile _ t@(ttype → "Consumable") = pure <$> (Object sy m p s <$> st)
     where
-        sy  = Symbol $ view t_char t
+        sy  = Symbol $ view tChar t
         m   = "red"
         p   = True
         s   = True
@@ -390,7 +390,7 @@ renderNormal w = do
     renderWorld w
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch False (view w_turn w)
+    updateHud =<< drawWatch False (view wTurn w)
 
 
 renderExamination ∷ (RenderAPI r, Monad r) ⇒ r ()
@@ -425,19 +425,19 @@ renderHudTeam ∷ (RenderAPI r, Monad r) ⇒ World → Int → r ()
 renderHudTeam w i = do
     updateHud =<< drawTeamHud (completeTeam w) (Just i)
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch False (view w_turn w)
+    updateHud =<< drawWatch False (view wTurn w)
 
 renderHudMessages ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudMessages w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus True (evalWorld status w)
-    updateHud =<< drawWatch False (view w_turn w)
+    updateHud =<< drawWatch False (view wTurn w)
 
 renderHudWatch ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderHudWatch w = do
     updateHud =<< drawTeamHud (completeTeam w) Nothing
     --updateHud =<< drawStatus False (evalWorld status w)
-    updateHud =<< drawWatch True (view w_turn w)
+    updateHud =<< drawWatch True (view wTurn w)
 
 renderInventoryUI ∷ (RenderAPI r, Monad r) ⇒ r ()
 renderInventoryUI = do
@@ -456,14 +456,14 @@ renderEquipmentUI ch = do
 
 renderTargetSelectionAdjactened ∷ (RenderAPI r, Monad r) ⇒ World → Maybe Direction → Int → r ()
 renderTargetSelectionAdjactened w md z =
-    let pp = view w_player w
+    let pp = view wPlayer w
     in  case md of
             Nothing → renderCellColumnToStatus w pp
             Just d  → let d3 = V3 (dirToVec d ^. _x) (dirToVec d ^. _y) z
-                          tp = clipToBounds (w ^. w_map) $ d3 + unpack pp
+                          tp = clipToBounds (w ^. wMap) $ d3 + unpack pp
                       in  do
-                          white ← style s_colorWhite
-                          green ← style s_colorGreen
+                          white ← style sColorWhite
+                          green ← style sColorGreen
                           renderCellColumnToStatus w tp
                           updateMain $ do
                               RenderAction $ do
@@ -489,15 +489,15 @@ renderTargetSelectionAdjactened w md z =
 renderTargetSelectionDistant ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
 renderTargetSelectionDistant w tp = do
     renderWorld w
-    green ← style s_colorGreen
+    green ← style sColorGreen
     renderCellColumnToStatus w tp
     updateMain $ draw' (unpack tp ^. _xy) 'X' [C.AttributeColor green]
 
 
 renderChoiceSelection ∷ (RenderAPI r, Monad r) ⇒ [(Char, String)] → Int → r ()
 renderChoiceSelection xs i = do
-    green ← style s_colorGreen
-    white ← style s_colorWhite
+    green ← style sColorGreen
+    white ← style sColorWhite
     updateUi $ RenderAction $ do
         C.clear
         C.resizeWindow (genericLength xs + 4) 30 -- TODO Enough to fit all
@@ -523,38 +523,38 @@ renderChoiceSelection xs i = do
 -- TODO render blinking when player is underneath something
 renderWorld ∷ (RenderAPI r, Monad r) ⇒ World → r ()
 renderWorld w =
-    let wm = view w_map w
+    let wm = view wMap w
     in  updateMain =<<
             drawMap (charF wm) (matF wm) (const Vis.Visible) (width w) (height w)
     where
         topNonEmptyCoord wm = listToMaybe . fmap fst . filter (not . snd) . fmap ((,) <$> cellAt wm <*> isEmptyAt wm)
         --topNonEmptyCoord wm = listToMaybe . filter (not . (==Empty)) . fmap (cellAt wm)
 
-        fromBase wm v = v ^. baseAtL wm.wb_symbol.s_char
+        fromBase wm v = v ^. baseAtL wm.wbSymbol.sChar
 
         charF wm i =
             let coord = indexToCoord wm (clipToBounds' wm i)
             in  case topNonEmptyCoord wm (reverse (column wm coord)) of
                     Nothing → fromBase wm coord
-                    Just wc → fromJust $ preview (followLinksL wm._Just.o_symbol.s_char) wc
+                    Just wc → fromJust $ preview (followLinksL wm._Just.oSymbol.sChar) wc
 
         matF wm i =
             let coord = indexToCoord wm (clipToBounds' wm i)
             in  case topNonEmptyCoord wm (reverse (column wm coord)) of
                     Nothing → "default"
-                    Just wc → fromJust $ preview (followLinksL wm._Just.o_material) wc
-                    --Just wc → fromJust $ preview (o_material) wc
+                    Just wc → fromJust $ preview (followLinksL wm._Just.oMaterial) wc
+                    --Just wc → fromJust $ preview (oMaterial) wc
 
 
 renderCellColumnToStatus ∷ (RenderAPI r, Monad r) ⇒ World → Safe (V3 Int) → r ()
 renderCellColumnToStatus w v = do
-    white ← style s_colorWhite
-    green ← style s_colorGreen
+    white ← style sColorWhite
+    green ← style sColorGreen
 
-    let objectStatePrism = let wm = w ^. w_map
-                           in  cellAtL wm.followLinksL wm._Just.o_state
+    let objectStatePrism = let wm = w ^. wMap
+                           in  cellAtL wm.followLinksL wm._Just.oState
         columnContents   ∷ [String]
-        columnContents   = show . preview objectStatePrism <$> column (w ^. w_map) v
+        columnContents   = show . preview objectStatePrism <$> column (w ^. wMap) v
     updateHud (f columnContents white green)
     where
         f xs hilight nohilight = do

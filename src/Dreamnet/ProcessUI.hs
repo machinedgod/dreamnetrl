@@ -55,13 +55,13 @@ instance ProcessUI 'Examination ('Input.MoveCursor 'South) where
 instance ProcessUI 'Conversation ('Input.MoveCursor 'North) where
     type UIGameStateOut 'Conversation ('Input.MoveCursor 'North) = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
-        let cname = view ch_name $ ps !! i
+        let cname = view chName $ ps !! i
         in  processUI (StConversation w ps (fn cname)) e
     processUI (StConversation w ps (Free (CLastname i fn))) e =
-        let clastname = view ch_lastName $ ps !! i
+        let clastname = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn clastname)) e
     processUI (StConversation w ps (Free (CNick i fn))) e =
-        let cnick = view ch_lastName $ ps !! i
+        let cnick = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn cnick)) e
     processUI (StConversation w ps cn@(Free CChoice{})) _ =
         doChoice selectPrevious $> StConversation w ps cn
@@ -72,13 +72,13 @@ instance ProcessUI 'Conversation ('Input.MoveCursor 'North) where
 instance ProcessUI 'Conversation ('Input.MoveCursor 'South) where
     type UIGameStateOut 'Conversation ('Input.MoveCursor 'South) = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
-        let cname = view ch_name $ ps !! i
+        let cname = view chName $ ps !! i
         in  processUI (StConversation w ps (fn cname)) e
     processUI (StConversation w ps (Free (CLastname i fn))) e =
-        let clastname = view ch_lastName $ ps !! i
+        let clastname = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn clastname)) e
     processUI (StConversation w ps (Free (CNick i fn))) e =
-        let cnick = view ch_lastName $ ps !! i
+        let cnick = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn cnick)) e
     processUI (StConversation w ps cn@(Free CChoice{})) _ =
         doChoice selectNext $> StConversation w ps cn
@@ -89,35 +89,35 @@ instance ProcessUI 'Conversation ('Input.MoveCursor 'South) where
 instance ProcessUI 'Conversation 'Input.SelectChoice where
     type UIGameStateOut 'Conversation 'Input.SelectChoice = GameState 'Conversation
     processUI (StConversation w ps (Free (CName i fn))) e =
-        let cname = view ch_name $ ps !! i
+        let cname = view chName $ ps !! i
         in  processUI (StConversation w ps (fn cname)) e
     processUI (StConversation w ps (Free (CLastname i fn))) e =
-        let clastname = view ch_lastName $ ps !! i
+        let clastname = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn clastname)) e
     processUI (StConversation w ps (Free (CNick i fn))) e =
-        let cnick = view ch_lastName $ ps !! i
+        let cnick = view chLastName $ ps !! i
         in  processUI (StConversation w ps (fn cnick)) e
     processUI (StConversation w ps (Free (CTalk _ _ n))) _ = do
         case n of
-            (Free cn) → conversationUpdateUi (view ch_nickName <$> ps) cn
+            (Free cn) → conversationUpdateUi (view chNickName <$> ps) cn
             _         → pure ()
         pure (StConversation w ps n)
     processUI (StConversation w ps (Free (CDescribe _ n))) _ = do
         case n of
-            (Free cn) → conversationUpdateUi (view ch_nickName <$> ps) cn
+            (Free cn) → conversationUpdateUi (view chNickName <$> ps) cn
             _         → pure ()
         pure (StConversation w ps n)
     processUI (StConversation w ps (Free (CReceiveItem _ o n))) _ = do
         -- TODO incorrect, only player now receives items!
         let w' = execWorld (changePlayer (pickUp o)) w
         case n of
-            (Free cn) → conversationUpdateUi (view ch_nickName <$> ps) cn
+            (Free cn) → conversationUpdateUi (view chNickName <$> ps) cn
             _         → pure ()
         pure (StConversation w' ps n)
     processUI (StConversation w ps (Free (CChoice _ fn))) _ = do
         n ← fn <$> currentChoice
         case n of
-            (Free cn) → conversationUpdateUi (view ch_nickName <$> ps) cn
+            (Free cn) → conversationUpdateUi (view chNickName <$> ps) cn
             _         → pure ()
         pure (StConversation w ps n)
     processUI gs _ =
@@ -214,7 +214,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'South) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'South) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SSouth) = pure (StHudTeam w tp)
         where
-            tp = min (i + 3) . genericLength $ toListOf (w_team.traversed.tm_memberPosition) w
+            tp = min (i + 3) . genericLength $ toListOf (wTeam.traversed.tmMemberPosition) w
 
 
 instance ProcessUI 'HudTeam ('Input.MoveCursor 'North) where
@@ -226,7 +226,7 @@ instance ProcessUI 'HudTeam ('Input.MoveCursor 'East) where
     type UIGameStateOut 'HudTeam ('Input.MoveCursor 'East) = GameState 'HudTeam
     processUI (StHudTeam w i) (Input.SMoveCursor SEast) = pure (StHudTeam w tp)
         where
-            tp = min (i + 1) . genericLength $ toListOf (w_team.traversed.tm_memberPosition) w
+            tp = min (i + 1) . genericLength $ toListOf (wTeam.traversed.tmMemberPosition) w
 
 
 instance ProcessUI 'HudTeam 'Input.SelectChoice where
@@ -318,7 +318,7 @@ instance ProcessUI 'EquipmentUI ('Input.Tab i) where
 -- TODO actually uncomment team code to return, err, team
 completeTeam ∷ World → [DreamnetCharacter]
 completeTeam w =
-    case preview (o_state._Person) (playerObject w) of
+    case preview (oState._Person) (playerObject w) of
         Nothing → []
         Just p  → [p]
     {-
@@ -327,6 +327,6 @@ completeTeam w =
                                traverse (fmap fromJustNote . uncurry valueAt . unwrapWorldCoord)
         p = flip evalWorld w $ playerPosition >>=
                                fmap fromJustNote . uncurry valueAt . unwrapWorldCoord
-    in  (\(Person chp) → chp) (p ^. o_state) : ((\(Person tm) → tm) . view o_state <$> t)
+    in  (\(Person chp) → chp) (p ^. oState) : ((\(Person tm) → tm) . view oState <$> t)
     -}
 

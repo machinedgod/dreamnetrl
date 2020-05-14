@@ -33,7 +33,7 @@ newMap = let brandNew  = newWorldMap (V3 5 5 2) '.' Nothing
 
 
 newDrawMap ∷ RendererM C.Curses (RenderAction ())
-newDrawMap = drawMap (fromMaybe ';') (const "default") 5 (view wm_data newMap) (V.replicate 25 Visible)
+newDrawMap = drawMap (fromMaybe ';') (const "default") 5 (view wmData newMap) (V.replicate 25 Visible)
          -}
 
 
@@ -44,12 +44,12 @@ barWorldMap = worldMap <$> tmap
         tmap = fromRight undefined <$> loadTileMap "res/bar"
 
         worldMap ∷ TileMap → WorldMap Char Char
-        worldMap tm = 
-            let baseF t    = Right (Base (view t_char t) True)
+        worldMap tm =
+            let baseF t    = Right (Base (view tChar t) True)
                 contentF t = pure $ bool
                                         empty
-                                        (pure $ view t_char t)
-                                        (view t_char t == ' ')
+                                        (pure $ view tChar t)
+                                        (view tChar t == ' ')
             in  fromRight
                     (error "Something happened while constructing a WorldMap")
                     . fromTileMap baseF contentF $ tm
@@ -65,8 +65,8 @@ renderTilemap tm = void $ C.runCurses do
         renderAc =
             let objFun  = id
                 matFun  = const "default"
-                mapW    = tm ^. m_width
-                rawData = V.fromList $ tm ^.. m_layers.traversed.l_data.folded
+                mapW    = tm ^. mWidth
+                rawData = V.fromList $ tm ^.. mLayers.traversed.lData.folded
                 visData = V.replicate (length rawData) Visible
             in  do
                 updateMain =<< drawMap objFun matFun mapW rawData visData
@@ -88,7 +88,7 @@ renderNewMap m _ = C.runCurses do
         --toV3AtZ v2  = clipToBounds m (V3 (v2 ^. _x) (v2 ^. _y) z)
         getTopCoord = head . column m . indexToCoord m . clipToBounds' m
         objectChar  ∷ Maybe (Object States) → Char
-        objectChar  = maybe ' ' (view (o_symbol.s_char))
+        objectChar  = maybe ' ' (view (oSymbol.sChar))
 
 
 debugMain ∷ Int → IO ()

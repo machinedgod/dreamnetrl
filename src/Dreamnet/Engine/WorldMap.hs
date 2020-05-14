@@ -14,9 +14,9 @@
 module Dreamnet.Engine.WorldMap
 ( RangeError(..), OobError(..), Safe(unpack), unpacked
 
-, Base(..), wb_symbol, wb_isSpawn
+, Base(..), wbSymbol, wbIsSpawn
 , Cell
-, WorldMap, wm_size, wm_base, wm_data, wm_desc, wm_spawns
+, WorldMap, wmSize, wmBase, wmData, wmDesc, wmSpawns
 
 , newWorldMap, fromTileMap, {- fromTileMapColumns, -} coordToIndex, indexToCoord
 , checkBounds, checkBounds', clipToBounds, clipToBounds', baseAt, baseAtL
@@ -86,15 +86,15 @@ newtype Safe' a t
 unpacked ∷ Getter (Safe a) a
 unpacked = lens unpack (const Safe)
 
--------------------------------------------------------------------------------- 
+--------------------------------------------------------------------------------
 
 type IsSpawnLocation = Bool
 
 
 data Base a =
-    Base { 
-      _wb_symbol  ∷ a
-    , _wb_isSpawn ∷ IsSpawnLocation
+    Base {
+      _wbSymbol  ∷ a
+    , _wbIsSpawn ∷ IsSpawnLocation
     }
     deriving (Functor, Show)
 makeLenses ''Base
@@ -159,32 +159,32 @@ instance Monoid LinkCell where
 --   b: base layer data
 --   o: gameplay data
 data WorldMap b o = WorldMap {
-      _wm_size   ∷ (Width, Height, Depth)
-    , _wm_base   ∷ V.Vector (Base b)
-    , _wm_data   ∷ V.Vector (Cell o)
-    , _wm_desc   ∷ String
-    , _wm_spawns ∷ V.Vector (Safe (V3 Int))
+      _wmSize   ∷ (Width, Height, Depth)
+    , _wmBase   ∷ V.Vector (Base b)
+    , _wmData   ∷ V.Vector (Cell o)
+    , _wmDesc   ∷ String
+    , _wmSpawns ∷ V.Vector (Safe (V3 Int))
     }
     deriving (Show)
 makeLenses ''WorldMap
 
 
 instance Bifunctor WorldMap where
-    bimap f g = (wm_data %~ fmap (fmap g)) . (wm_base %~ fmap (fmap f))
+    bimap f g = (wmData %~ fmap (fmap g)) . (wmBase %~ fmap (fmap f))
 instance CoordVector (WorldMap b o) where
-    width  = view (wm_size._1)
-    height = view (wm_size._2)
+    width  = view (wmSize._1)
+    height = view (wmSize._2)
 
 --------------------------------------------------------------------------------
 
 newWorldMap ∷ Width → Height → Depth → b → Cell o →  WorldMap b o
 newWorldMap w h d b x =
     WorldMap {
-      _wm_size   = (w, h, d)
-    , _wm_base   = V.replicate (fromIntegral (squared w h)) (Base b False)
-    , _wm_data   = V.replicate (fromIntegral (cubed w h d)) x
-    , _wm_desc   = "Debug generated map!"
-    , _wm_spawns = V.fromList [Safe (V3 0 0 0)]
+      _wmSize   = (w, h, d)
+    , _wmBase   = V.replicate (fromIntegral (squared w h)) (Base b False)
+    , _wmData   = V.replicate (fromIntegral (cubed w h d)) x
+    , _wmDesc   = "Debug generated map!"
+    , _wmSpawns = V.fromList [Safe (V3 0 0 0)]
     }
 
 
@@ -193,45 +193,45 @@ fromTileMap ∷ (Eq o, MonadError String me)
             → (Tile → me (Cell o))
             → TileMap
             → me (WorldMap b o)
-fromTileMap t2b t2o tm = 
-    let baseLayer  = views m_layers head tm
-        dataLayers = views m_layers tail tm
-        depth      = views m_layers (subtract 1 . fromIntegral . length)
+fromTileMap t2b t2o tm =
+    let baseLayer  = views mLayers head tm
+        dataLayers = views mLayers tail tm
+        depth      = views mLayers (subtract 1 . fromIntegral . length)
     in  do
-        base           ← layerToVector (tm ^. m_tileset) t2b baseLayer
-        layeredObjects ← traverse (layerToVector (tm ^. m_tileset) t2o) dataLayers
+        base           ← layerToVector (tm ^. mTileset) t2b baseLayer
+        layeredObjects ← traverse (layerToVector (tm ^. mTileset) t2o) dataLayers
         pure $ WorldMap
-            { _wm_size   = (width tm, height tm, depth tm)
-            , _wm_base   = base
-            , _wm_data   = V.concat layeredObjects
-            , _wm_desc   = tm ^. m_desc
-            , _wm_spawns = spawnPositions baseLayer -- TODO this has to be proofed for the future a bit
+            { _wmSize   = (width tm, height tm, depth tm)
+            , _wmBase   = base
+            , _wmData   = V.concat layeredObjects
+            , _wmDesc   = tm ^. mDesc
+            , _wmSpawns = spawnPositions baseLayer -- TODO this has to be proofed for the future a bit
             }
 
 
 {-
-fromTileMapColumns ∷ (Eq o, MonadError String me) 
-                   ⇒ (Tile → me (Base b)) 
-                   → (Tile → me ([Cell o])) 
-                   → TileMap 
+fromTileMapColumns ∷ (Eq o, MonadError String me)
+                   ⇒ (Tile → me (Base b))
+                   → (Tile → me ([Cell o]))
+                   → TileMap
                    → me (WorldMap b o)
 fromTileMapColumns t2b t2c tm =
-    let baseLayer = views m_layers head tm
-        dataLayer = views m_layers last tm
-        depth     = views m_layers (subtract 1 . fromIntegral . length)
+    let baseLayer = views mLayers head tm
+        dataLayer = views mLayers last tm
+        depth     = views mLayers (subtract 1 . fromIntegral . length)
     in  do
-        base           ← layerToVector (tm ^. m_tileset) t2b baseLayer
-        layeredObjects ← layerToVector (tm ^. m_tileset) t2c dataLayer
+        base           ← layerToVector (tm ^. mTileset) t2b baseLayer
+        layeredObjects ← layerToVector (tm ^. mTileset) t2c dataLayer
         pure $ WorldMap
-            { _wm_size   = (width tm, height tm, depth tm)
-            , _wm_base   = base
-            , _wm_data   = layeredObjects
-            , _wm_desc   = tm ^. m_desc
-            , _wm_spawns = spawnPositions baseLayer -- TODO this has to be proofed for the future a bit
+            { _wmSize   = (width tm, height tm, depth tm)
+            , _wmBase   = base
+            , _wmData   = layeredObjects
+            , _wmDesc   = tm ^. mDesc
+            , _wmSpawns = spawnPositions baseLayer -- TODO this has to be proofed for the future a bit
             }
 -}
 
---maybeObjects  i = coordLin tm i `M.lookup` (tm^.m_positioned)
+--maybeObjects  i = coordLin tm i `M.lookup` (tm^.mPositioned)
 
 --addPositioned i o = maybe (Right o) (fmap ((o<>) . Cell) . traverse t2o) (maybeObjects i)
 
@@ -242,7 +242,7 @@ spawnPositions bl = let toSpawnPos = Safe . (V3 <$> view _x <*> view _y <*> cons
 
 
 layerToVector ∷ (MonadError String me) ⇒ Tileset → (Tile → me a) → TileLayer → me (V.Vector a)
-layerToVector ts fo = traverse (charToObject ts fo) . view l_data
+layerToVector ts fo = traverse (charToObject ts fo) . view lData
 
 
 charToObject ∷ (MonadError String me) ⇒ Tileset → (Tile → me a) → Char → me a
@@ -257,7 +257,7 @@ coordToIndex m (unpack → V3 x y z) = Safe (x + fromIntegral (width m) * (y + f
 
 
 indexToCoord ∷ WorldMap b o → Safe Int → Safe (V3 Int)
-indexToCoord (view wm_size → (w, h, _)) (Safe i) =
+indexToCoord (view wmSize → (w, h, _)) (Safe i) =
     let area = fromIntegral (squared w h)
         z = i `div` area
         y = (i `mod` area) `div` fromIntegral w
@@ -266,7 +266,7 @@ indexToCoord (view wm_size → (w, h, _)) (Safe i) =
 
 
 checkBounds ∷ WorldMap b o → V3 Int → Either OobError (Safe (V3 Int))
-checkBounds (view wm_size → (w, h, d)) v@(V3 x y z)
+checkBounds (view wmSize → (w, h, d)) v@(V3 x y z)
     | x <  0              = Left (WidthBound Underflow)
     | x >= fromIntegral w = Left (WidthBound Overflow)
     | y <  0              = Left (HeightBound Underflow)
@@ -277,26 +277,26 @@ checkBounds (view wm_size → (w, h, d)) v@(V3 x y z)
 
 
 clipToBounds ∷ WorldMap b o → V3 Int → Safe (V3 Int)
-clipToBounds (view wm_size → (w, h, d)) (V3 x y z) = Safe (V3 (safe w x) (safe h y) (safe d z))
+clipToBounds (view wmSize → (w, h, d)) (V3 x y z) = Safe (V3 (safe w x) (safe h y) (safe d z))
     where
         safe r = max 0 . min (fromIntegral r - 1)
 
 
 checkBounds' ∷ WorldMap b o → Int → Either RangeError (Safe Int)
-checkBounds' (view wm_size → (w, h, d)) i
+checkBounds' (view wmSize → (w, h, d)) i
     | i <  0                          = Left Underflow
     | i >= fromIntegral (cubed w h d) = Left Overflow
     | otherwise                       = Right (Safe i)
 
 
 clipToBounds' ∷ WorldMap b o → Int → Safe Int
-clipToBounds' (views wm_data length → r) = Safe . max 0 . min (fromIntegral r - 1)
+clipToBounds' (views wmData length → r) = Safe . max 0 . min (fromIntegral r - 1)
 
 
 baseAt ∷ WorldMap b o → Safe (V3 Int) → Base b
 baseAt wm (view (unpacked._xy) → v) =
     let ix = linCoord wm v
-    in  views wm_base (V.! ix) wm
+    in  views wmBase (V.! ix) wm
 
 
 baseAtL ∷ WorldMap b o → Getter (Safe (V3 Int)) (Base b)
@@ -306,7 +306,7 @@ baseAtL wm = to (baseAt wm)
 cellAt ∷ WorldMap b o → Safe (V3 Int) → Cell o
 cellAt wm v =
     let ix = unpack (coordToIndex wm v)
-    in  views wm_data (V.! ix) wm
+    in  views wmData (V.! ix) wm
 
 
 cellAtL ∷ WorldMap b o → Getter (Safe (V3 Int)) (Cell o)
@@ -344,7 +344,7 @@ objectAt m p = followLinks m (cellAt m p)
 column ∷ WorldMap b o → Safe (V3 Int) → [Safe (V3 Int)]
 column m (unpack → v) = clipToBounds m . V3 (v ^. _x) (v ^. _y) . fromIntegral <$> depthRange
     where
-        depthRange = [0..views (wm_size._3) (subtract 1) m]
+        depthRange = [0..views (wmSize._3) (subtract 1) m]
 
 
 columnL ∷ WorldMap b o → Getter (Safe (V3 Int)) [Safe (V3 Int)]
@@ -365,7 +365,7 @@ interestingObjects wm (unpack → v) (max 0 → r) ff =
         points ∷ [V3 Int]
         points = do
             (V2 x y) ← floodFillRange (fromIntegral r) (v ^. _xy)
-            V3 x y <$> [0..views (wm_size._3) fromIntegral wm]
+            V3 x y <$> [0..views (wmSize._3) fromIntegral wm]
 
 
 -- TODO upgrade to be a proper 3D raycast!
@@ -422,7 +422,7 @@ execWorldMap wmm = execState (runWorldMapM wmm)
 modifyCell ∷ Safe (V3 Int) → (Cell o → Cell o) → WorldMapM b o ()
 modifyCell v f = do
     m ← get
-    wm_data %= V.modify (\vec →
+    wmData %= V.modify (\vec →
             let i = unpack (coordToIndex m v)
             in  MV.read vec i >>= MV.write vec i . f
         )
@@ -447,7 +447,7 @@ modifyObject v f = modifyCell v (fmap f)
 -- TODO should this work only on the empty cell?
 -- TODO use Safe' to ensure given vector is empty
 spawnObject ∷ Safe (V3 Int) → o → WorldMapM b o ()
-spawnObject v s = gets (`cellAt` v) >>= \case 
+spawnObject v s = gets (`cellAt` v) >>= \case
     Empty  → modifyCell v (const (pure s))
     Data _ → pure ()
     Link _ → pure ()

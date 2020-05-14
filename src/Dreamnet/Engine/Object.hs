@@ -3,9 +3,9 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Dreamnet.Engine.Object
-( Symbol(Symbol), s_char
+( Symbol(Symbol), sChar
 
-, Object(Object), o_symbol, o_material, o_passable, o_seeThrough, o_state
+, Object(Object), oSymbol, oMaterial, oPassable, oSeeThrough, oState
 )
 where
 
@@ -16,7 +16,7 @@ import Dreamnet.Engine.Visibility
 
 --------------------------------------------------------------------------------
 
-newtype Symbol = Symbol { _s_char ∷ Char }
+newtype Symbol = Symbol { _sChar ∷ Char }
                deriving (Eq, Show)
 makeLenses ''Symbol
 
@@ -32,12 +32,12 @@ instance Monoid Symbol where
 --------------------------------------------------------------------------------
 
 data Object a = Object {
-      _o_symbol      ∷ Symbol
-    , _o_material    ∷ String
-    , _o_passable    ∷ Bool
-    , _o_seeThrough  ∷ Bool
+      _oSymbol      ∷ Symbol
+    , _oMaterial    ∷ String
+    , _oPassable    ∷ Bool
+    , _oSeeThrough  ∷ Bool
 
-    , _o_state ∷ a
+    , _oState ∷ a
     }
     deriving (Eq, Show, Functor)
 makeLenses ''Object
@@ -54,5 +54,5 @@ instance Monad Object where
 
 
 instance VisibleAPI (Object a) where
-    isSeeThrough = view o_seeThrough
+    isSeeThrough = view oSeeThrough
 

@@ -11,22 +11,22 @@ module Dreamnet.ObjectStates
 
 , Material(..)
 
-, WearableItem(..), wi_name, wi_equippedAt, wi_volume, wi_weight, wi_material,
-  wi_coverage, wi_containerVolume, wi_storedItems
+, WearableItem(..), wiName, wiEquippedAt, wiVolume, wiWeight, wiMaterial
+, wiCoverage, wiContainerVolume, wiStoredItems
 
 , AmmoType(..)
 
-, WeaponItem(..), wpi_name, wpi_description, wpi_settings, wpi_ammoType
+, WeaponItem(..), wpiName, wpiDescription, wpiSettings, wpiAmmoType
 
-, AmmoItem(..), ami_name, ami_type, ami_currentLoad, ami_maxLoad
+, AmmoItem(..), amiName, amiType, amiCurrentLoad, amiMaxLoad
 
-, ThrownWeaponItem(..), twi_name
+, ThrownWeaponItem(..), twiName
 
-, ConsumableItem(..), ci_name
+, ConsumableItem(..), ciName
 
 , Faction(..)
-, States(..), _Prop, _Camera, _Person, _Computer, _Clothes, _Weapon, _Ammo,
-  _Throwable, _Consumable
+, States(..), _Prop, _Camera, _Person, _Computer, _Clothes, _Weapon, _Ammo
+, _Throwable, _Consumable
 
 , DreamnetCharacter
 )
@@ -57,31 +57,31 @@ data Material = Kevlar
 
 -- TODO I'm just like making shit up here, to define what wearable item is
 data WearableItem i = WearableItem {
-      _wi_name       ∷ String
-    , _wi_equippedAt ∷ SlotType
+      _wiName       ∷ String
+    , _wiEquippedAt ∷ SlotType
     -- Volume of the item
-    , _wi_volume     ∷ Word
+    , _wiVolume     ∷ Word
     -- Weight of the item
-    , _wi_weight     ∷ Float
+    , _wiWeight     ∷ Float
     -- Material (TODO make a list?)
-    , _wi_material   ∷ Material
+    , _wiMaterial   ∷ Material
     -- When worn as clothes, what is the coverage percent of the body part?
-    , _wi_coverage   ∷ Float
+    , _wiCoverage   ∷ Float
 
     -- If Nothing, its not a container. If Just x, then what is the container's volume?
     -- Note, does not necessarily have to be less than _wi_volume, eg. belts and clip carriers
-    , _wi_containerVolume ∷ Maybe Word
-    , _wi_storedItems ∷ [i] -- TODO probably just use a slot, or slots! :-O?
+    , _wiContainerVolume ∷ Maybe Word
+    , _wiStoredItems ∷ [i] -- TODO probably just use a slot, or slots! :-O?
     }
     deriving (Eq, Functor)
 makeLenses ''WearableItem
 
 
 instance Show (WearableItem i) where
-    show = _wi_name
+    show = _wiName
 
 instance ItemTraits (WearableItem i) where
-    isContainer = isJust . _wi_containerVolume
+    isContainer = isJust . _wiContainerVolume
 
 
 data AmmoType = LaserjetBattery
@@ -90,34 +90,34 @@ data AmmoType = LaserjetBattery
 
 -- TODO ammo type as phantom type?
 data WeaponItem = WeaponItem {
-      _wpi_name        ∷ String
-    , _wpi_description ∷ String
-    , _wpi_settings    ∷ M.Map String String
-    , _wpi_ammoType    ∷ AmmoType
+      _wpiName        ∷ String
+    , _wpiDescription ∷ String
+    , _wpiSettings    ∷ M.Map String String
+    , _wpiAmmoType    ∷ AmmoType
     }
     deriving (Eq)
 makeLenses ''WeaponItem
 
 
 data AmmoItem = AmmoItem {
-      _ami_name        ∷ String
-    , _ami_type        ∷ AmmoType
-    , _ami_currentLoad ∷ Word
-    , _ami_maxLoad     ∷ Word
+      _amiName        ∷ String
+    , _amiType        ∷ AmmoType
+    , _amiCurrentLoad ∷ Word
+    , _amiMaxLoad     ∷ Word
     }
     deriving (Eq)
 makeLenses ''AmmoItem
 
 
 newtype ThrownWeaponItem = ThrownWeaponItem {
-      _twi_name ∷ String
+      _twiName ∷ String
     }
     deriving (Eq)
 makeLenses ''ThrownWeaponItem
 
 
 newtype ConsumableItem = ConsumableItem {
-      _ci_name ∷ String
+      _ciName ∷ String
     }
     deriving(Eq)
 makeLenses ''ConsumableItem
@@ -161,13 +161,13 @@ makePrisms ''States
 instance Show States where
     show (Prop s _)      = s
     show (Camera _ _)    = "camera"
-    show (Person ch)     = view ch_name ch
+    show (Person ch)     = view chName ch
     show (Computer _)    = "computer"
-    show (Clothes wi)    = view wi_name wi
-    show (Weapon wpi)    = view wpi_name wpi
-    show (Ammo ami)      = view ami_name ami
-    show (Throwable twi) = view twi_name twi
-    show (Consumable ci) = view ci_name ci
+    show (Clothes wi)    = view wiName wi
+    show (Weapon wpi)    = view wpiName wpi
+    show (Ammo ami)      = view amiName ami
+    show (Throwable twi) = view twiName twi
+    show (Consumable ci) = view ciName ci
 
 
 instance ItemTraits States where

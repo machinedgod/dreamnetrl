@@ -11,7 +11,7 @@
 module Dreamnet.ComputerModel
 ( ComputerAPI(..)
 
-, ComputerData(ComputerData), cd_inputBuffer, cd_frameBuffer
+, ComputerData(ComputerData), cdInputBuffer, cdFrameBuffer
 
 , ComputerM, runComputer
 ) where
@@ -38,8 +38,8 @@ class ComputerAPI c where
 --------------------------------------------------------------------------------
 
 data ComputerData = ComputerData {
-      _cd_inputBuffer ∷ String
-    , _cd_frameBuffer ∷ [String]
+      _cdInputBuffer ∷ String
+    , _cdFrameBuffer ∷ [String]
     }
     deriving (Eq, Show)
 makeLenses ''ComputerData
@@ -51,16 +51,16 @@ newtype ComputerM a = ComputerM { runComputerM ∷ State ComputerData a }
 
 
 instance ComputerAPI ComputerM where
-    typeIn c = cd_inputBuffer <>= [c]
+    typeIn c = cdInputBuffer <>= [c]
 
-    backspace = cd_inputBuffer %= (take <$> subtract 1 . length <*> id)
+    backspace = cdInputBuffer %= (take <$> subtract 1 . length <*> id)
 
     commitInput = do
         o ← fmap (fromMaybe "Syntax error.") $ runMaybeT $ do
-              c ← MaybeT (uses cd_inputBuffer (commandForString . fmap toLower))
+              c ← MaybeT (uses cdInputBuffer (commandForString . fmap toLower))
               lift (processCommand c)
-        cd_frameBuffer <>= [o]
-        cd_inputBuffer .= ""
+        cdFrameBuffer <>= [o]
+        cdInputBuffer .= ""
 
 
 runComputer ∷ ComputerM a → ComputerData → (a, ComputerData)
