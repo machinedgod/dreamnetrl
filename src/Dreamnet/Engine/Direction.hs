@@ -1,8 +1,10 @@
-{-# LANGUAGE UnicodeSyntax, NegativeLiterals #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE NegativeLiterals         #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE TypeFamilies             #-}
+{-# LANGUAGE UnicodeSyntax            #-}
 
 module Dreamnet.Engine.Direction
 where

@@ -23,7 +23,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-15.12
+resolver: lts-18.0
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -45,6 +45,7 @@ resolver: lts-15.12
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - .
+#- ./haskell-ncurses
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
